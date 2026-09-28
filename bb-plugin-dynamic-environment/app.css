@@ -1,0 +1,18 @@
+:where(.env-section) .env-textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--foreground);
+  padding: 0.5rem 0.75rem;
+  font-size: var(--text-sm, 0.875rem);
+}
+:where(.env-section) .env-textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+:where(.env-section) .env-textarea:disabled {
+  opacity: 0.5;
+}
