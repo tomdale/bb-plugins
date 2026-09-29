@@ -1,7 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { emptyState, replayCall, type Call, type State } from "./model.ts";
 
-const PAGE_SIZE = 500;
+const PAGE_SIZE = 100;
 const MAX_PAGES = 80;
 export type Event = { seq: number; type: string; data: unknown };
 const record = (value: unknown): value is Call => !!value && typeof value === "object" && !Array.isArray(value);

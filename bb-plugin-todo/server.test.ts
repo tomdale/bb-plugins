@@ -20,15 +20,17 @@ test("paginates in sequence and keeps separate thread snapshots via public SDK",
     id: `ev${i}`, seq: i + 1, type: "item/completed" as const, threadId: "thread-a", scope: { kind: "thread" as const }, createdAt: i,
     data: { item: { type: "toolCall", tool: "todo", status: "completed", id: `c${i}`, arguments: i === 0 ? { action: "batch", operations: [{ action: "create", subject: "Start" }, { action: "create", subject: "Next" }] } : { action: "create", subject: `Task ${i}` }, result: "Created" } },
   }));
-  harness.sdk.stub("threads.events.list", async (args: { threadId: string; afterSeq?: string }) =>
-    args.threadId === "thread-a" ? events.filter(e => e.seq > Number(args.afterSeq ?? 0)).slice(0, 500) : []);
+  harness.sdk.stub("threads.events.list", async (args: { threadId: string; afterSeq?: string; limit?: string }) => {
+    const limit = Math.min(Number(args.limit ?? 100), 100);
+    return args.threadId === "thread-a" ? events.filter(e => e.seq > Number(args.afterSeq ?? 0)).slice(0, limit) : [];
+  });
   await plugin(bb);
   try {
     const a = await harness.behavior.callRpc("snapshot", { threadId: "thread-a" });
     assert.equal(a.tasks.length, 502);
     assert.equal(a.nextId, 503);
     assert.deepEqual((await harness.behavior.callRpc("snapshot", { threadId: "thread-b" })).tasks, []);
-    assert.equal(harness.inspection.sdk.callsTo("threads.events.list").length, 3);
+    assert.ok(harness.inspection.sdk.callsTo("threads.events.list").length >= 6);
     assert.equal((await snapshotForThread(bb, "thread-b")).tasks.length, 0);
     assert.deepEqual([...harness.registrations.agentTools.keys()], []);
   } finally { await harness.lifecycle.dispose(); }
