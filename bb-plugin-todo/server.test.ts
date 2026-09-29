@@ -30,9 +30,34 @@ test("paginates in sequence and keeps separate thread snapshots via public SDK",
     assert.equal(a.tasks.length, 502);
     assert.equal(a.nextId, 503);
     assert.deepEqual((await harness.behavior.callRpc("snapshot", { threadId: "thread-b" })).tasks, []);
-    assert.ok(harness.inspection.sdk.callsTo("threads.events.list").length >= 6);
+    const pages = harness.inspection.sdk.callsTo("threads.events.list");
+    assert.ok(pages.length >= 6);
+    assert.ok(pages.every(([query]) => JSON.stringify(query).includes('"types":["item/completed"]')));
     assert.equal((await snapshotForThread(bb, "thread-b")).tasks.length, 0);
     assert.deepEqual([...harness.registrations.agentTools.keys()], []);
+  } finally { await harness.lifecycle.dispose(); }
+});
+
+test("ignores unrelated events even when a thread has more than 8,000", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  const events = Array.from({ length: 8_001 }, (_, index) => ({
+    seq: index + 1, type: "item/started", data: {},
+  }));
+  events.push({ seq: 8_002, type: "item/completed", data: {
+    item: { type: "toolCall", tool: "todo", status: "completed", arguments: {
+      action: "batch", operations: [
+        { action: "create", subject: "First", status: "in_progress" },
+        { action: "create", subject: "Second" },
+      ],
+    }, result: "Created" },
+  } });
+  harness.sdk.stub("threads.events.list", async (args: { afterSeq?: string; limit?: string; types?: string[] }) =>
+    events.filter(event => args.types?.includes(event.type) && event.seq > Number(args.afterSeq ?? 0))
+      .slice(0, Number(args.limit ?? 100)));
+  try {
+    const snapshot = await snapshotForThread(bb, "thread-long");
+    assert.deepEqual(snapshot.tasks.map(task => task.subject), ["First", "Second"]);
+    assert.equal(snapshot.nextId, 3);
   } finally { await harness.lifecycle.dispose(); }
 });
 
