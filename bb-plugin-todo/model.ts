@@ -91,7 +91,6 @@ function patch(state: State, call: Call): State | null {
 export function replayCall(state: State, call: Call): State {
   if (call.action === "list" || call.action === "get") return state;
   if (call.action !== "batch") {
-    if (call.action === "create" && (state.tasks.length === 0 || state.tasks.every(task => task.status === "completed" || task.status === "deleted"))) return state;
     return patch(state, call) ?? state;
   }
   if (!Array.isArray(call.operations) || call.operations.length === 0 || call.operations.length > 50) return state;

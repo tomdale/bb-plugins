@@ -20,7 +20,7 @@ export async function snapshotForThread(bb: BbPluginApi, threadId: string): Prom
   let state = emptyState();
   let afterSeq: string | undefined;
   for (let pageNumber = 0; pageNumber < MAX_PAGES; pageNumber++) {
-    const page = await bb.sdk.threads.events.list({ threadId, limit: String(PAGE_SIZE), order: "asc", types: ["item/completed"], ...(afterSeq ? { afterSeq } : {}) });
+    const page = await bb.sdk.threads.events.list({ threadId, limit: String(PAGE_SIZE), order: "asc", ...(afterSeq ? { afterSeq } : {}) });
     if (!page.length) return state;
     for (const event of page) {
       const call = callFromEvent(event);
