@@ -33,6 +33,7 @@
 .todo-header:hover { background: color-mix(in oklab, var(--background) 80%, transparent); }
 .todo-header:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .todo-header-icon, .todo-chevron, .todo-row-icon { flex: none; width: 14px; height: 14px; }
+.todo-header-spinner, .todo-row-spinner { color: var(--muted-foreground); }
 .todo-summary { flex: none; font-weight: 500; white-space: nowrap; }
 .todo-current {
   flex: 1;

@@ -2,22 +2,20 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 import type { Task } from "./model.js";
-import { autoExpanded, buildCardView, currentLabel, type CardRow } from "./card.js";
+import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, type CardRow } from "./card.js";
 import "./app.css";
 
-// `animate-shine`/`animate-shine-icon` are BB's own working-sweep classes, the
-// same ones its native todo card uses. The host drops the mask under
-// aria-hidden and prefers-reduced-motion, so the collapsed body costs nothing.
-const shine = (on: boolean, icon = false) => on ? (icon ? " animate-shine-icon" : " animate-shine") : "";
+// Shimmer only the active task text while the agent is running. The spinner
+// communicates status separately, and the summary remains visually stable.
+const shine = (on: boolean) => on ? " animate-shine" : "";
 const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };
 
 function TodoRow({ row, showIds, working }: { row: CardRow; showIds: boolean; working: boolean }) {
   const { task, depth, blockers } = row;
   const state = task.status === "in_progress" ? "active" : task.status === "completed" ? "completed" : blockers.length ? "blocked" : "pending";
-  const icon = state === "completed" ? "Check" : state === "blocked" ? "Lock" : "Square";
   const active = state === "active";
   return <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined} style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-    <Icon name={icon} className={`todo-row-icon${shine(active && working, true)}`} aria-hidden="true" />
+    <Icon name={rowIcon(row)} className={`todo-row-icon${active ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
     <span className={`todo-row-text${shine(active && working)}`} title={task.subject}>
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? ", blocked" : ""}: </span>
       {showIds && <span className="todo-row-id">#{task.id}</span>}
@@ -83,8 +81,8 @@ function TodoCard() {
     <button type="button" id={toggleId} className="todo-header" aria-expanded={expanded} aria-controls={bodyId}
       aria-label={`To-do list: ${card.completed} of ${card.total} ${card.total === 1 ? "item" : "items"} complete${current ? `; ${current}` : ""}`}
       onClick={() => setOverride({ auto, open: !expanded })}>
-      <Icon name={card.allComplete ? "CircleCheck" : "ListTodo"} className={`todo-header-icon${shine(working, true)}`} aria-hidden="true" />
-      <span className={`todo-summary${shine(working)}`}>{summary}</span>
+      <Icon name={headerIcon(card)} className={`todo-header-icon${card.current && !card.allComplete ? " todo-header-spinner animate-spin" : ""}`} aria-hidden="true" />
+      <span className="todo-summary">{summary}</span>
       <span className="todo-current" title={current ?? undefined}>{current}</span>
       <Icon name="ChevronDown" className="todo-chevron" aria-hidden="true" />
     </button>

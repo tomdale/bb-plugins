@@ -68,3 +68,17 @@ export function currentLabel(view: CardView): string | null {
   if (!view.current || view.allComplete) return null;
   return view.current.activeForm?.trim() || view.current.subject;
 }
+
+export type TodoCardIcon = "Check" | "CircleCheck" | "ListTodo" | "Lock" | "Spinner" | "Square";
+
+export function rowIcon(row: CardRow): TodoCardIcon {
+  if (row.task.status === "in_progress") return "Spinner";
+  if (row.task.status === "completed") return "Check";
+  if (row.blockers.length > 0) return "Lock";
+  return "Square";
+}
+
+export function headerIcon(view: CardView): TodoCardIcon {
+  if (view.current && !view.allComplete) return "Spinner";
+  return view.allComplete ? "CircleCheck" : "ListTodo";
+}

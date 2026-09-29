@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, currentLabel } from "./card.ts";
+import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -43,6 +43,15 @@ test("labels only unfinished, visible blockers on pending tasks and shows ids fo
   assert.deepEqual(view.rows.find(row => row.task.id === 5)?.blockers, []);
   assert.equal(view.showIds, true);
   assert.equal(buildCardView([task(1, "completed"), task(2, "pending", { blockedBy: [1] })]).showIds, false);
+});
+
+test("uses spinner icons for in-progress tasks and never for the summary", () => {
+  const active = buildCardView([task(1, "in_progress"), task(2, "pending")]);
+  assert.equal(rowIcon(active.rows[0]!), "Spinner");
+  assert.equal(rowIcon(active.rows[1]!), "Square");
+  assert.equal(headerIcon(active), "Spinner");
+  assert.equal(headerIcon(buildCardView([task(1, "completed")])), "CircleCheck");
+  assert.equal(headerIcon(buildCardView([task(1, "pending")])), "ListTodo");
 });
 
 test("opens automatically only while running with a task in progress", () => {
