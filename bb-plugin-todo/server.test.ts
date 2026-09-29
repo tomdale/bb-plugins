@@ -2,21 +2,42 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.ts";
+import { callFromEvent, snapshotForThread } from "./snapshot.ts";
 
-test("RPC, tool, CLI share per-thread durable structured state", async () => {
+test("only successful completed Pi todo events replay", () => {
+  const item = (status: string, result: unknown, args: unknown, tool = "todo") => ({
+    seq: 1, type: "item/completed", data: { item: { type: "toolCall", status, result, tool, arguments: args } },
+  });
+  assert.deepEqual(callFromEvent(item("completed", "Created #1", { action: "create", subject: "OK" })), { action: "create", subject: "OK" });
+  assert.equal(callFromEvent(item("failed", "Created #1", { action: "create", subject: "No" })), null);
+  assert.equal(callFromEvent(item("completed", "Error: failed", { action: "create", subject: "No" })), null);
+  assert.equal(callFromEvent(item("completed", "Created", { action: "create" }, "bb_todo")), null);
+});
+
+test("paginates in sequence and keeps separate thread snapshots via public SDK", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  const events = Array.from({ length: 501 }, (_, i) => ({
+    id: `ev${i}`, seq: i + 1, type: "item/completed" as const, threadId: "thread-a", scope: { kind: "thread" as const }, createdAt: i,
+    data: { item: { type: "toolCall", tool: "todo", status: "completed", id: `c${i}`, arguments: i === 0 ? { action: "batch", operations: [{ action: "create", subject: "Start" }, { action: "create", subject: "Next" }] } : { action: "create", subject: `Task ${i}` }, result: "Created" } },
+  }));
+  harness.sdk.stub("threads.events.list", async (args: { threadId: string; afterSeq?: string }) =>
+    args.threadId === "thread-a" ? events.filter(e => e.seq > Number(args.afterSeq ?? 0)).slice(0, 500) : []);
   await plugin(bb);
   try {
-    const created = await harness.behavior.callRpc("todos_mutate", { threadId: "t1", input: { action: "create", subject: "Parent" } });
-    assert.equal(created.nextId, 2);
-    await harness.behavior.callRpc("todos_mutate", { threadId: "t1", input: { action: "create", subject: "Child", parentId: 1, blockedBy: [1] } });
-    const list = await harness.behavior.callRpc("todos_list", { threadId: "t1" });
-    assert.equal(list.tasks[1].parentId, 1);
-    assert.deepEqual(list.tasks[1].blockedBy, [1]);
-    assert.deepEqual((await harness.behavior.callRpc("todos_list", { threadId: "t2" })).tasks, []);
-    const command = await harness.behavior.runCli(["run", JSON.stringify({ action: "get", id: 2 }), "--thread", "t1"]);
-    assert.equal(command.exitCode, 0);
-    assert.equal(JSON.parse(command.stdout!).result.parentId, 1);
-    assert.equal((await harness.behavior.callRpc("todos_list", { threadId: "t1" })).tasks.length, 2);
+    const a = await harness.behavior.callRpc("snapshot", { threadId: "thread-a" });
+    assert.equal(a.tasks.length, 502);
+    assert.equal(a.nextId, 503);
+    assert.deepEqual((await harness.behavior.callRpc("snapshot", { threadId: "thread-b" })).tasks, []);
+    assert.equal(harness.inspection.sdk.callsTo("threads.events.list").length, 3);
+    assert.equal((await snapshotForThread(bb, "thread-b")).tasks.length, 0);
+    assert.deepEqual([...harness.registrations.agentTools.keys()], []);
   } finally { await harness.lifecycle.dispose(); }
+});
+
+test("timeline errors propagate rather than displaying a misleading partial list", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  harness.sdk.stub("threads.events.list", async () => { throw new Error("timeline unavailable"); });
+  await plugin(bb);
+  try { await assert.rejects(harness.behavior.callRpc("snapshot", { threadId: "thread-a" }), /timeline unavailable/); }
+  finally { await harness.lifecycle.dispose(); }
 });

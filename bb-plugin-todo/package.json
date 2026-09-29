@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Todo",
-    "description": "Structured per-thread todos with hierarchy and dependencies.",
+    "description": "Render Pi Todo calls in BB's thread composer card.",
     "branding": {
       "icon": "ListTodo"
     },
@@ -50,5 +50,5 @@
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build"
   },
-  "files": ["README.md", "server.ts", "model.ts", "app.tsx", "tsconfig.json", "dist"]
+  "files": ["README.md", "server.ts", "snapshot.ts", "model.ts", "app.tsx", "app.css", "tsconfig.json", "dist"]
 }

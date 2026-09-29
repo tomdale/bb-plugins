@@ -1,104 +1,113 @@
-import { z } from "zod";
-
-export const statusSchema = z.enum(["pending", "in_progress", "completed", "deleted"]);
-export const taskSchema = z.object({
-  id: z.number().int().positive(), subject: z.string(), description: z.string().optional(),
-  activeForm: z.string().optional(), status: statusSchema, parentId: z.number().int().positive().optional(),
-  blockedBy: z.array(z.number().int().positive()), owner: z.string().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
-export type Task = z.infer<typeof taskSchema>;
-export type State = { nextId: number; tasks: Task[] };
-export const initialState = (): State => ({ nextId: 1, tasks: [] });
-export const inputSchema = z.object({
-  action: z.enum(["create", "update", "list", "get", "delete"]),
-  subject: z.string().optional(), description: z.string().optional(), activeForm: z.string().optional(),
-  status: statusSchema.optional(), parentId: z.number().int().positive().nullable().optional(),
-  blockedBy: z.array(z.number().int().positive()).optional(),
-  addBlockedBy: z.array(z.number().int().positive()).optional(),
-  removeBlockedBy: z.array(z.number().int().positive()).optional(),
-  owner: z.string().optional(), metadata: z.record(z.string(), z.unknown()).optional(),
-  id: z.number().int().positive().optional(), includeDeleted: z.boolean().optional(),
-}).strict();
-export type Input = z.infer<typeof inputSchema>;
-
-const transitions: Record<Task["status"], readonly Task["status"][]> = {
+export type Status = "pending" | "in_progress" | "completed" | "deleted";
+export interface Task {
+  id: number;
+  subject: string;
+  status: Status;
+  description?: string;
+  activeForm?: string;
+  parentId?: number;
+  blockedBy?: number[];
+  owner?: string;
+}
+export interface State { tasks: Task[]; nextId: number }
+export type Call = Record<string, unknown>;
+export const emptyState = (): State => ({ tasks: [], nextId: 1 });
+const statuses: readonly string[] = ["pending", "in_progress", "completed", "deleted"];
+const transitions: Record<Status, readonly Status[]> = {
   pending: ["pending", "in_progress", "completed", "deleted"],
-  in_progress: ["in_progress", "pending", "completed", "deleted"],
+  in_progress: ["pending", "in_progress", "completed", "deleted"],
   completed: ["completed", "deleted"], deleted: ["deleted"],
 };
-function fail(message: string): never { throw new Error(message); }
-function validateGraph(tasks: Task[]) {
-  const byId = new Map(tasks.map(task => [task.id, task]));
-  for (const task of tasks) {
-    if (task.parentId !== undefined && !byId.has(task.parentId)) fail(`Parent #${task.parentId} not found`);
-    if (task.blockedBy.some(id => !byId.has(id))) fail(`Unknown dependency for #${task.id}`);
-    if (task.blockedBy.length !== new Set(task.blockedBy).size) fail(`Duplicate dependency for #${task.id}`);
-  }
-  const visit = (task: Task, edge: (task: Task) => number[], visited: Set<number>, stack: Set<number>) => {
-    if (stack.has(task.id)) fail(`Cycle involving #${task.id}`);
-    if (visited.has(task.id)) return;
-    stack.add(task.id);
-    for (const id of edge(task)) visit(byId.get(id)!, edge, visited, stack);
-    stack.delete(task.id); visited.add(task.id);
-  };
-  for (const edge of [(task: Task) => task.parentId === undefined ? [] : [task.parentId], (task: Task) => task.blockedBy]) {
-    const visited = new Set<number>();
-    for (const task of tasks) visit(task, edge, visited, new Set());
-  }
-  if (tasks.filter(task => task.status === "in_progress").length > 1) fail("Only one task may be in_progress");
-}
+const record = (v: unknown): v is Call => v !== null && typeof v === "object" && !Array.isArray(v);
+const id = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+const status = (v: unknown): v is Status => typeof v === "string" && statuses.includes(v);
 
-
-export function apply(state: State, input: Input): { state: State; result: Task | Task[] } {
-  const next: State = { nextId: state.nextId, tasks: state.tasks.map(task => ({ ...task, blockedBy: [...task.blockedBy], ...(task.metadata ? { metadata: { ...task.metadata } } : {}) })) };
-  if (input.action === "list") return { state, result: state.tasks.filter(t =>
-    input.status ? t.status === input.status : input.includeDeleted || t.status === "pending" || t.status === "in_progress") };
-  const task = next.tasks.find(t => t.id === input.id);
-  if (input.action === "get") return { state, result: task ?? fail(`#${input.id} not found`) };
-  let changed: Task;
-  if (input.action === "create") {
-    if (!input.subject?.trim()) fail("subject required for create");
-    const status = input.status ?? "pending";
-    if (status !== "pending" && status !== "in_progress") fail("Create requires pending or in_progress");
-    changed = { id: next.nextId++, subject: input.subject.trim(), status, blockedBy: input.blockedBy ?? [],
-      ...(input.parentId != null ? { parentId: input.parentId } : {}),
-      ...(input.description !== undefined ? { description: input.description } : {}),
-      ...(input.activeForm !== undefined ? { activeForm: input.activeForm } : {}),
-      ...(input.owner !== undefined ? { owner: input.owner } : {}),
-      ...(input.metadata !== undefined ? { metadata: input.metadata } : {}) };
-    next.tasks.push(changed);
-  } else {
-    if (!task) fail(`#${input.id} not found`);
-    if (input.action === "delete") {
-      if (task.status === "deleted") fail(`#${task.id} is already deleted`);
-      task.status = "deleted";
-    } else {
-      if (Object.keys(input).every(key => key === "action" || key === "id")) fail("update requires a mutable field");
-      if (input.subject !== undefined) { if (!input.subject.trim()) fail("subject must not be empty"); task.subject = input.subject.trim(); }
-      if (input.status !== undefined) {
-        if (!transitions[task.status].includes(input.status)) fail(`Illegal transition ${task.status} → ${input.status}`);
-        task.status = input.status;
-      }
-      if (input.parentId === null) delete task.parentId;
-      else if (input.parentId !== undefined) task.parentId = input.parentId;
-      if (input.description !== undefined) task.description = input.description;
-      if (input.activeForm !== undefined) task.activeForm = input.activeForm;
-      if (input.owner !== undefined) task.owner = input.owner;
-      if (input.blockedBy !== undefined) fail("Use addBlockedBy/removeBlockedBy on update");
-      task.blockedBy = [...new Set([...task.blockedBy, ...(input.addBlockedBy ?? [])])].filter(id => !input.removeBlockedBy?.includes(id));
-      if (input.metadata !== undefined) {
-        task.metadata = { ...task.metadata, ...input.metadata };
-        for (const [key, value] of Object.entries(task.metadata)) if (value === null) delete task.metadata[key];
+function patch(state: State, call: Call): State | null {
+  if (call.action === "create") {
+    if (typeof call.subject !== "string" || !call.subject.trim()) return null;
+    const nextStatus = call.status === undefined ? "pending" : call.status;
+    if (nextStatus !== "pending" && nextStatus !== "in_progress") return null;
+    const task: Task = { id: state.nextId, subject: call.subject, status: nextStatus };
+    for (const field of ["description", "activeForm", "owner"] as const) {
+      if (call[field] !== undefined) {
+        if (typeof call[field] !== "string") return null;
+        task[field] = call[field];
       }
     }
-    changed = task;
+    // Current pi-todo ignores these fields. Keep them when another installed
+    // producer actually emits them; never infer hierarchy from task text.
+    if (call.parentId !== undefined && call.parentId !== null) {
+      if (!id(call.parentId)) return null;
+      task.parentId = call.parentId;
+    }
+    if (call.blockedBy !== undefined) {
+      if (!Array.isArray(call.blockedBy) || !call.blockedBy.every(id)) return null;
+      task.blockedBy = [...call.blockedBy];
+    }
+    if (task.status === "in_progress" && state.tasks.some(other => other.status === "in_progress")) return null;
+    return { tasks: [...state.tasks, task], nextId: state.nextId + 1 };
   }
-  validateGraph(next.tasks);
-  const prior = state.tasks.find(task => task.id === changed.id);
-  const gainedBlocker = changed.blockedBy.some(id => !prior?.blockedBy.includes(id));
-  if ((prior?.status !== changed.status || gainedBlocker) && (changed.status === "in_progress" || changed.status === "completed") &&
-      changed.blockedBy.some(id => next.tasks.find(task => task.id === id)?.status !== "completed"))
-    fail(`Task #${changed.id} has unfinished dependencies`);
-  return { state: next, result: changed };
+  if (call.action !== "update" && call.action !== "delete") return null;
+  if (!id(call.id)) return null;
+  const index = state.tasks.findIndex(task => task.id === call.id);
+  if (index < 0) return null;
+  const old = state.tasks[index]!;
+  if (call.action === "delete" && old.status === "deleted") return null;
+  const updated: Task = { ...old };
+  if (call.action === "delete") updated.status = "deleted";
+  else {
+    const fields = ["subject", "description", "activeForm", "owner", "status", "parentId", "addBlockedBy", "removeBlockedBy", "metadata"];
+    if (!fields.some(field => call[field] !== undefined)) return null;
+    if (call.status !== undefined) {
+      if (!status(call.status) || !transitions[old.status].includes(call.status)) return null;
+      updated.status = call.status;
+    }
+    for (const field of ["subject", "description", "activeForm", "owner"] as const) {
+      if (call[field] !== undefined) {
+        if (typeof call[field] !== "string" || field === "subject" && !call[field].trim()) return null;
+        updated[field] = call[field];
+      }
+    }
+    if (call.parentId === null) delete updated.parentId;
+    else if (call.parentId !== undefined) {
+      if (!id(call.parentId)) return null;
+      updated.parentId = call.parentId;
+    }
+    for (const field of ["addBlockedBy", "removeBlockedBy"] as const) {
+      if (call[field] !== undefined && (!Array.isArray(call[field]) || !call[field].every(id))) return null;
+    }
+    if (call.addBlockedBy || call.removeBlockedBy) {
+      updated.blockedBy = [...new Set([...(old.blockedBy ?? []), ...((call.addBlockedBy as number[] | undefined) ?? [])])]
+        .filter(dependency => !((call.removeBlockedBy as number[] | undefined) ?? []).includes(dependency));
+    }
+  }
+  if (updated.status === "in_progress" && state.tasks.some(task => task.id !== updated.id && task.status === "in_progress")) return null;
+  const tasks = [...state.tasks]; tasks[index] = updated;
+  return { ...state, tasks };
+}
+
+// A completed BB tool call is the commit boundary; apply batches atomically.
+// Pi's multi-item fresh cycle rolls over only on a successful qualifying batch.
+export function replayCall(state: State, call: Call): State {
+  if (call.action === "list" || call.action === "get") return state;
+  if (call.action !== "batch") {
+    if (call.action === "create" && (state.tasks.length === 0 || state.tasks.every(task => task.status === "completed" || task.status === "deleted"))) return state;
+    return patch(state, call) ?? state;
+  }
+  if (!Array.isArray(call.operations) || call.operations.length === 0 || call.operations.length > 50) return state;
+  let next = state;
+  const creates = call.operations.filter((op: unknown) => record(op) && op.action === "create").length;
+  const terminal = state.tasks.length === 0 || state.tasks.every(task => task.status === "completed" || task.status === "deleted");
+  if (terminal && creates < 2) return state;
+  if (state.tasks.length > 0 && terminal) next = { tasks: [], nextId: state.nextId };
+  for (const op of call.operations) {
+    if (!record(op) || !["create", "update", "delete"].includes(String(op.action))) return state;
+    const applied = patch(next, op);
+    if (!applied) return state;
+    next = applied;
+  }
+  return next;
+}
+export function replayCalls(calls: readonly Call[]): State {
+  return calls.reduce(replayCall, emptyState());
 }

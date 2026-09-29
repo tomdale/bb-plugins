@@ -1,0 +1,11 @@
+.todo-card { min-width: 0; overflow: hidden; color: var(--foreground); }
+.todo-header { display: flex; width: 100%; min-height: 32px; align-items: center; gap: 8px; padding: 5px 12px; text-align: left; font-size: 12px; }
+.todo-header:hover { background: var(--muted); }
+.todo-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-body { max-height: 180px; overflow-y: auto; padding: 8px 12px; border-top: 1px solid var(--border); }
+.todo-body ul { margin: 0; padding: 0; list-style: none; }
+.todo-body li { display: flex; gap: 8px; min-width: 0; padding: 3px 0; font-size: 12px; color: var(--muted-foreground); }
+.todo-glyph { flex: none; width: 14px; text-align: center; }
+.todo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.todo-text small { display: block; color: var(--muted-foreground); }
+.todo-error { color: var(--destructive); font-size: 12px; }
