@@ -1,8 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { definePluginApp, useComposerView, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
+import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 import type { Task } from "./model.js";
+import { autoExpanded, buildCardView, currentLabel, type CardRow } from "./card.js";
 import "./app.css";
+
+// `animate-shine`/`animate-shine-icon` are BB's own working-sweep classes, the
+// same ones its native todo card uses. The host drops the mask under
+// aria-hidden and prefers-reduced-motion, so the collapsed body costs nothing.
+const shine = (on: boolean, icon = false) => on ? (icon ? " animate-shine-icon" : " animate-shine") : "";
+const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };
+
+function TodoRow({ row, showIds, working }: { row: CardRow; showIds: boolean; working: boolean }) {
+  const { task, depth, blockers } = row;
+  const state = task.status === "in_progress" ? "active" : task.status === "completed" ? "completed" : blockers.length ? "blocked" : "pending";
+  const icon = state === "completed" ? "Check" : state === "blocked" ? "Lock" : "Square";
+  const active = state === "active";
+  return <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined} style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
+    <Icon name={icon} className={`todo-row-icon${shine(active && working, true)}`} aria-hidden="true" />
+    <span className={`todo-row-text${shine(active && working)}`} title={task.subject}>
+      <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? ", blocked" : ""}: </span>
+      {showIds && <span className="todo-row-id">#{task.id}</span>}
+      {task.subject}
+    </span>
+    {blockers.length > 0 && <span className="todo-row-meta">after {blockers.map(id => `#${id}`).join(", ")}</span>}
+  </li>;
+}
 
 function TodoCard() {
   const view = useComposerView();
@@ -12,8 +35,13 @@ function TodoCard() {
   const connection = useRealtimeConnectionState();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(true);
+  // A manual toggle holds only until the automatic state it overrode changes,
+  // so the next run (or its completion) takes over again.
+  const [override, setOverride] = useState<{ auto: boolean; open: boolean } | null>(null);
   const generation = useRef(0);
+  // Thread and queued-message composers can mount this card at the same time.
+  const baseId = useId();
+  const bodyId = `${baseId}-body`, toggleId = `${baseId}-toggle`;
   const refresh = useCallback(() => {
     const request = ++generation.current;
     if (!threadId) { setTasks([]); setError(null); return; }
@@ -23,7 +51,7 @@ function TodoCard() {
       if (generation.current === request) setError(cause instanceof Error ? cause.message : String(cause));
     });
   }, [rpc, threadId]);
-  useEffect(() => { setTasks([]); setExpanded(true); refresh(); return () => { generation.current++; }; }, [threadId, refresh]);
+  useEffect(() => { setTasks([]); setOverride(null); refresh(); return () => { generation.current++; }; }, [threadId, refresh]);
   useEffect(() => { refresh(); }, [connection, refresh]);
   useRealtime("todo-timeline-changed", payload => {
     if (payload && typeof payload === "object" && "threadId" in payload && payload.threadId === threadId) refresh();
@@ -35,47 +63,38 @@ function TodoCard() {
     const timer = window.setInterval(refresh, 1500);
     return () => window.clearInterval(timer);
   }, [view.run.isRunning, threadId, refresh]);
-  const visible = useMemo(() => tasks.filter(task => task.status !== "deleted"), [tasks]);
-  const byId = useMemo(() => new Map(tasks.map(task => [task.id, task])), [tasks]);
-  const children = useMemo(() => {
-    const groups = new Map<number | undefined, Task[]>();
-    for (const task of visible) {
-      const parent = visible.some(candidate => candidate.id === task.parentId) ? task.parentId : undefined;
-      groups.set(parent, [...(groups.get(parent) ?? []), task]);
-    }
-    const rows: { task: Task; depth: number }[] = [];
-    const visited = new Set<number>();
-    const append = (parent: number | undefined, depth: number) => {
-      const siblings = [...(groups.get(parent) ?? [])].sort((a, b) => Number(b.status === "in_progress") - Number(a.status === "in_progress"));
-      for (const task of siblings) {
-        if (visited.has(task.id)) continue;
-        visited.add(task.id); rows.push({ task, depth }); append(task.id, depth + 1);
-      }
-    };
-    append(undefined, 0);
-    for (const task of visible) if (!visited.has(task.id)) { rows.push({ task, depth: 0 }); append(task.id, 1); }
-    return rows;
-  }, [visible]);
-  if (!threadId || (!visible.length && !error)) return null;
-  const done = visible.filter(task => task.status === "completed").length;
-  const current = visible.find(task => task.status === "in_progress");
-  return <div className="todo-card">
-    <button type="button" className="todo-header" aria-expanded={expanded} aria-controls="todo-card-rows" onClick={() => setExpanded(open => !open)}>
-      <span aria-hidden="true">☷</span><span className="todo-title">{done}/{visible.length} complete{current ? ` · ${current.activeForm || current.subject}` : ""}</span><span aria-hidden="true">{expanded ? "⌃" : "⌄"}</span>
+  const card = useMemo(() => buildCardView(tasks), [tasks]);
+  if (!threadId) return null;
+  if (!card.total) {
+    if (!error) return null;
+    return <div className="todo-card">
+      <div className="todo-header todo-header-error" role="alert" title={error}>
+        <Icon name="ListTodo" className="todo-header-icon" aria-hidden="true" />
+        <span className="todo-summary">Todo timeline unavailable</span>
+      </div>
+    </div>;
+  }
+  const auto = autoExpanded(card, view.run.isRunning);
+  const expanded = override && override.auto === auto ? override.open : auto;
+  const working = view.run.isRunning && !card.allComplete;
+  const current = currentLabel(card);
+  const summary = `${card.completed}/${card.total} complete`;
+  return <div className={`todo-card${card.allComplete ? " todo-card-done" : ""}`}>
+    <button type="button" id={toggleId} className="todo-header" aria-expanded={expanded} aria-controls={bodyId}
+      aria-label={`To-do list: ${card.completed} of ${card.total} ${card.total === 1 ? "item" : "items"} complete${current ? `; ${current}` : ""}`}
+      onClick={() => setOverride({ auto, open: !expanded })}>
+      <Icon name={card.allComplete ? "CircleCheck" : "ListTodo"} className={`todo-header-icon${shine(working, true)}`} aria-hidden="true" />
+      <span className={`todo-summary${shine(working)}`}>{summary}</span>
+      <span className="todo-current" title={current ?? undefined}>{current}</span>
+      <Icon name="ChevronDown" className="todo-chevron" aria-hidden="true" />
     </button>
-    {expanded && <div id="todo-card-rows" className="todo-body">
-      {error && <p role="alert" className="todo-error">Todo timeline unavailable: {error}</p>}
-      <ul>{children.map(({ task, depth }) => {
-        const blockers = task.blockedBy?.filter(id => byId.get(id)?.status !== "completed") ?? [];
-        return <li key={task.id} style={{ paddingInlineStart: `${depth * 14}px` }}>
-          <span className="todo-glyph" aria-hidden="true">{task.status === "completed" ? "✓" : task.status === "in_progress" ? "◌" : "□"}</span>
-          <span className="todo-text"><span>#{task.id} {task.subject}</span>
-            {task.status === "in_progress" && task.activeForm && <small>{task.activeForm}</small>}
-            {blockers.length > 0 && <small>Blocked by {blockers.map(id => `#${id}`).join(", ")}</small>}
-          </span>
-        </li>;
-      })}</ul>
-    </div>}
+    <section id={bodyId} role="region" aria-labelledby={toggleId} aria-hidden={!expanded} inert={!expanded}
+      className="todo-body" data-expanded={expanded || undefined}>
+      <div className="todo-body-inner">
+        {error && <p role="alert" className="todo-error">Todo timeline unavailable: {error}</p>}
+        <ul className="todo-list">{card.rows.map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} />)}</ul>
+      </div>
+    </section>
   </div>;
 }
 export default definePluginApp(app => {

@@ -50,5 +50,5 @@
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build"
   },
-  "files": ["README.md", "server.ts", "snapshot.ts", "model.ts", "app.tsx", "app.css", "tsconfig.json", "dist"]
+  "files": ["README.md", "server.ts", "snapshot.ts", "model.ts", "card.ts", "app.tsx", "app.css", "tsconfig.json", "dist"]
 }

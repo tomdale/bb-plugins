@@ -1,11 +1,146 @@
-.todo-card { min-width: 0; overflow: hidden; color: var(--foreground); }
-.todo-header { display: flex; width: 100%; min-height: 32px; align-items: center; gap: 8px; padding: 5px 12px; text-align: left; font-size: 12px; }
-.todo-header:hover { background: var(--muted); }
-.todo-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-body { max-height: 180px; overflow-y: auto; padding: 8px 12px; border-top: 1px solid var(--border); }
-.todo-body ul { margin: 0; padding: 0; list-style: none; }
-.todo-body li { display: flex; gap: 8px; min-width: 0; padding: 3px 0; font-size: 12px; color: var(--muted-foreground); }
-.todo-glyph { flex: none; width: 14px; text-align: center; }
-.todo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.todo-text small { display: block; color: var(--muted-foreground); }
-.todo-error { color: var(--destructive); font-size: 12px; }
+/*
+ * Mirrors BB's native composer todo card (ThreadTodoCard + activity-row
+ * styles) using only theme tokens. The host supplies the rounded, bordered
+ * card chrome; everything here stays inside the plugin's own markup.
+ */
+.todo-card {
+  min-width: 0;
+  overflow: hidden;
+  /* Host chrome has a 1px border and does not clip children. */
+  border-radius: calc(var(--radius, 0.5rem) - 1px);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.todo-header {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.todo-header:hover { background: color-mix(in oklab, var(--background) 80%, transparent); }
+.todo-header:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.todo-header-icon, .todo-chevron, .todo-row-icon { flex: none; width: 14px; height: 14px; }
+.todo-summary { flex: none; font-weight: 500; white-space: nowrap; }
+.todo-current {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--subtle-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-chevron { transition: transform 200ms; }
+.todo-header[aria-expanded="true"] .todo-chevron { transform: rotate(180deg); }
+
+.todo-card-done .todo-header-icon,
+.todo-card-done .todo-chevron { color: var(--subtle-foreground); }
+.todo-card-done .todo-summary { color: var(--muted-foreground); font-weight: 400; }
+.todo-header-error { cursor: default; }
+.todo-header-error .todo-summary { color: var(--destructive-text, var(--destructive)); font-weight: 400; }
+
+.todo-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+}
+.todo-body[data-expanded] {
+  grid-template-rows: 1fr;
+  border-top: 1px solid var(--border);
+  opacity: 1;
+  pointer-events: auto;
+}
+.todo-body-inner { min-height: 0; overflow: hidden; background: var(--popover); }
+
+.todo-list {
+  display: grid;
+  gap: 4px;
+  max-height: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.todo-row {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: calc(var(--todo-depth, 0) * 14px);
+  padding: 2px 8px;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+}
+/* Rail under the parent's glyph for producer-supplied parentId nesting. */
+.todo-row[data-depth]::before {
+  content: "";
+  position: absolute;
+  inset-block: -2px;
+  inset-inline-start: 1px;
+  border-inline-start: 1px solid var(--border);
+}
+.todo-row-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-row-id {
+  margin-inline-end: 4px;
+  color: var(--subtle-foreground);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+.todo-row-meta {
+  flex: none;
+  color: var(--subtle-foreground);
+  font-size: var(--text-2xs, 0.625rem);
+  line-height: var(--text-2xs--line-height, 0.875rem);
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-row-active { padding-block: 4px; background: color-mix(in oklab, var(--background) 70%, transparent); }
+.todo-row-active .todo-row-icon,
+.todo-row-active .todo-row-text { color: var(--foreground); }
+.todo-row-active .todo-row-text { font-weight: 500; }
+.todo-row-pending { color: var(--muted-foreground); }
+.todo-row-pending .todo-row-icon { color: color-mix(in oklab, var(--muted-foreground) 45%, transparent); }
+.todo-row-completed,
+.todo-row-completed .todo-row-icon { color: var(--subtle-foreground); }
+.todo-row-completed .todo-row-text {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--subtle-foreground) 70%, transparent);
+}
+.todo-row-blocked { color: var(--subtle-foreground); opacity: 0.6; }
+
+.todo-error {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: var(--destructive-text, var(--destructive));
+}
+
+.todo-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
