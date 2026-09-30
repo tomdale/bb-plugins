@@ -441,6 +441,55 @@ describe("read aloud message action", () => {
     return audioInstances;
   }
 
+  function installMemoryStorage() {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        values.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+      clear: () => values.clear(),
+      key: (index: number) => [...values.keys()][index] ?? null,
+      get length() {
+        return values.size;
+      },
+    };
+    const previous = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+    onTestFinished(() => {
+      if (previous) Object.defineProperty(window, "localStorage", previous);
+      else Reflect.deleteProperty(window, "localStorage");
+    });
+    return storage;
+  }
+
+  async function openMiniPlayer(context?: { threadId: string }) {
+    const audioInstances = stubPlayingSession();
+    const overlay = renderSlot(
+      app.appOverlays[0]!,
+      {},
+      { pluginId: "tts", ...(context ? { context } : {}) },
+    );
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    const mini = await waitFor(() =>
+      overlay.getByRole("region", { name: "Read aloud mini player" }),
+    );
+    return { overlay, mini };
+  }
+
   function timelineRow(messageId: string) {
     const row = document.createElement("div");
     onTestFinished(() => row.remove());
@@ -603,10 +652,7 @@ describe("read aloud message action", () => {
   });
 
   it("drags the mini player to a remembered corner without opening the thread", async () => {
-    window.localStorage.removeItem("bb-plugin-tts:mini-corner");
-    onTestFinished(() =>
-      window.localStorage.removeItem("bb-plugin-tts:mini-corner"),
-    );
+    const storage = installMemoryStorage();
     const audioInstances = stubPlayingSession();
     const overlay = renderSlot(
       app.appOverlays[0]!,
@@ -628,13 +674,13 @@ describe("read aloud message action", () => {
       name: "Go to the message being read aloud",
     });
     title.focus();
-    fireEvent.pointerDown(title, { pointerId: 1, button: 0, clientX: 600, clientY: 700 });
-    fireEvent.pointerMove(title, { pointerId: 1, clientX: 40, clientY: 30 });
+    fireEvent.pointerDown(title, { pointerId: 1, button: 0, buttons: 1, clientX: 600, clientY: 700 });
+    fireEvent.pointerMove(title, { pointerId: 1, buttons: 1, clientX: 40, clientY: 30 });
     fireEvent.pointerUp(title, { pointerId: 1, clientX: 40, clientY: 30 });
     fireEvent.click(title);
     expect(overlay.inspection.navigateCalls).toEqual([]);
     expect(document.activeElement).not.toBe(title);
-    expect(window.localStorage.getItem("bb-plugin-tts:mini-corner")).toBe(
+    expect(storage.getItem("bb-plugin-tts:mini-corner")).toBe(
       "top-left",
     );
     await waitFor(() =>
@@ -649,6 +695,30 @@ describe("read aloud message action", () => {
       method: "toThread",
       threadId: "thread_1",
     });
+    overlay.lifecycle.unmount();
+  });
+
+  it("ends a drag when the button is released outside the window", async () => {
+    const storage = installMemoryStorage();
+    const { overlay, mini } = await openMiniPlayer();
+    const title = within(mini).getByRole("button", {
+      name: "Go to the message being read aloud",
+    });
+    fireEvent.pointerDown(title, { pointerId: 1, button: 0, buttons: 1, clientX: 600, clientY: 700 });
+    fireEvent.pointerMove(title, { pointerId: 1, buttons: 1, clientX: 40, clientY: 30 });
+    expect(mini.hasAttribute("data-dragging")).toBe(true);
+    fireEvent.pointerMove(mini, { pointerId: 1, buttons: 0, clientX: 500, clientY: 500 });
+    await waitFor(() => expect(mini.hasAttribute("data-dragging")).toBe(false));
+    expect(storage.getItem("bb-plugin-tts:mini-corner")).toBe("top-left");
+    const settled = mini.style.translate;
+    fireEvent.pointerMove(mini, { pointerId: 1, buttons: 0, clientX: 900, clientY: 900 });
+    expect(mini.style.translate).toBe(settled);
+
+    fireEvent.pointerDown(title, { pointerId: 2, button: 0, buttons: 1, clientX: 600, clientY: 700 });
+    fireEvent.pointerMove(title, { pointerId: 2, buttons: 1, clientX: 40, clientY: 30 });
+    expect(mini.hasAttribute("data-dragging")).toBe(true);
+    fireEvent.lostPointerCapture(mini, { pointerId: 2 });
+    await waitFor(() => expect(mini.hasAttribute("data-dragging")).toBe(false));
     overlay.lifecycle.unmount();
   });
 

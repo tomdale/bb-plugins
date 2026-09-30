@@ -745,9 +745,9 @@ function PlayerCard({
 }
 
 const MINI_STYLES = `
-.tts-mini{--tts-level:0;position:fixed;z-index:60;cursor:grab;touch-action:none;-webkit-app-region:no-drag;app-region:no-drag;transition:top .35s ${EASE_OUT},bottom .35s ${EASE_OUT};display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:2.75rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;--tts-mini-sheen:color-mix(in oklab,var(--ink) 7%,transparent);--tts-mini-glow:color-mix(in oklab,var(--ink) calc(4% + var(--tts-level) * 8%),transparent);--tts-mini-highlight:color-mix(in oklab,var(--ink) 10%,transparent);background:linear-gradient(180deg,var(--tts-mini-sheen),transparent 55%),radial-gradient(120% 160% at 50% 0%,var(--tts-mini-glow),transparent 70%),color-mix(in oklab,var(--canvas) 58%,transparent);-webkit-backdrop-filter:blur(24px) saturate(1.8);backdrop-filter:blur(24px) saturate(1.8);--tts-mini-lift:0 12px 30px -14px color-mix(in oklab,var(--ink) 14%,transparent);box-shadow:var(--tts-mini-lift),inset 0 1px 0 var(--tts-mini-highlight),inset 0 0 0 1px color-mix(in oklab,var(--ink) 7%,transparent);animation:tts-mini-in .42s ${EASE_OUT} both}
+.tts-mini{--tts-level:0;position:fixed;z-index:60;cursor:grab;touch-action:none;-webkit-app-region:no-drag;app-region:no-drag;transition:top .35s ${EASE_OUT},bottom .35s ${EASE_OUT};display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:2.75rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;--tts-mini-sheen:color-mix(in oklab,var(--ink) 7%,transparent);--tts-mini-glow:color-mix(in oklab,var(--ink) calc(4% + var(--tts-level) * 8%),transparent);--tts-mini-highlight:color-mix(in oklab,var(--ink) 10%,transparent);background:linear-gradient(180deg,var(--tts-mini-sheen),transparent 55%),radial-gradient(120% 160% at 50% 0%,var(--tts-mini-glow),transparent 70%),var(--tts-mini-fill);--tts-mini-fill:color-mix(in oklab,var(--canvas) 58%,transparent);--tts-mini-ring:color-mix(in oklab,var(--ink) 7%,transparent);--tts-mini-depth:transparent;-webkit-backdrop-filter:blur(24px) saturate(1.8);backdrop-filter:blur(24px) saturate(1.8);--tts-mini-lift:0 12px 30px -14px color-mix(in oklab,var(--ink) 14%,transparent);box-shadow:var(--tts-mini-lift),inset 0 1px 0 var(--tts-mini-highlight),inset 0 -1px 0 var(--tts-mini-depth),inset 0 0 0 1px var(--tts-mini-ring);animation:tts-mini-in .42s ${EASE_OUT} both}
 .tts-mini[data-dragging]{cursor:grabbing;user-select:none;transition:none;--tts-mini-lift:0 18px 40px -14px color-mix(in oklab,var(--ink) 20%,transparent)}
-@supports (color:oklch(from red l c h)){.tts-mini{--tts-mini-sheen:oklch(from var(--canvas) 1 0 h / calc(.05 + l * .35));--tts-mini-highlight:oklch(from var(--canvas) 1 0 h / calc(.04 + l * .8));--tts-mini-glow:oklch(from var(--canvas) calc(1 - l) 0 h / calc((1 - l) * (.05 + var(--tts-level) * .1)));--tts-mini-lift:0 12px 30px -12px oklch(from var(--canvas) calc(l * .3) c h / .28),0 2px 8px -4px color-mix(in oklab,var(--ink) 6%,transparent)}.tts-mini[data-dragging]{--tts-mini-lift:0 20px 44px -14px oklch(from var(--canvas) calc(l * .3) c h / .36),0 4px 12px -6px color-mix(in oklab,var(--ink) 8%,transparent)}}
+@supports (color:oklch(from red l c h)){.tts-mini{--tts-mini-fill:oklch(from var(--canvas) l c h / calc(.615 - l * .235));--tts-mini-ring:oklch(from var(--canvas) calc(1 - l) 0 h / calc(.05 + l * .06));--tts-mini-depth:oklch(from var(--canvas) calc(1 - l) 0 h / calc(l * .05));--tts-mini-sheen:oklch(from var(--canvas) 1 0 h / calc(.05 + l * .18));--tts-mini-highlight:oklch(from var(--canvas) 1 0 h / calc(.04 + l * .8));--tts-mini-glow:oklch(from var(--canvas) calc(1 - l) 0 h / calc((1 - l) * (.05 + var(--tts-level) * .1)));--tts-mini-lift:0 12px 30px -12px oklch(from var(--canvas) calc(l * .3) c h / .28),0 2px 8px -4px color-mix(in oklab,var(--ink) 6%,transparent)}.tts-mini[data-dragging]{--tts-mini-lift:0 20px 44px -14px oklch(from var(--canvas) calc(l * .3) c h / .36),0 4px 12px -6px color-mix(in oklab,var(--ink) 8%,transparent)}}
 .tts-mini[data-dragging] .tts-mini__open{cursor:grabbing}
 .tts-mini[data-leaving]{pointer-events:none;animation:tts-mini-out .22s ease-in both}
 .tts-mini__open{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:.15rem;padding:.25rem .375rem;border:0;border-radius:.5rem;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -938,6 +938,10 @@ function useMiniDock(active: boolean) {
     const drag = dragRef.current;
     const element = ref.current;
     if (!drag || !element || drag.pointerId !== event.pointerId) return;
+    if (event.buttons === 0) {
+      finishDrag(event.pointerId);
+      return;
+    }
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (!drag.moved) {
@@ -949,13 +953,14 @@ function useMiniDock(active: boolean) {
     element.style.translate = `${dx}px ${dy}px`;
   };
 
-  const onPointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+  const finishDrag = (pointerId: number | null) => {
     const drag = dragRef.current;
     const element = ref.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || (pointerId !== null && drag.pointerId !== pointerId)) return;
     dragRef.current = null;
     if (!drag.moved || !element) return;
-    element.releasePointerCapture?.(event.pointerId);
+    if (element.hasPointerCapture?.(drag.pointerId))
+      element.releasePointerCapture(drag.pointerId);
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && element.contains(focused))
       focused.blur();
@@ -978,6 +983,16 @@ function useMiniDock(active: boolean) {
     flipFromRef.current = box;
     setCorner(target);
   };
+
+  const onPointerEnd = (event: ReactPointerEvent<HTMLElement>) =>
+    finishDrag(event.pointerId);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const end = () => finishDrag(null);
+    window.addEventListener("blur", end);
+    return () => window.removeEventListener("blur", end);
+  });
 
   const onClickCapture = (event: ReactMouseEvent<HTMLElement>) => {
     if (!suppressClickRef.current) return;
@@ -1004,6 +1019,7 @@ function useMiniDock(active: boolean) {
       onPointerMove,
       onPointerUp: onPointerEnd,
       onPointerCancel: onPointerEnd,
+      onLostPointerCapture: onPointerEnd,
       onClickCapture,
     },
   };
