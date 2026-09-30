@@ -766,6 +766,7 @@ const MINI_EXIT_MS = 220;
 const MINI_CORNER_KEY = "bb-plugin-tts:mini-corner";
 const MINI_MARGIN_PX = 16;
 const COMPOSER_GAP_PX = 12;
+const MINI_TOP_OFFSET = "calc(var(--bb-app-chrome-row-height, 3rem) + 8px)";
 const DRAG_THRESHOLD_PX = 4;
 const MINI_CORNERS = [
   "top-left",
@@ -955,6 +956,9 @@ function useMiniDock(active: boolean) {
     dragRef.current = null;
     if (!drag.moved || !element) return;
     element.releasePointerCapture?.(event.pointerId);
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && element.contains(focused))
+      focused.blur();
     suppressClickRef.current = true;
     window.setTimeout(() => {
       suppressClickRef.current = false;
@@ -985,7 +989,7 @@ function useMiniDock(active: boolean) {
   const [vertical, horizontal] = corner.split("-");
   const style: CSSProperties = {
     [vertical === "top" ? "top" : "bottom"]:
-      vertical === "top" ? MINI_MARGIN_PX : bottomOffset,
+      vertical === "top" ? MINI_TOP_OFFSET : bottomOffset,
     [horizontal === "left" ? "left" : "right"]: MINI_MARGIN_PX,
     transformOrigin: `${horizontal === "left" ? "0%" : "100%"} ${
       vertical === "top" ? "0%" : "100%"
