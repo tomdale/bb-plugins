@@ -8,13 +8,18 @@ waveform to seek, or focus it and use Left/Right (5% steps), Home, and End. The
 whole-response timeline estimates phrase lengths from their character counts;
 seeking within a phrase maps the estimated position to that phrase's audio offset.
 Fetched phrase audio is cached for the playback session so revisiting a phrase
-is immediate. Clicking the
-action for the active response again also stops it. It reads assistant text
+is immediate. Playback
+continues when you navigate to another thread or scroll the message out of
+view; a floating mini player then shows the thread being read with pause,
+stop, and seek controls, and clicking the thread title returns to the message.
+The inline player reappears beneath the message when its thread is open again.
+One response plays at a time: reading another response stops the current one.
+Clicking the action for the active response again also stops it. It reads assistant text
 only—not tool output or hidden execution data. BB runtimes that support the
 `experimental_roles` message-action filter show the action only on assistant
 messages; on other runtimes the action also appears on user messages and does
-nothing there. On BB versions whose timeline does not expose the
-expected rendered row, the player falls back to a floating control.
+nothing there. When the timeline does not expose the message's rendered row, only the mini
+player is shown.
 
 ## Setup
 
