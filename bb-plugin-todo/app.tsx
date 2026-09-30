@@ -136,7 +136,7 @@ function TodoRow({ row, showIds, working }: { row: CardRow; showIds: boolean; wo
   const state = task.status === "in_progress" ? "active" : task.status === "completed" ? "completed" : blockers.length ? "blocked" : "pending";
   const active = state === "active";
   return <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined} style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-    <Icon name={rowIcon(row)} className={`todo-row-icon${active ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
+    <Icon name={rowIcon(row)} className={`todo-row-icon${active && working ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
     <span className={`todo-row-text${shine(active && working)}`} title={task.subject}>
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? ", blocked" : ""}: </span>
       {showIds && <span className="todo-row-id">#{task.id}</span>}
@@ -224,7 +224,7 @@ function TodoCard() {
     <button type="button" id={toggleId} className="todo-header" aria-expanded={expanded} aria-controls={bodyId}
       aria-label={`To-do list: ${card.completed} of ${card.total} ${card.total === 1 ? "item" : "items"} complete${current ? `; ${current}` : ""}`}
       onClick={() => setOverride({ auto, open: !expanded })}>
-      <Icon name={headerIcon(card)} className={`todo-header-icon${card.current && !card.allComplete ? " todo-header-spinner animate-spin" : ""}`} aria-hidden="true" />
+      <Icon name={headerIcon(card)} className={`todo-header-icon${card.current && !card.allComplete && view.run.isRunning ? " todo-header-spinner animate-spin" : ""}`} aria-hidden="true" />
       <span className="todo-summary">{summary}</span>
       <span className="todo-current" title={current ?? undefined}>{current}</span>
       <Icon name="ChevronDown" className="todo-chevron" aria-hidden="true" />
