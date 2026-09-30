@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
-import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 import type { Task } from "./model.js";
 import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, type CardRow } from "./card.js";
@@ -30,8 +30,12 @@ function TodoCard() {
   const threadId = view.scope.kind === "thread" || view.scope.kind === "queued-message" ? view.scope.threadId
     : view.scope.kind === "side-chat" ? view.scope.childThreadId : null;
   const rpc = useRpc<typeof rpcContract>();
+  const { values: settings } = useSettings();
+  const hideDelaySeconds = typeof settings?.completedHideDelaySeconds === "number" ? settings.completedHideDelaySeconds : 30;
   const connection = useRealtimeConnectionState();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [snapshotLoaded, setSnapshotLoaded] = useState(false);
+  const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // A manual toggle holds only until the automatic state it overrode changes,
   // so the next run (or its completion) takes over again.
@@ -42,14 +46,14 @@ function TodoCard() {
   const bodyId = `${baseId}-body`, toggleId = `${baseId}-toggle`;
   const refresh = useCallback(() => {
     const request = ++generation.current;
-    if (!threadId) { setTasks([]); setError(null); return; }
+    if (!threadId) { setTasks([]); setError(null); setSnapshotLoaded(false); return; }
     rpc.call("snapshot", { threadId }).then(result => {
-      if (generation.current === request) { setTasks(result.tasks); setError(null); }
+      if (generation.current === request) { setTasks(result.tasks); setError(null); setSnapshotLoaded(true); }
     }, cause => {
       if (generation.current === request) setError(cause instanceof Error ? cause.message : String(cause));
     });
   }, [rpc, threadId]);
-  useEffect(() => { setTasks([]); setOverride(null); refresh(); return () => { generation.current++; }; }, [threadId, refresh]);
+  useEffect(() => { setTasks([]); setSnapshotLoaded(false); setOverride(null); refresh(); return () => { generation.current++; }; }, [threadId, refresh]);
   useEffect(() => { refresh(); }, [connection, refresh]);
   useRealtime("todo-timeline-changed", payload => {
     if (payload && typeof payload === "object" && "threadId" in payload && payload.threadId === threadId) refresh();
@@ -62,7 +66,15 @@ function TodoCard() {
     return () => window.clearInterval(timer);
   }, [view.run.isRunning, threadId, refresh]);
   const card = useMemo(() => buildCardView(tasks), [tasks]);
-  if (!threadId) return null;
+  const tasksFingerprint = JSON.stringify(tasks);
+  useEffect(() => {
+    setHiddenAfterCompletion(false);
+    if (!threadId || !snapshotLoaded || !card.allComplete || error) return;
+    if (hideDelaySeconds === 0) { setHiddenAfterCompletion(true); return; }
+    const timer = window.setTimeout(() => setHiddenAfterCompletion(true), hideDelaySeconds * 1000);
+    return () => window.clearTimeout(timer);
+  }, [threadId, snapshotLoaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
+  if (!threadId || (hiddenAfterCompletion && card.allComplete && !error)) return null;
   if (!card.total) {
     if (!error) return null;
     return <div className="todo-card">
