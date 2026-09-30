@@ -663,6 +663,17 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
                 <div className="text-sm">
                   <Markdown content={comment.body} />
                 </div>
+                {comment.side === "RIGHT" ? (
+                  <DiffView
+                    threadId={threadId}
+                    walkthrough={walkthrough}
+                    location={{
+                      path: comment.path,
+                      startLine: Math.max(1, (comment.startLine ?? comment.line) - 3),
+                      endLine: comment.line + 3,
+                    }}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

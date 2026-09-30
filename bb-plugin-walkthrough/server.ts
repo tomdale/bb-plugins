@@ -98,6 +98,7 @@ export default function plugin(bb: BbPluginApi) {
       const view = service.view(threadId);
       const walkthrough = view?.walkthrough;
       if (!walkthrough?.pr || !walkthrough.review) rethrow(new WalkthroughError("There is no draft PR review to post."));
+      pauses.close(threadId);
       await service.sendMessage(threadId, {
         visible: `Post the draft review to PR #${walkthrough.pr.number} as ${event === "COMMENT" ? "a comment" : event === "APPROVE" ? "an approval" : "a request for changes"}.`,
         agent: `[Walkthrough ${walkthrough.id}] This is the user's explicit request to submit the walkthrough's draft review to GitHub PR #${walkthrough.pr.number} with event ${event}, body and inline comments exactly as drafted (read them with walkthrough_status). Submit it as one review, then mark it posted with walkthrough_review.`,

@@ -194,7 +194,7 @@ function bullet(walkthrough: Walkthrough, note: Note, prefix: string | null): st
 /** The `.agent/review-notes.md` mirror: nonempty sections only. */
 export function renderNotesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
   const out = ["# Review Notes", ""];
-  const scope = walkthrough.mode === "pr" && walkthrough.pr ? `PR #${walkthrough.pr.number}` : "Local review";
+  const scope = walkthrough.mode === "pr" ? "PR review" : "Local review";
   out.push(`${walkthrough.title} (${scope}; base \`${shortRef(walkthrough.baseRef)}\`).`, "");
   for (const section of NOTE_SECTIONS) {
     const items = notes.filter((note) => note.kind === section.kind && note.status === "open");

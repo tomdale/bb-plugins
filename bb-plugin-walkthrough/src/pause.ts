@@ -170,6 +170,14 @@ export class PauseController {
     }
   }
 
+  /** Closes open controls without recording a choice, e.g. before the panel sends a request. */
+  close(threadId: string): void {
+    this.open.get(threadId)?.abort();
+    this.open.delete(threadId);
+    const current = this.service.active(threadId);
+    if (current?.pause) this.service.save({ ...current, pause: null });
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const controller of this.open.values()) controller.abort();

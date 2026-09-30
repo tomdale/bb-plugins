@@ -114,7 +114,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           .max(4)
           .default([])
           .describe(
-            "3-4 short prompts in the user's voice; clicking one sends it as the user's message. Normally questions they might ask about the opening or current group; at the finish, follow-up requests such as \"Investigate the open questions\". The controls already provide continue, finish, close, and note recording, so never suggest those, and never repeat questions already recorded.",
+            "3-4 short prompts in the user's voice; clicking one sends it as the user's message. Normally questions they might ask about the opening or current group; at the finish, follow-up requests such as \"Investigate the open questions\". The controls already provide continue, finish, close, and note recording, and posting a review goes through the panel's Post action, so never suggest those, and never repeat questions already recorded.",
           ),
       })
       .strict(),
@@ -285,6 +285,11 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         comments: z.array(reviewCommentSchema).max(200).optional().describe("Inline comments on new-side (RIGHT) or old-side (LEFT) lines."),
         status: z.enum(["draft", "posted"]).optional(),
         url: z.string().max(2048).optional().describe("The posted review's URL."),
+        coveredNotes: z
+          .array(z.string().trim().min(1).max(64))
+          .max(200)
+          .optional()
+          .describe("Ids of the comment and question notes this draft includes; they move to Resolved / Answered as included in the review."),
       })
       .strict(),
     execute: (input, ctx) =>
@@ -304,6 +309,13 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           updatedAt: Date.now(),
         };
         service.save({ ...walkthrough, review, updatedAt: review.updatedAt });
+        for (const noteId of input.coveredNotes ?? []) {
+          try {
+            service.updateNote(ctx.threadId, noteId, { status: "resolved", resolution: "Included in the draft PR review." }, "agent");
+          } catch {
+            // An unknown id is ignored; the draft itself is already saved.
+          }
+        }
         return text(
           review.status === "posted"
             ? `Marked the review posted${review.url ? ` (${review.url})` : ""}.`

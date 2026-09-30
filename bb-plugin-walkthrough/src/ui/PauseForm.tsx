@@ -110,6 +110,8 @@ function PauseControls({
       });
       setText("");
       setShowMoreKinds(false);
+      setLocationIndex(-1);
+      setLines("");
       const locus = [payload.groupIndex === null ? null : `group ${payload.groupIndex + 1}`, formatLocation(note.location)]
         .filter(Boolean)
         .join(", ");
