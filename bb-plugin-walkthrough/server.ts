@@ -1,25 +1,31 @@
-// Walkthrough plugin backend: agent tools, the pause form's backend, and the
-// RPC that the panel, header chip, and chat directives read.
+// Walkthrough plugin backend: the pane's RPC, the worker orchestration, and
+// the agent tools. See src/service.ts for how a walkthrough is written.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { describeProgress } from "./src/model.ts";
 import { rpcContract } from "./src/rpc.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
-import { registerTools } from "./src/tools.ts";
+import { isWorker, registerTools, USER_TOOLS, WORKER_TOOLS } from "./src/tools.ts";
+import { WORKER_GUIDE } from "./src/worker.ts";
 
 export type { rpcContract } from "./src/rpc.ts";
 
-function rethrow(cause: unknown): never {
-  // RPC handler errors reach the frontend as handler_error with this message.
-  if (cause instanceof WalkthroughError) throw new Error(cause.message);
-  throw cause;
+const ok = { ok: true as const };
+
+/** RPC errors reach the pane as handler_error with this message. */
+async function handle<T>(run: () => T | Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (cause) {
+    if (cause instanceof WalkthroughError) throw new Error(cause.message);
+    throw cause;
+  }
 }
 
 export default function plugin(bb: BbPluginApi) {
   bb.settings.define({
     autoOpenPanel: {
       type: "boolean",
-      label: "Open the Walkthrough panel when a walkthrough starts",
+      label: "Open the Walkthrough pane when a walkthrough starts",
       default: true,
     },
   });
@@ -30,65 +36,69 @@ export default function plugin(bb: BbPluginApi) {
   const service = new WalkthroughService(bb, store);
 
   registerTools(bb, service);
+  bb.agents.configure((context) =>
+    isWorker(context.pluginMetadata)
+      ? { tools: [...WORKER_TOOLS], skills: [], instructions: WORKER_GUIDE }
+      : { tools: [...USER_TOOLS], skills: [] },
+  );
 
-  bb.agents.contributeInstructions(({ threadId }) => {
-    if (!threadId) return null;
-    const walkthrough = store.activeForThread(threadId);
-    if (walkthrough === null) return null;
-    const open = store.notes(walkthrough.id).filter((note) => note.status === "open").length;
-    return `This thread has a walkthrough in progress: ${JSON.stringify(walkthrough.title)}, ${walkthrough.mode} mode, ${describeProgress(walkthrough)}, ${open} open notes. Continue it with the bb-walkthrough skill; call walkthrough_status to reload the outline and notes.`;
+  bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
+    void service.onWorkerIdle(thread.id, lastAssistantText);
+  });
+  bb.events.on("thread.failed", ({ thread, error }) => {
+    service.onWorkerFailed(thread.id, error);
+  });
+  bb.events.on("experimental_thread.events", ({ thread }) => {
+    void service.onWorkerEvents(thread.id);
+  });
+  bb.background.service("resume", {
+    async start(signal) {
+      await service.resume().catch((cause) => bb.log.warn(`resume failed: ${cause instanceof Error ? cause.message : String(cause)}`));
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
   });
 
   bb.rpc.register(rpcContract, {
-    get: ({ threadId }) => ({ view: service.view(threadId) }),
-    addNote: ({ threadId, kind, text, groupIndex, location, quote }) => {
+    list: ({ threadId }) => ({
+      walkthroughs: service.forThread(threadId).map((walkthrough) => ({
+        id: walkthrough.id,
+        title: walkthrough.title,
+        request: walkthrough.request,
+        status: walkthrough.status,
+        partCount: walkthrough.parts.length,
+        currentPart: walkthrough.currentPart,
+        openNotes: service.notes(walkthrough.id).filter((note) => note.status === "open").length,
+        createdAt: walkthrough.createdAt,
+      })),
+    }),
+    get: ({ walkthroughId }) => {
       try {
-        return service.addNote(threadId, { kind, text, groupIndex, location, quote }, "user");
-      } catch (cause) {
-        rethrow(cause);
+        return { view: service.view(walkthroughId) };
+      } catch {
+        return { view: null };
       }
     },
-    updateNote: ({ threadId, noteId, ...patch }) => {
-      try {
-        return service.updateNote(threadId, noteId, patch, "user");
-      } catch (cause) {
-        rethrow(cause);
-      }
-    },
-    deleteNote: ({ threadId, noteId }) => {
-      try {
-        return { deleted: service.deleteNote(threadId, noteId) };
-      } catch (cause) {
-        rethrow(cause);
-      }
-    },
-    setNotesFileEnabled: ({ threadId, enabled }) => {
-      try {
-        service.setNotesFileEnabled(threadId, enabled);
-        return { view: service.view(threadId) };
-      } catch (cause) {
-        rethrow(cause);
-      }
-    },
-    diff: ({ threadId, path, startLine, endLine, withFullFile }) =>
-      service.diff(threadId, path, { startLine, endLine }, withFullFile ?? false),
-    sendToAgent: async ({ threadId, request }) => {
-      const view = service.view(threadId);
-      if (view === null) rethrow(new WalkthroughError("This thread has no walkthrough."));
-      const { walkthrough } = view;
-      if (request.kind === "resume") {
-        if (walkthrough.status === "finished" || view.pausePending) return { sent: false };
-        await service.sendToAgent(threadId, "Continue the walkthrough from where we paused.");
-        return { sent: true };
-      }
-      if (walkthrough.pr === null || walkthrough.review === null) {
-        rethrow(new WalkthroughError("There is no draft PR review to post."));
-      }
-      await service.sendToAgent(
-        threadId,
-        `Post the walkthrough's draft review to PR #${walkthrough.pr.number} on GitHub now as a ${request.event} review, with its body and inline comments exactly as drafted. This is my explicit request to submit it. Then mark it posted with walkthrough_review.`,
-      );
-      return { sent: true };
-    },
+    start: ({ threadId, request }) =>
+      handle(async () => {
+        if (service.byWorker(threadId)) throw new WalkthroughError("A walkthrough's own helper thread cannot start another walkthrough.");
+        const walkthrough = await service.start(threadId, request);
+        return { walkthroughId: walkthrough.id };
+      }),
+    openPart: ({ walkthroughId, index }) => handle(async () => (await service.openPart(walkthroughId, index), ok)),
+    ask: ({ walkthroughId, place, question }) => handle(async () => (await service.ask(walkthroughId, place, question), ok)),
+    reply: ({ walkthroughId, text }) => handle(async () => (await service.reply(walkthroughId, text), ok)),
+    retry: ({ walkthroughId, place }) => handle(async () => (await service.retry(walkthroughId, place), ok)),
+    wrapUp: ({ walkthroughId }) => handle(async () => (await service.wrapUp(walkthroughId), ok)),
+    close: ({ walkthroughId }) => handle(async () => (await service.close(walkthroughId), ok)),
+    handOff: ({ walkthroughId }) => handle(async () => ({ sent: await service.handOff(walkthroughId) })),
+    addNote: ({ walkthroughId, kind, text, groupIndex, location, quote }) =>
+      handle(() => service.addNote(walkthroughId, { kind, text, groupIndex, location, quote }, "user")),
+    updateNote: ({ walkthroughId, noteId, ...patch }) => handle(() => service.updateNote(walkthroughId, noteId, patch, "user")),
+    deleteNote: ({ walkthroughId, noteId }) => handle(() => ({ deleted: service.deleteNote(walkthroughId, noteId) })),
+    setNotesFileEnabled: ({ walkthroughId, enabled }) => handle(() => (service.setNotesFileEnabled(walkthroughId, enabled), ok)),
+    diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>
+      service.diff(walkthroughId, path, { startLine, endLine }, withFullFile ?? false),
+    excerpt: ({ walkthroughId, path, startLine, endLine }) => service.excerpt(walkthroughId, path, startLine, endLine),
+    requestReviewPost: ({ walkthroughId, event }) => handle(async () => (await service.requestReviewPost(walkthroughId, event), ok)),
   });
 }

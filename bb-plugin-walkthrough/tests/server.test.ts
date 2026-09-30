@@ -1,41 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
+import { createFakePluginHost, makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server.ts";
 
-const THREAD = "thr_1";
+const THREAD = "thr_user";
+const WORKER = "thr_worker";
 
-async function setup() {
+async function setup(options: { forkFails?: boolean } = {}) {
+  const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
-  const sent: string[] = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
     sdk: {
       threads: {
-        get: async () => makeThreadResponse({ id: THREAD, environmentId: "env_1" }),
+        get: async (args: { threadId: string }) => makeThreadResponse({ id: args.threadId, environmentId: "env_1", status: "idle" }),
+        fork: async () => {
+          if (options.forkFails) throw new Error("fork unsupported");
+          return makeThreadResponse({ id: WORKER, visibility: "hidden" });
+        },
+        spawn: async () => makeThreadResponse({ id: WORKER, visibility: "hidden" }),
         send: async (args) => {
           const first = args.input[0];
-          sent.push(first && "text" in first ? first.text : "");
+          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "" });
           return {} as never;
         },
+        stop: async () => ({}) as never,
+        archive: async () => ({}) as never,
+        events: {
+          list: async (args: { types?: readonly string[] }) =>
+            (args.types?.includes("turn/completed") ? [{ seq: 99, type: "turn/completed", data: {} }] : []) as never,
+        },
+        queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
       },
       environments: {
         get: async () => ({ id: "env_1", hostId: "host_1", path: "/work/repo" }) as never,
-        diffPatch: async () =>
-          ({
-            outcome: "available",
-            patches: [
-              {
-                path: "src/new.ts",
-                truncated: false,
-                patch: "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n",
-              },
-            ],
-          }) as never,
-        diffFiles: async () => ({ outcome: "available", mergeBaseRef: "abc1234" }) as never,
-        diffFile: async (args: { side: string; mergeBaseRef?: string }) => {
-          if (args.mergeBaseRef !== "abc1234") throw new Error("expected merge-base sha");
-          return { content: "a\nb\n", contentEncoding: "utf8", path: "src/new.ts", sizeBytes: 4 } as never;
-        },
       },
       files: {
         write: async (args: { path: string; content: string }) => {
@@ -46,138 +43,172 @@ async function setup() {
     },
   });
   await plugin(bb);
-  const tool = (name: string, input: unknown) => harness.behavior.callAgentTool(name, input, { threadId: THREAD });
-  const textOf = (result: unknown) =>
-    typeof result === "string" ? result : (result as { content: Array<{ text: string }> }).content.map((part) => part.text).join("\n");
-  return { bb, harness, tool, textOf, writes, sent };
+  const rpc = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
+  const tool = (name: string, input: unknown, threadId = WORKER) => harness.behavior.callAgentTool(name, input, { threadId });
+  const idle = (text: string) =>
+    harness.behavior.emitThreadEvent("thread.idle", {
+      thread: makeThreadResponse({ id: WORKER, status: "idle" }),
+      lastAssistantText: text,
+    });
+  const view = async (id: string) => (await rpc("get", { walkthroughId: id })).view;
+  return { bb, harness, rpc, tool, idle, view, sent, writes };
 }
 
-const START = {
+async function settle() {
+  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
+const PLAN = {
   mode: "local",
-  title: "Branch feature",
+  title: "Read aloud plugin",
   baseRef: "origin/main",
-  groups: [
-    { title: "Schema", summary: "Data shape", locations: [{ path: "src/schema.ts", startLine: 1, endLine: 20 }] },
-    { title: "Store", locations: [] },
+  introduction: "Before this branch there was no speech.",
+  parts: [
+    { title: "Keeping speech requests small", summary: "Bounds", locations: [{ path: "tts.ts", startLine: 1, endLine: 40 }] },
+    { title: "Choosing whose key pays", summary: "Keys" },
+    { title: "The player", summary: "UI" },
   ],
 };
 
-async function waitForInteraction(harness: Awaited<ReturnType<typeof setup>>["harness"]) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const pending = harness.inspection.pendingInteractions;
-    if (pending.length > 0) return pending[pending.length - 1]!;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("no pending interaction");
-}
+const PART = {
+  part: 1,
+  blocks: [
+    { kind: "prose", text: "Before, nothing. Now [the cap](line:3) bounds it." },
+    { kind: "code", caption: "The cap, in tts.ts", path: "tts.ts", startLine: 1, endLine: 10, notes: [{ line: 3, text: "Truncates." }] },
+  ],
+  suggestions: ["Why 4,000?"],
+};
 
-describe("walkthrough tools", () => {
-  it("starts, pauses, advances, and finishes through the pause form", async () => {
-    const { harness, tool, textOf } = await setup();
-    const started = textOf(await tool("walkthrough_start", START));
-    expect(started).toContain("started in local mode with 2 groups");
-    expect(started).toContain("/work/repo/.agent/review-notes.md");
+describe("walkthrough orchestration", () => {
+  it("forks a hidden worker, plans, then writes the part on screen and the next one", async () => {
+    const { rpc, tool, idle, view, sent } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Walk me through this branch" });
+    await settle();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ threadId: WORKER });
+    expect(sent[0]!.text).toContain("walkthrough_plan");
 
-    const firstPause = tool("walkthrough_pause", { suggestions: [] });
-    const overview = await waitForInteraction(harness);
-    expect(overview.rendererId).toBe("walkthrough-pause");
-    expect(overview.payload).toMatchObject({ stage: "overview", nextGroupTitle: "Schema" });
-    harness.behavior.submitInteraction(overview.id, { action: "next" });
-    const group1 = textOf(await firstPause);
-    expect(group1).toContain("Group 1 of 2");
-    expect(group1).toContain("src/schema.ts:1-20");
+    expect(await tool("walkthrough_plan", PLAN)).toContain("Planned 3 parts");
+    await idle("Planned.");
+    await settle();
+    let current = await view(walkthroughId);
+    expect(current.walkthrough.status).toBe("reading");
+    expect(current.walkthrough.inFlight.request).toEqual({ kind: "write", part: 0 });
+    expect(sent.at(-1)!.text).toContain('Write part 1 of 3: "Keeping speech requests small"');
 
-    const view = await harness.behavior.callRpc("get", { threadId: THREAD });
-    expect(view).toMatchObject({ view: { walkthrough: { status: "reviewing", currentGroup: 0 } } });
-
-    const secondPause = tool("walkthrough_pause", { suggestions: ["Why a new table?"] });
-    const groupPause = await waitForInteraction(harness);
-    await harness.behavior.callRpc("addNote", { threadId: THREAD, kind: "todo", text: "Rename column" });
-    harness.behavior.submitInteraction(groupPause.id, { action: "finish" });
-    const finish = textOf(await secondPause);
-    expect(finish).toContain("Finish procedure (local mode)");
-    expect(finish).toContain('n1 todo [Group 1: Schema]: "Rename column"');
+    await tool("walkthrough_write_part", PART);
+    await idle("Done.");
+    await settle();
+    current = await view(walkthroughId);
+    expect(current.walkthrough.parts[0].status).toBe("ready");
+    expect(current.walkthrough.parts[0].blocks[1]).toMatchObject({ kind: "code", path: "tts.ts" });
+    expect(current.walkthrough.inFlight.request).toEqual({ kind: "write", part: 1 });
   });
 
-  it("answers ask without moving state", async () => {
-    const { harness, tool, textOf } = await setup();
-    await tool("walkthrough_start", START);
-    await tool("walkthrough_advance", { action: "next" });
-    const pause = tool("walkthrough_pause", {});
-    const pending = await waitForInteraction(harness);
-    harness.behavior.submitInteraction(pending.id, { action: "ask", text: "What calls this?" });
-    const result = textOf(await pause);
-    expect(result).toContain('"What calls this?"');
-    expect(result).toContain("call walkthrough_pause again");
-    const view = (await harness.behavior.callRpc("get", { threadId: THREAD })) as { view: { walkthrough: { currentGroup: number } } };
-    expect(view.view.walkthrough.currentGroup).toBe(0);
+  it("answers questions ahead of queued writes and keeps the answer from the final message", async () => {
+    const { rpc, tool, idle, view, sent } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await rpc("openPart", { walkthroughId, index: 0 });
+    await rpc("ask", { walkthroughId, place: 0, question: "Why truncate?" });
+    let current = await view(walkthroughId);
+    expect(current.walkthrough.queue[0]).toMatchObject({ kind: "ask", place: 0 });
+    await tool("walkthrough_write_part", PART);
+    await idle("Done.");
+    await settle();
+    expect(sent.at(-1)!.text).toContain("Why truncate?");
+    await idle("Because the Gateway caps input.");
+    await settle();
+    current = await view(walkthroughId);
+    expect(current.walkthrough.parts[0].discussion[0]).toMatchObject({ question: "Why truncate?", answer: "Because the Gateway caps input.", status: "done" });
   });
 
-  it("reports user-recorded notes once and mirrors them to the notes file", async () => {
-    const { harness, tool, textOf, writes } = await setup();
-    await tool("walkthrough_start", START);
-    await tool("walkthrough_advance", { action: "next" });
-    await harness.behavior.callRpc("addNote", {
-      threadId: THREAD,
-      kind: "question",
-      text: "Is this migration reversible?",
-      location: { path: "src/schema.ts", startLine: 4 },
-    });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  it("surfaces the worker's question when it cannot plan, and sends the reply", async () => {
+    const { rpc, tool, idle, view, sent } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await idle("Do you want a PR review or a local walkthrough?");
+    await settle();
+    let current = await view(walkthroughId);
+    expect(current.walkthrough.status).toBe("planning");
+    expect(current.walkthrough.message).toContain("PR review or a local walkthrough");
+    await rpc("reply", { walkthroughId, text: "Local, please." });
+    await settle();
+    expect(sent.at(-1)!.text).toContain("Local, please.");
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    current = await view(walkthroughId);
+    expect(current.walkthrough.status).toBe("reading");
+    expect(current.walkthrough.message).toBeNull();
+  });
+
+  it("marks a part failed when the worker ends without writing it", async () => {
+    const { rpc, tool, idle, view } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await idle("I could not find that file.");
+    await settle();
+    const current = await view(walkthroughId);
+    expect(current.walkthrough.parts[0]).toMatchObject({ status: "failed", message: "I could not find that file." });
+  });
+
+  it("wraps up with notes, hands open ones to the user's thread, and closes the worker", async () => {
+    const { rpc, tool, idle, view, sent, harness, writes } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await rpc("addNote", { walkthroughId, kind: "todo", text: "Name the cap", groupIndex: 0, location: { path: "tts.ts", startLine: 3 } });
+    await settle();
     expect(writes.at(-1)?.path).toBe("/work/repo/.agent/review-notes.md");
-    expect(writes.at(-1)?.content).toContain("[Group 1: Schema · src/schema.ts:4] Is this migration reversible? (n1)");
+    expect(writes.at(-1)?.content).toContain("[Keeping speech requests small · tts.ts:3] Name the cap (n1)");
 
-    const next = textOf(await tool("walkthrough_advance", { action: "next" }));
-    expect(next).toContain("Is this migration reversible?");
-    const again = textOf(await tool("walkthrough_advance", { action: "finish" }));
-    expect(again).toContain("All notes:");
-    expect(again).not.toContain("since your last walkthrough call");
+    await rpc("wrapUp", { walkthroughId });
+    await idle("stopped writing");
+    await settle();
+    expect(sent.at(-1)!.text).toContain("The user is wrapping up");
+    expect(sent.at(-1)!.text).toContain('n1 todo [Keeping speech requests small · tts.ts:3]: "Name the cap"');
+    await tool("walkthrough_wrap_up", { blocks: [{ kind: "prose", text: "We covered the cap." }], followUps: ["Make the todo"] });
+    await idle("Wrapped.");
+    await settle();
+    let current = await view(walkthroughId);
+    expect(current.walkthrough.wrapUp).toMatchObject({ status: "ready", suggestions: ["Make the todo"] });
+
+    expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: true });
+    expect(sent.at(-1)).toMatchObject({ threadId: THREAD });
+    expect(sent.at(-1)!.text).toContain("Todo: Name the cap (tts.ts:3)");
+
+    await rpc("close", { walkthroughId });
+    current = await view(walkthroughId);
+    expect(current.walkthrough.status).toBe("done");
+    expect(harness.inspection.sdk.callsTo("threads.archive")).toHaveLength(1);
   });
 
-  it("resolves notes and keeps them in Resolved / Answered", async () => {
-    const { tool, textOf, writes } = await setup();
-    await tool("walkthrough_start", START);
-    await tool("walkthrough_note", { kind: "question", text: "Why?" });
-    const updated = textOf(await tool("walkthrough_note", { op: "update", noteId: "n1", status: "resolved", resolution: "Perf." }));
-    expect(updated).toContain("resolved");
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(writes.at(-1)?.content).toContain("## Resolved / Answered");
+  it("falls back to a fresh hidden worker when forking is unavailable", async () => {
+    const { rpc, view, harness } = await setup({ forkFails: true });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    const current = await view(walkthroughId);
+    expect(current.walkthrough.workerThreadId).toBe(WORKER);
+    expect(current.walkthrough.inFlight.request).toEqual({ kind: "plan" });
+    expect(harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(1);
   });
 
-  it("refuses review drafts in local mode and sends explicit post requests in PR mode", async () => {
-    const { harness, tool, textOf, sent } = await setup();
-    await tool("walkthrough_start", START);
-    expect(textOf(await tool("walkthrough_review", { body: "x", comments: [] }))).toContain("only in PR mode");
-
-    await tool("walkthrough_start", { ...START, mode: "pr", pr: { number: 12 }, replace: true });
-    const saved = textOf(
-      await tool("walkthrough_review", { body: "Looks good", comments: [{ path: "src/schema.ts", line: 3, body: "Nit" }] }),
+  it("offers worker tools only to worker threads", async () => {
+    const { harness } = await setup();
+    const user = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
+    expect(user.tools.map((entry) => entry.name)).toEqual(["walkthrough_open"]);
+    const worker = await harness.behavior.resolveAgentConfiguration(
+      makePluginAgentConfigurationContext({ pluginMetadata: { role: "walkthrough-worker", walkthroughId: "wt_x" } }),
     );
-    expect(saved).toContain("1 inline comments");
-    await harness.behavior.callRpc("sendToAgent", { threadId: THREAD, request: { kind: "postReview", event: "COMMENT" } });
-    expect(sent.at(-1)).toContain("PR #12");
-    expect(sent.at(-1)).toContain("explicit request");
-  });
-
-  it("contributes instructions only while a walkthrough is active", async () => {
-    const { harness, tool } = await setup();
-    const provider = harness.registrations.instructionProvider;
-    expect(provider).toBeTruthy();
-    expect(provider!({ threadId: THREAD, projectId: "p" })).toBeNull();
-    await tool("walkthrough_start", START);
-    expect(provider!({ threadId: THREAD, projectId: "p" })).toContain("walkthrough in progress");
-    await tool("walkthrough_advance", { action: "complete" });
-    expect(provider!({ threadId: THREAD, projectId: "p" })).toBeNull();
-  });
-
-  it("serves diffs with empty old contents for added files", async () => {
-    const { harness, tool } = await setup();
-    await tool("walkthrough_start", START);
-    const result = (await harness.behavior.callRpc("diff", { threadId: THREAD, path: "src/new.ts", withFullFile: true })) as {
-      outcome: string;
-      fullFileContents: { old: { content: string }; new: { content: string } } | null;
-    };
-    expect(result.outcome).toBe("available");
-    expect(result.fullFileContents).toEqual({ old: { path: "src/new.ts", content: "" }, new: { path: "src/new.ts", content: "a\nb\n" } });
+    expect(worker.tools.map((entry) => entry.name)).toContain("walkthrough_write_part");
+    expect(worker.tools.map((entry) => entry.name)).not.toContain("walkthrough_open");
   });
 });

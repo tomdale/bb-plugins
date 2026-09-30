@@ -1,21 +1,21 @@
-Walk through a changeset one conceptual group at a time, the way a colleague
-would: what the code did before, what changed, and why, pausing after each
-group so you can ask questions or jot notes without derailing the tour.
+Understand a code change the way you would with a colleague walking you
+through it. From any thread, click **Walkthrough** and a reading view opens
+beside the conversation: an introduction, then the change explained part by
+part in plain prose with real code excerpts, margin notes, and room to ask
+anything.
 
 ## What you get
 
-- **Pause controls** in place of the composer after every group: continue,
-  finish early, ask a question, or record a question, todo, or PR comment
-  against the current group or file.
-- A **Walkthrough panel** with the outline, live diffs for each group's files,
-  your notes (edit, resolve, reopen), and, for PR reviews, a draft review
-  preview with a Post action.
-- A progress chip in the thread header and chat cards for the outline and
-  real diff hunks.
+- A literate reading view with change, after, and before views of each
+  excerpt, and a contents list when the pane is wide.
+- Free-form questions under every part, with suggestions to get you started.
+- Notes from any selection, mirrored to `.agent/review-notes.md`.
+- A wrap-up that answers your recorded questions, and for PR reviews a draft
+  review you can preview and post.
+- One click to hand open todos and questions back to your thread's agent.
 
 ## How it works
 
-Your agent drives the walkthrough through the plugin's tools and bundled
-skill. Notes are stored by the plugin on your BB server and mirrored to
-`.agent/review-notes.md` in the thread's workspace. Nothing is posted to
-GitHub unless you ask.
+A helper agent forked from your thread writes the walkthrough, so it knows
+what you were discussing; your thread keeps working meanwhile. Nothing is
+posted to GitHub unless you ask.

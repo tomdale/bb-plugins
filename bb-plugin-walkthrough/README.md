@@ -1,57 +1,56 @@
 # bb-plugin-walkthrough
 
-Walk through a changeset one conceptual group at a time inside a BB thread.
-The agent groups the diff by concept, explains each group, and pauses; BB
-renders the pause, the notes, the diffs, and the PR review draft as native UI.
+A reading view for understanding a code change. From any BB thread, click
+**Walkthrough** in the thread header (or ask the agent to walk you through
+something) and a pane opens beside the thread. A helper agent, forked from
+the thread so it knows the conversation, explains the change part by part in
+plain prose with real code excerpts. The original thread keeps working while
+you read.
 
-The workflow is the `tdx-walkthrough` skill's workflow (Overview → Review →
-Finish, local or PR mode), carried by the bundled `bb-walkthrough` skill and
-the plugin's agent tools.
+## Using it
 
-## Start
+- **Start:** the header button opens a starter with suggestions ("The changes
+  on this branch", "This PR, for review", "The code we've been talking about",
+  "The changes you just made") or your own words. Asking the thread's agent
+  to walk you through something opens the same pane.
+- **Read:** an introduction, then one part at a time: prose with short code
+  excerpts (switch between change, after, and before), margin notes, and a
+  contents list when the pane is wide. Maximize the pane for full-width
+  reading. The next part is written while you read the current one.
+- **Ask:** every part ends with a conversation. Suggested questions get you
+  started; ask anything in your own words. `.todo …` or `.question …` in the
+  box saves a note instead.
+- **Note:** select any text or code and choose **Leave a note**, or use the
+  Notes drawer. Notes can point at a file and line range, and are mirrored to
+  `.agent/review-notes.md` in the workspace.
+- **Wrap up:** the helper answers recorded questions, reports what is still
+  open, and offers follow-ups. In PR reviews it drafts a review on request;
+  the Review drawer previews it and **Post…** asks the helper to submit it.
+  Nothing reaches GitHub without that explicit step.
+- **Hand off:** **Send open notes to my thread** posts the open todos and
+  questions to your thread's own agent.
 
-Open a thread in the checkout you want to review and ask, for example:
+## How it works
 
-- "Guide me through this PR for review."
-- "Walk me through the changes you just made."
-
-The composer's **+** menu also has **Start a walkthrough**.
-
-## Surfaces
-
-| Surface | What it does |
-| --- | --- |
-| Pause controls | Replace the composer at every pause: continue to the next group, finish early, ask a question (or pick a suggested one), and record a question, todo, comment (PR mode), or note against the current group or one of its files. Typing `.next`, `.finish`, `.notes`, or `.todo <text>` there works too. |
-| Walkthrough panel | Thread side panel with the outline and per-file diffs against the base, the notes list (add, edit, resolve, reopen, delete), the notes-file toggle, and the PR review draft with a Post action. Opens when a walkthrough starts. |
-| Header chip | Shows progress and open notes; opens the panel. |
-| Chat directives | `::walkthrough-outline` renders the live outline; `::walkthrough-diff{path="…" lines="a-b"}` renders the real hunk for a file range. |
-| Message action | **Add to walkthrough notes** turns a selected passage of an agent message into a quoted note. |
-| Command palette | **Walkthrough: open panel for this thread**. |
-
-Notes live in the plugin's SQLite database and are mirrored to
-`<session-root>/.agent/review-notes.md` on the thread's host once the first
-note exists.
-
-## Agent tools
-
-`walkthrough_start`, `walkthrough_pause`, `walkthrough_advance`,
-`walkthrough_update_outline`, `walkthrough_note`, `walkthrough_status`, and
-`walkthrough_review`. `walkthrough_pause` opens the pause controls with
-`bb.ui.requestInput`; the user's choice returns as its result and resumes the
-agent. The plugin applies every state transition itself, so the panel and the
-notes file always match what the agent sees. Nothing is ever posted to
-GitHub without an explicit user request.
+The plugin owns the walkthrough state (SQLite) and drives a hidden fork of
+the user's thread one request at a time: plan, write a part, answer a
+question, wrap up. The worker delivers content only through its tools
+(`walkthrough_plan`, `walkthrough_write_part`, `walkthrough_wrap_up`,
+`walkthrough_note`, `walkthrough_review`, `walkthrough_status`); answers are
+its final message, streamed into the pane. Ordinary threads get one tool,
+`walkthrough_open`. The worker is archived with the thread, or when the user
+clicks Done.
 
 ## Settings
 
-`autoOpenPanel` (default on): open the Walkthrough panel when a walkthrough
-starts.
+`autoOpenPanel` (default on): open the pane when an agent starts a
+walkthrough.
 
 ## Development
 
 ```sh
 npm install
-npm test          # vitest: model, fake-host server, pause form
+npm test          # vitest: model and fake-host orchestration
 npm run typecheck
 bb plugin build
 bb plugin install .   # path install; then `bb plugin dev` for live reload

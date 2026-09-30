@@ -1,291 +1,35 @@
-// The Walkthrough side panel: outline with per-group diffs, the notes list
-// with full editing, and (PR mode) the draft review preview.
+// Notes and the PR review draft, shown in the pane's side drawer.
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Markdown,
-  experimental_FileLink as FileLink,
-  UrlLink,
-  type PluginThreadPanelProps,
-} from "@get-bb/plugin-sdk/app";
+import { Markdown, UrlLink } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { formatLocation, groupLabel, NOTE_KIND_LABEL, NOTE_SECTIONS, primaryNoteKinds } from "../model.ts";
-import type { Group, Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
-import { clearNoteDraft, errorMessage, useNoteDraft, useWalkthrough, type WalkthroughRpc } from "./hooks.ts";
-import { DiffView, GroupStatusIcon, LocationLink, Muted } from "./parts.tsx";
+import { formatLocation, NOTE_KIND_LABEL, NOTE_SECTIONS, noteKindsFor, partLabel } from "../model.ts";
+import type { Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
+import { errorMessage, type WalkthroughRpc } from "./hooks.ts";
+import { DiffView, LocationLink, Muted } from "./parts.tsx";
 
-type Tab = "outline" | "notes" | "review";
-
-const STATUS_LABEL: Record<Walkthrough["status"], string> = {
-  overview: "Overview",
-  reviewing: "Reviewing",
-  finishing: "Finishing",
-  finished: "Finished",
-};
-
-export function WalkthroughPanel({ threadId }: PluginThreadPanelProps) {
-  const { view, loaded, error, rpc } = useWalkthrough(threadId);
-  const draft = useNoteDraft(threadId);
-  const [tab, setTab] = useState<Tab>("outline");
-  useEffect(() => {
-    if (draft) setTab("notes");
-  }, [draft]);
-
-  if (!loaded) {
-    return <Muted className="p-4">{error ?? "Loading walkthrough…"}</Muted>;
-  }
-  if (view === null) {
-    return (
-      <div className="space-y-2 p-4">
-        <Muted>No walkthrough in this thread yet.</Muted>
-        <Muted>Ask the agent to walk you through the changes, for example “Walk me through this PR for review.”</Muted>
-      </div>
-    );
-  }
-  const { walkthrough, notes } = view;
-  const openNotes = notes.filter((note) => note.status === "open").length;
-  const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "outline", label: "Outline" },
-    { id: "notes", label: openNotes > 0 ? `Notes (${openNotes})` : "Notes" },
-    ...(walkthrough.mode === "pr" ? [{ id: "review" as const, label: "Review" }] : []),
-  ];
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <PanelHeader threadId={threadId} view={view} rpc={rpc} />
-      <div role="tablist" aria-label="Walkthrough views" className="flex gap-1 border-b border-border px-3">
-        {tabs.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === entry.id}
-            onClick={() => setTab(entry.id)}
-            className={cn(
-              "-mb-px border-b-2 px-2 py-2 text-sm",
-              tab === entry.id ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto p-3">
-        {tab === "outline" ? <OutlineTab threadId={threadId} walkthrough={walkthrough} notes={notes} /> : null}
-        {tab === "notes" ? <NotesTab threadId={threadId} view={view} rpc={rpc} /> : null}
-        {tab === "review" ? <ReviewTab threadId={threadId} walkthrough={walkthrough} rpc={rpc} /> : null}
-      </div>
-    </div>
-  );
+/** Applies a typed "12" or "12-40" to a location; anything else keeps the location's own range. */
+function withLines(location: Walkthrough["parts"][number]["locations"][number] | null, lines: string) {
+  if (!location) return null;
+  const match = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/u.exec(lines);
+  if (!match) return location;
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : start;
+  return { path: location.path, startLine: Math.min(start, end), ...(start === end ? {} : { endLine: Math.max(start, end) }) };
 }
 
-function PanelHeader({ threadId, view, rpc }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc }) {
-  const { walkthrough } = view;
-  const covered = walkthrough.groups.filter((group) => group.status === "done").length;
-  const [sending, setSending] = useState(false);
-  const resume = async () => {
-    setSending(true);
-    try {
-      const { sent } = await rpc.call("sendToAgent", { threadId, request: { kind: "resume" } });
-      if (!sent) toast.info("The walkthrough is already waiting for you in the composer.");
-    } catch (cause) {
-      toast.error(errorMessage(cause));
-    } finally {
-      setSending(false);
-    }
-  };
-  const toggleNotesFile = (enabled: boolean) => {
-    rpc.call("setNotesFileEnabled", { threadId, enabled }).catch((cause: unknown) => toast.error(errorMessage(cause)));
-  };
-  const notesFile = walkthrough.notesFile;
-  return (
-    <div className="space-y-2 border-b border-border p-3">
-      <div className="flex items-start gap-2">
-        <Icon name="Explore" className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-medium" title={walkthrough.title}>
-            {walkthrough.title}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {walkthrough.mode === "pr" && walkthrough.pr ? (
-              walkthrough.pr.url ? (
-                <UrlLink href={walkthrough.pr.url} className="underline-offset-2 hover:underline">
-                  PR #{walkthrough.pr.number}
-                </UrlLink>
-              ) : (
-                `PR #${walkthrough.pr.number}`
-              )
-            ) : (
-              "Local review"
-            )}
-            {" · "}
-            base <code>{walkthrough.baseRef}</code>
-            {" · "}
-            {STATUS_LABEL[walkthrough.status]}
-            {walkthrough.groups.length > 0 ? ` · ${covered}/${walkthrough.groups.length} groups` : ""}
-          </p>
-        </div>
-        {walkthrough.status !== "finished" && !view.pausePending ? (
-          <Button type="button" size="sm" variant="outline" disabled={sending} onClick={() => void resume()}>
-            <Icon name="Play" className="size-3.5" aria-hidden />
-            Resume
-          </Button>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Checkbox
-          id={`${threadId}-notes-file`}
-          checked={notesFile.enabled}
-          onCheckedChange={(checked) => toggleNotesFile(checked === true)}
-          disabled={notesFile.path === null}
-        />
-        <label htmlFor={`${threadId}-notes-file`}>Keep notes file</label>
-        {notesFile.path && notesFile.written && walkthrough.hostId ? (
-          <FileLink
-            target={{ kind: "host", hostId: walkthrough.hostId, path: notesFile.path }}
-            className="min-w-0 truncate font-mono underline-offset-2 hover:underline"
-          >
-            .agent/review-notes.md
-          </FileLink>
-        ) : (
-          <span className="min-w-0 truncate font-mono">{notesFile.path ? ".agent/review-notes.md (after the first note)" : "no workspace"}</span>
-        )}
-        {notesFile.error ? (
-          <span className="text-destructive" title={notesFile.error}>
-            write failed
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
+export interface NoteDraft {
+  quote: string;
+  groupIndex: number | null;
+  sequence: number;
 }
 
-// ---------------------------------------------------------------------------
-// Outline
-// ---------------------------------------------------------------------------
 
-function OutlineTab({ threadId, walkthrough, notes }: { threadId: string; walkthrough: Walkthrough; notes: Note[] }) {
-  const [expanded, setExpanded] = useState<number | null>(walkthrough.currentGroup);
-  const current = walkthrough.currentGroup;
-  const previous = useRef(current);
-  useEffect(() => {
-    if (previous.current !== current) setExpanded(current);
-    previous.current = current;
-  }, [current]);
-  if (walkthrough.groups.length === 0) return <Muted>No groups yet.</Muted>;
-  return (
-    <ol className="space-y-1.5">
-      {walkthrough.groups.map((group, index) => (
-        <GroupRow
-          key={`${index}:${group.title}`}
-          threadId={threadId}
-          walkthrough={walkthrough}
-          group={group}
-          index={index}
-          noteCount={notes.filter((note) => note.groupIndex === index && note.status === "open").length}
-          expanded={expanded === index}
-          onToggle={() => setExpanded(expanded === index ? null : index)}
-        />
-      ))}
-    </ol>
-  );
-}
-
-function GroupRow({
-  threadId,
-  walkthrough,
-  group,
-  index,
-  noteCount,
-  expanded,
-  onToggle,
-}: {
-  threadId: string;
-  walkthrough: Walkthrough;
-  group: Group;
-  index: number;
-  noteCount: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const [diffFor, setDiffFor] = useState<Set<number>>(() => new Set());
-  const toggleDiff = (locationIndex: number) =>
-    setDiffFor((current) => {
-      const next = new Set(current);
-      if (next.has(locationIndex)) next.delete(locationIndex);
-      else next.add(locationIndex);
-      return next;
-    });
-  return (
-    <li
-      className={cn(
-        "rounded-md border",
-        group.status === "current" ? "border-foreground/40 bg-card" : "border-border",
-        group.status === "skipped" && "opacity-70",
-      )}
-    >
-      <button type="button" onClick={onToggle} aria-expanded={expanded} className="flex w-full items-start gap-2 px-3 py-2 text-left">
-        <GroupStatusIcon status={group.status} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm">
-            <span className="text-muted-foreground">{index + 1}.</span> {group.title}
-          </span>
-          {group.summary && !expanded ? <span className="block truncate text-xs text-muted-foreground">{group.summary}</span> : null}
-        </span>
-        {noteCount > 0 ? <span className="rounded-full bg-secondary px-1.5 text-xs text-secondary-foreground">{noteCount}</span> : null}
-        <Icon name={expanded ? "ChevronDown" : "ChevronRight"} className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      </button>
-      {expanded ? (
-        <div className="space-y-2 px-3 pb-3">
-          {group.summary ? <p className="text-xs text-muted-foreground">{group.summary}</p> : null}
-          {group.locations.length === 0 ? (
-            <Muted className="text-xs">No file references for this group.</Muted>
-          ) : (
-            <ul className="space-y-1.5">
-              {group.locations.map((location, locationIndex) => (
-                <li key={`${location.path}:${locationIndex}`} className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <LocationLink environmentId={walkthrough.environmentId} location={location} className="min-w-0 truncate" />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto h-6 px-2 text-xs"
-                      aria-pressed={diffFor.has(locationIndex)}
-                      onClick={() => toggleDiff(locationIndex)}
-                    >
-                      <Icon name="FileDiff" className="size-3.5" aria-hidden />
-                      Diff
-                    </Button>
-                  </div>
-                  {diffFor.has(locationIndex) ? (
-                    <DiffView threadId={threadId} walkthrough={walkthrough} location={location} withFullFile={location.startLine === undefined} />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Notes
-// ---------------------------------------------------------------------------
-
-function NotesTab({ threadId, view, rpc }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc }) {
+export function NotesTab({ view, rpc, draft, onDraftUsed }: { view: WalkthroughView; rpc: WalkthroughRpc; draft: NoteDraft | null; onDraftUsed: () => void }) {
   const { walkthrough, notes } = view;
   const resolved = notes.filter((note) => note.status === "resolved");
   const sections = NOTE_SECTIONS.map((section) => ({
@@ -294,14 +38,14 @@ function NotesTab({ threadId, view, rpc }: { threadId: string; view: Walkthrough
   })).filter((section) => section.items.length > 0);
   return (
     <div className="space-y-4">
-      {walkthrough.status !== "finished" ? <NoteComposer threadId={threadId} walkthrough={walkthrough} rpc={rpc} /> : null}
+      {walkthrough.status !== "done" ? <NoteComposer walkthrough={walkthrough} rpc={rpc} draft={draft} onDraftUsed={onDraftUsed} /> : null}
       {notes.length === 0 ? <Muted>No notes yet. Record questions and todos here or from the pause controls.</Muted> : null}
       {sections.map((section) => (
         <section key={section.kind} className="space-y-1.5">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{section.title}</h3>
           <ul className="space-y-1.5">
             {section.items.map((note) => (
-              <NoteRow key={note.id} threadId={threadId} walkthrough={walkthrough} note={note} rpc={rpc} />
+              <NoteRow key={note.id} walkthrough={walkthrough} note={note} rpc={rpc} />
             ))}
           </ul>
         </section>
@@ -311,7 +55,7 @@ function NotesTab({ threadId, view, rpc }: { threadId: string; view: Walkthrough
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resolved / Answered</h3>
           <ul className="space-y-1.5">
             {resolved.map((note) => (
-              <NoteRow key={note.id} threadId={threadId} walkthrough={walkthrough} note={note} rpc={rpc} />
+              <NoteRow key={note.id} walkthrough={walkthrough} note={note} rpc={rpc} />
             ))}
           </ul>
         </section>
@@ -321,41 +65,51 @@ function NotesTab({ threadId, view, rpc }: { threadId: string; view: Walkthrough
 }
 
 function kindsFor(walkthrough: Walkthrough): NoteKind[] {
-  const primary = primaryNoteKinds(walkthrough.mode);
-  return [...primary, ...(["question", "todo", "comment", "note"] as NoteKind[]).filter((kind) => !primary.includes(kind))];
+  return noteKindsFor(walkthrough.mode);
 }
 
-function NoteComposer({ threadId, walkthrough, rpc }: { threadId: string; walkthrough: Walkthrough; rpc: WalkthroughRpc }) {
-  const draft = useNoteDraft(threadId);
+function NoteComposer({
+  walkthrough,
+  rpc,
+  draft,
+  onDraftUsed,
+}: {
+  walkthrough: Walkthrough;
+  rpc: WalkthroughRpc;
+  draft: NoteDraft | null;
+  onDraftUsed: () => void;
+}) {
   const [kind, setKind] = useState<NoteKind>("question");
   const [text, setText] = useState("");
   const [quote, setQuote] = useState<string | null>(null);
-  const [groupIndex, setGroupIndex] = useState<number | null>(walkthrough.currentGroup);
+  const [groupIndex, setGroupIndex] = useState<number | null>(walkthrough.currentPart);
   const [locationIndex, setLocationIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!draft) return;
     setQuote(draft.quote);
-    clearNoteDraft(threadId);
+    setGroupIndex(draft.groupIndex);
+    onDraftUsed();
     textRef.current?.focus();
-  }, [draft, threadId]);
+  }, [draft, onDraftUsed]);
   useEffect(() => {
-    setGroupIndex(walkthrough.currentGroup);
+    setGroupIndex(walkthrough.currentPart);
     setLocationIndex(-1);
-  }, [walkthrough.currentGroup]);
-  const locations = groupIndex === null ? [] : walkthrough.groups[groupIndex]?.locations ?? [];
+  }, [walkthrough.currentPart]);
+  const locations = groupIndex === null ? [] : walkthrough.parts[groupIndex]?.locations ?? [];
+  const [lines, setLines] = useState("");
   const save = async () => {
     const trimmed = text.trim();
     if (trimmed === "") return;
     setBusy(true);
     try {
       const note = await rpc.call("addNote", {
-        threadId,
+        walkthroughId: walkthrough.id,
         kind,
         text: trimmed,
         groupIndex,
-        location: locationIndex >= 0 ? locations[locationIndex] ?? null : null,
+        location: locationIndex >= 0 ? withLines(locations[locationIndex] ?? null, lines) : null,
         quote,
       });
       setText("");
@@ -426,8 +180,8 @@ function NoteComposer({ threadId, walkthrough, rpc }: { threadId: string; walkth
           aria-label="Group"
           className="h-7 max-w-[12rem] rounded-md border border-input bg-transparent px-1.5 text-xs"
         >
-          <option value={-1}>Whole review</option>
-          {walkthrough.groups.map((group, index) => (
+          <option value={-1}>Whole walkthrough</option>
+          {walkthrough.parts.map((group, index) => (
             <option key={`${index}:${group.title}`} value={index}>
               {index + 1}. {group.title}
             </option>
@@ -436,7 +190,12 @@ function NoteComposer({ threadId, walkthrough, rpc }: { threadId: string; walkth
         {locations.length > 0 ? (
           <select
             value={locationIndex}
-            onChange={(event) => setLocationIndex(Number(event.target.value))}
+            onChange={(event) => {
+              const index = Number(event.target.value);
+              setLocationIndex(index);
+              const chosen = locations[index];
+              setLines(chosen?.startLine ? `${chosen.startLine}${chosen.endLine && chosen.endLine !== chosen.startLine ? `-${chosen.endLine}` : ""}` : "");
+            }}
             aria-label="File"
             className="h-7 max-w-[12rem] rounded-md border border-input bg-transparent px-1.5 text-xs"
           >
@@ -448,6 +207,15 @@ function NoteComposer({ threadId, walkthrough, rpc }: { threadId: string; walkth
             ))}
           </select>
         ) : null}
+        {locationIndex >= 0 ? (
+          <input
+            value={lines}
+            onChange={(event) => setLines(event.target.value)}
+            aria-label="Lines"
+            placeholder="lines"
+            className="h-7 w-20 rounded-md border border-input bg-transparent px-1.5 text-xs"
+          />
+        ) : null}
         <Button type="submit" size="sm" className="ml-auto h-7" disabled={busy || text.trim() === ""}>
           Record
         </Button>
@@ -456,15 +224,15 @@ function NoteComposer({ threadId, walkthrough, rpc }: { threadId: string; walkth
   );
 }
 
-function NoteRow({ threadId, walkthrough, note, rpc }: { threadId: string; walkthrough: Walkthrough; note: Note; rpc: WalkthroughRpc }) {
+function NoteRow({ walkthrough, note, rpc }: { walkthrough: Walkthrough; note: Note; rpc: WalkthroughRpc }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.text);
   const [resolution, setResolution] = useState(note.resolution ?? "");
   const update = (patch: { kind?: NoteKind; text?: string; status?: Note["status"]; resolution?: string | null }) =>
-    rpc.call("updateNote", { threadId, noteId: note.id, ...patch }).catch((cause: unknown) => toast.error(errorMessage(cause)));
+    rpc.call("updateNote", { walkthroughId: walkthrough.id, noteId: note.id, ...patch }).catch((cause: unknown) => toast.error(errorMessage(cause)));
   const remove = () =>
-    rpc.call("deleteNote", { threadId, noteId: note.id }).catch((cause: unknown) => toast.error(errorMessage(cause)));
-  const group = groupLabel(walkthrough, note.groupIndex);
+    rpc.call("deleteNote", { walkthroughId: walkthrough.id, noteId: note.id }).catch((cause: unknown) => toast.error(errorMessage(cause)));
+  const group = partLabel(walkthrough, note.groupIndex);
   return (
     <li className="group/note space-y-1 rounded-md border border-border px-2.5 py-2">
       {editing ? (
@@ -533,7 +301,7 @@ function NoteRow({ threadId, walkthrough, note, rpc }: { threadId: string; walkt
           ) : null}
           {note.resolution ? (
             <div className="text-xs text-muted-foreground">
-              <Markdown content={`**Answer:** ${note.resolution}`} />
+              <Markdown content={`**${note.kind === "todo" ? "Outcome" : "Answer"}:** ${note.resolution}`} />
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -572,7 +340,7 @@ const EVENT_LABEL: Record<ReviewEvent, string> = {
   APPROVE: "Approve",
 };
 
-function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrough: Walkthrough; rpc: WalkthroughRpc }) {
+export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc: WalkthroughRpc }) {
   const review = walkthrough.review;
   const [confirming, setConfirming] = useState(false);
   const [event, setEvent] = useState<ReviewEvent>(review?.event ?? "COMMENT");
@@ -595,7 +363,7 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
   const post = async () => {
     setSending(true);
     try {
-      await rpc.call("sendToAgent", { threadId, request: { kind: "postReview", event } });
+      await rpc.call("requestReviewPost", { walkthroughId: walkthrough.id, event });
       setConfirming(false);
       toast.success("Asked the agent to post the review.");
     } catch (cause) {
@@ -606,13 +374,13 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
   };
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">
           {review.status === "posted" ? "Posted" : "Draft"}
         </span>
         <span>{EVENT_LABEL[review.event]}</span>
         <span>· {review.comments.length} inline</span>
-        {review.url ? (
+        {review.status === "posted" && review.url ? (
           <UrlLink href={review.url} className="underline-offset-2 hover:underline">
             View on GitHub
           </UrlLink>
@@ -621,7 +389,7 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
           type="button"
           size="sm"
           variant="ghost"
-          className="ml-auto h-7"
+          className="ml-auto h-7 px-2"
           onClick={() => {
             void navigator.clipboard.writeText(markdown).then(
               () => toast.success("Copied the draft review"),
@@ -663,6 +431,16 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
                 <div className="text-sm">
                   <Markdown content={comment.body} />
                 </div>
+                {comment.side === "RIGHT" ? (
+                  <DiffView
+                    walkthrough={walkthrough}
+                    location={{
+                      path: comment.path,
+                      startLine: Math.max(1, (comment.startLine ?? comment.line) - 3),
+                      endLine: comment.line + 3,
+                    }}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
