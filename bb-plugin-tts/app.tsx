@@ -794,11 +794,47 @@ function writeMiniCorner(corner: MiniCorner): void {
   }
 }
 
-function composerClearance(): number {
+function footerContentRect(footer: HTMLElement): DOMRect {
+  const footerBox = footer.getBoundingClientRect();
+  let element: Element = footer;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const boxes = Array.from(element.children)
+      .map((child) => child.getBoundingClientRect())
+      .filter((box) => box.width > 0 && box.height > 0);
+    if (boxes.length === 0) break;
+    const left = Math.min(...boxes.map((box) => box.left));
+    const right = Math.max(...boxes.map((box) => box.right));
+    if (right - left < footerBox.width - 1) {
+      const top = Math.min(...boxes.map((box) => box.top));
+      const bottom = Math.max(...boxes.map((box) => box.bottom));
+      return DOMRect.fromRect({
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      });
+    }
+    if (element.children.length !== 1) break;
+    element = element.children[0]!;
+  }
+  return footerBox;
+}
+
+function composerClearance(
+  miniWidth: number,
+  horizontal: "left" | "right",
+): number {
   const footer = document.querySelector<HTMLElement>("[data-scroll-footer]");
   if (!footer) return MINI_MARGIN_PX;
-  const clearance =
-    window.innerHeight - footer.getBoundingClientRect().top + COMPOSER_GAP_PX;
+  const content = footerContentRect(footer);
+  const miniLeft =
+    horizontal === "left"
+      ? MINI_MARGIN_PX
+      : window.innerWidth - MINI_MARGIN_PX - miniWidth;
+  const miniRight = miniLeft + miniWidth;
+  if (content.right <= miniLeft || content.left >= miniRight)
+    return MINI_MARGIN_PX;
+  const clearance = window.innerHeight - content.top + COMPOSER_GAP_PX;
   return clearance > MINI_MARGIN_PX && clearance < window.innerHeight / 2
     ? clearance
     : MINI_MARGIN_PX;
@@ -836,7 +872,12 @@ function useMiniDock(active: boolean) {
         if (footer) resize?.observe(footer);
         observedFooter = footer;
       }
-      setBottomOffset(composerClearance());
+      setBottomOffset(
+        composerClearance(
+          ref.current?.offsetWidth ?? 0,
+          corner.endsWith("left") ? "left" : "right",
+        ),
+      );
     };
     const schedule = () => {
       if (frame === 0) frame = requestAnimationFrame(measure);
@@ -851,7 +892,7 @@ function useMiniDock(active: boolean) {
       window.removeEventListener("resize", schedule);
       if (frame !== 0) cancelAnimationFrame(frame);
     };
-  }, [active]);
+  }, [active, corner]);
 
   const springBack = (element: HTMLElement, from: DOMRect) => {
     element.style.removeProperty("translate");
