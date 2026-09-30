@@ -539,7 +539,12 @@ describe("read aloud message action", () => {
     const footer = document.createElement("div");
     footer.dataset.scrollFooter = "";
     footer.getBoundingClientRect = () =>
-      DOMRect.fromRect({ x: 0, y: window.innerHeight - 100, width: 800, height: 100 });
+      DOMRect.fromRect({
+        x: 0,
+        y: window.innerHeight - 100,
+        width: window.innerWidth,
+        height: 100,
+      });
     document.body.append(footer);
     onTestFinished(() => footer.remove());
     const overlay = renderSlot(app.appOverlays[0]!, {}, { pluginId: "tts" });
@@ -556,6 +561,44 @@ describe("read aloud message action", () => {
     );
     await waitFor(() => expect(mini.style.bottom).toBe("112px"));
     expect(mini.style.right).toBe("16px");
+    overlay.lifecycle.unmount();
+  });
+
+  it("stays in the corner when the composer column does not reach it", async () => {
+    const audioInstances = stubPlayingSession();
+    const footer = document.createElement("div");
+    footer.dataset.scrollFooter = "";
+    footer.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: 0,
+        y: window.innerHeight - 300,
+        width: window.innerWidth,
+        height: 300,
+      });
+    const column = document.createElement("div");
+    column.getBoundingClientRect = () =>
+      DOMRect.fromRect({
+        x: 100,
+        y: window.innerHeight - 300,
+        width: window.innerWidth - 400,
+        height: 300,
+      });
+    footer.append(column);
+    document.body.append(footer);
+    onTestFinished(() => footer.remove());
+    const overlay = renderSlot(app.appOverlays[0]!, {}, { pluginId: "tts" });
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    const mini = await waitFor(() =>
+      overlay.getByRole("region", { name: "Read aloud mini player" }),
+    );
+    await waitFor(() => expect(mini.style.bottom).toBe("16px"));
     overlay.lifecycle.unmount();
   });
 
