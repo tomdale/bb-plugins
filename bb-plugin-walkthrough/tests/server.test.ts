@@ -20,6 +20,22 @@ async function setup() {
       },
       environments: {
         get: async () => ({ id: "env_1", hostId: "host_1", path: "/work/repo" }) as never,
+        diffPatch: async () =>
+          ({
+            outcome: "available",
+            patches: [
+              {
+                path: "src/new.ts",
+                truncated: false,
+                patch: "diff --git a/src/new.ts b/src/new.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/new.ts\n@@ -0,0 +1,2 @@\n+a\n+b\n",
+              },
+            ],
+          }) as never,
+        diffFiles: async () => ({ outcome: "available", mergeBaseRef: "abc1234" }) as never,
+        diffFile: async (args: { side: string; mergeBaseRef?: string }) => {
+          if (args.mergeBaseRef !== "abc1234") throw new Error("expected merge-base sha");
+          return { content: "a\nb\n", contentEncoding: "utf8", path: "src/new.ts", sizeBytes: 4 } as never;
+        },
       },
       files: {
         write: async (args: { path: string; content: string }) => {
@@ -152,5 +168,16 @@ describe("walkthrough tools", () => {
     expect(provider!({ threadId: THREAD, projectId: "p" })).toContain("walkthrough in progress");
     await tool("walkthrough_advance", { action: "complete" });
     expect(provider!({ threadId: THREAD, projectId: "p" })).toBeNull();
+  });
+
+  it("serves diffs with empty old contents for added files", async () => {
+    const { harness, tool } = await setup();
+    await tool("walkthrough_start", START);
+    const result = (await harness.behavior.callRpc("diff", { threadId: THREAD, path: "src/new.ts", withFullFile: true })) as {
+      outcome: string;
+      fullFileContents: { old: { content: string }; new: { content: string } } | null;
+    };
+    expect(result.outcome).toBe("available");
+    expect(result.fullFileContents).toEqual({ old: { path: "src/new.ts", content: "" }, new: { path: "src/new.ts", content: "a\nb\n" } });
   });
 });

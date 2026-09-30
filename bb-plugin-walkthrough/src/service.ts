@@ -58,12 +58,14 @@ interface Workspace {
 }
 
 const MAX_FULL_FILE_BYTES = 1_000_000;
+const MERGE_BASE_TTL_MS = 60_000;
 
 export class WalkthroughService {
   /** threadId → walkthroughId for pause forms this server generation holds open. */
   private readonly pendingPauses = new Map<string, string>();
   /** Serializes notes-file writes per walkthrough so renders land in order. */
   private readonly fileWrites = new Map<string, Promise<void>>();
+  private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
 
   constructor(
     private readonly bb: BbPluginApi,
@@ -315,7 +317,8 @@ export class WalkthroughService {
       const start = range.startLine;
       const narrowed =
         start === undefined ? { patch: file.patch, filtered: false } : filterPatchToRange(file.patch, start, range.endLine ?? start);
-      const fullFileContents = withFullFile && !narrowed.filtered ? await this.fullFile(environmentId, walkthrough, path) : null;
+      const fullFileContents =
+        withFullFile && !narrowed.filtered ? await this.fullFile(environmentId, walkthrough, path, file.patch) : null;
       return {
         outcome: "available",
         path,
@@ -329,20 +332,42 @@ export class WalkthroughService {
     }
   }
 
-  private async fullFile(environmentId: string, walkthrough: Walkthrough, path: string) {
+  /** The merge-base SHA diffFile needs, cached briefly per environment and base. */
+  private async mergeBase(environmentId: string, walkthrough: Walkthrough): Promise<string | null> {
+    const key = `${environmentId}\u0000${walkthrough.baseRef}\u0000${walkthrough.includeUncommitted}`;
+    const cached = this.mergeBases.get(key);
+    if (cached && cached.expiresAt > this.now()) return cached.sha;
+    const response = await this.bb.sdk.environments.diffFiles({
+      environmentId,
+      target: walkthrough.includeUncommitted ? "all" : "branch_committed",
+      mergeBaseBranch: walkthrough.baseRef,
+    });
+    const sha = response.outcome === "available" ? response.mergeBaseRef : null;
+    this.mergeBases.set(key, { sha, expiresAt: this.now() + MERGE_BASE_TTL_MS });
+    return sha;
+  }
+
+  private async fullFile(environmentId: string, walkthrough: Walkthrough, path: string, patch: string) {
     const target = walkthrough.includeUncommitted ? "all" : "branch_committed";
+    const mergeBaseRef = await this.mergeBase(environmentId, walkthrough).catch(() => null);
+    if (mergeBaseRef === null) return null;
+    // An added file has no old side and a deleted file no new side; both
+    // render with an empty counterpart.
+    const absent = { old: /^--- \/dev\/null$/mu.test(patch), new: /^\+\+\+ \/dev\/null$/mu.test(patch) };
     const side = async (which: "old" | "new") => {
+      if (absent[which]) return { path, content: "" };
       try {
         const file = await this.bb.sdk.environments.diffFile({
           environmentId,
           path,
           side: which,
           target,
-          mergeBaseRef: walkthrough.baseRef,
+          mergeBaseRef,
         });
         if (file.contentEncoding !== "utf8" || file.sizeBytes > MAX_FULL_FILE_BYTES) return null;
         return { path, content: file.content };
-      } catch {
+      } catch (cause) {
+        this.bb.log.debug(`full ${which} side unavailable for ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
         return null;
       }
     };

@@ -92,7 +92,7 @@ function transitionText(service: WalkthroughService, walkthrough: Walkthrough, c
   if (walkthrough.status === "reviewing" && walkthrough.currentGroup !== null) {
     parts.push(
       `Present this group now.\n${groupBrief(walkthrough, walkthrough.currentGroup)}`,
-      "Narrate prior behavior, the change, and why, with only the relevant snippets and file references; connect earlier groups without spoiling later ones. Then call walkthrough_pause with 3-4 useful questions about this group and end your turn.",
+      "Narrate prior behavior, the change, and why, with only the relevant snippets and file references; connect earlier groups without spoiling later ones. Then call walkthrough_pause with 3-4 useful questions about this group and write nothing after it.",
     );
   } else if (walkthrough.status === "finishing") {
     parts.push(
@@ -185,7 +185,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           [
             `Walkthrough ${walkthrough.id} started in ${walkthrough.mode} mode with ${walkthrough.groups.length} groups. The Walkthrough panel shows the outline and notes.`,
             `Notes file: ${notesPath} (written after the first recorded item).`,
-            "Next: write the opening (prior behavior, the change, its apparent reason, how the pieces connect) and the outline as compact concept names. Put ::walkthrough-outline on its own line to render the live outline. Then call walkthrough_pause and end your turn; group 1 begins when the user continues.",
+            "Next: write the opening (prior behavior, the change, its apparent reason, how the pieces connect) and the outline as compact concept names. Put ::walkthrough-outline on its own line to render the live outline. Then call walkthrough_pause and write nothing after it; group 1 begins when the user continues.",
           ].join("\n"),
         );
       }),
@@ -194,7 +194,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
   bb.agents.registerTool({
     name: "walkthrough_pause",
     description:
-      "Pause the walkthrough for the user: after the opening, after each group, and after the finish recap. Shows BB's pause controls (continue, finish, ask, record notes) in place of the composer. Call it as the last action of your message and end your turn; the user's choice arrives later as this tool's result.",
+      "Pause the walkthrough for the user: after the opening, after each group, and after the finish recap. Shows BB's pause controls (continue, finish, ask, record notes, close) in place of the composer. Call it as the last action of your message and write nothing after it: the controls are the user's prompt, and their choice arrives later as this tool's result.",
     presentation: { label: { pending: "Pausing walkthrough", completed: "Paused walkthrough" }, icon: { glyph: "Pause" }, suppress: true },
     parameters: z
       .object({
@@ -202,7 +202,9 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           .array(z.string().trim().min(1).max(200))
           .max(4)
           .default([])
-          .describe("3-4 useful questions about the current group; at the finish, the follow-up offers."),
+          .describe(
+            "3-4 useful questions the user might ask about the opening or current group; at the finish, the follow-up offers. The controls already provide continue, finish, close, and note recording, so never suggest those.",
+          ),
       })
       .strict(),
     execute: (input, ctx) =>
@@ -260,7 +262,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
             `The user asked, during ${payload.groupTitle ? `group ${(payload.groupIndex ?? 0) + 1} (${JSON.stringify(payload.groupTitle)})` : payload.stage === "finish" ? "the finish" : "the opening"}: ${JSON.stringify(response.text)}`,
             payload.stage === "finish"
               ? "Treat it as the user's direction for the follow-up. When you next need input, call walkthrough_pause."
-              : "Answer briefly when it unblocks understanding. For a tangent, suggest recording it as a question. When it depends on a later group, offer to answer now, later, or as a recorded question. Then call walkthrough_pause again for this group and end your turn.",
+              : "Answer briefly when it unblocks understanding. For a tangent, suggest recording it as a question. When it depends on a later group, offer to answer now, later, or as a recorded question. Then call walkthrough_pause again for this group, which asks whether to continue, and write nothing after it.",
           ];
           const fresh = userNotesSection(service, current);
           if (fresh) parts.push(fresh);
