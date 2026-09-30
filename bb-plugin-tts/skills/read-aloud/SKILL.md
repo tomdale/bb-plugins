@@ -15,8 +15,11 @@ focus it and use ArrowLeft/ArrowRight in 5% steps, Home, or End. Whole-response 
 are estimated by phrase character counts because phrase durations are not known
 until audio is fetched. Phrase audio already fetched during a playback session is
 cached for immediate revisits. Activating the same response action again also
-stops playback. A
-floating player is used if the message's timeline row is unavailable. On BB
+stops playback. Playback continues across thread navigation; while the
+inline player is not visible (another thread is open, the message is scrolled
+out of view, or its timeline row is unavailable) a floating mini player shows
+the thread title with pause, stop, and seek, and its title navigates back to the
+message. One response plays at a time; reading another stops the current one. On BB
 runtimes without the `experimental_roles` message-action filter, the action
 also appears on user messages and does nothing there.
 

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 const app = await loadPluginApp(() => import("./app.js"));
 const getContext = HTMLCanvasElement.prototype.getContext;
@@ -392,6 +398,139 @@ describe("read aloud message action", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(audioInstances).toHaveLength(1);
+    overlay.lifecycle.unmount();
+  });
+
+  function stubPlayingSession() {
+    const audioInstances: Array<{
+      paused: boolean;
+      pause: ReturnType<typeof vi.fn>;
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 }),
+      ),
+    );
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => `blob:${audioInstances.length}`),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal(
+      "Audio",
+      class {
+        currentTime = 0;
+        duration = 10;
+        paused = false;
+        play = vi.fn(async () => {
+          this.paused = false;
+        });
+        pause = vi.fn(() => {
+          this.paused = true;
+        });
+        load = vi.fn();
+        removeAttribute = vi.fn();
+        addEventListener = vi.fn();
+        constructor() {
+          audioInstances.push(this);
+        }
+      },
+    );
+    vi.stubGlobal("AudioContext", undefined);
+    return audioInstances;
+  }
+
+  function timelineRow(messageId: string) {
+    const row = document.createElement("div");
+    onTestFinished(() => row.remove());
+    row.dataset.timelineRowId = messageId;
+    const column = document.createElement("div");
+    column.dataset.messageColumn = "";
+    row.append(column);
+    document.body.append(row);
+    return { row, column };
+  }
+
+  it("keeps playing after the thread's timeline unmounts and offers global controls", async () => {
+    const audioInstances = stubPlayingSession();
+    const first = timelineRow("message_1");
+    const overlay = renderSlot(app.appOverlays[0]!, {}, { pluginId: "tts" });
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    expect(
+      overlay.queryByRole("region", { name: "Read aloud mini player" }),
+    ).toBeNull();
+    first.row.remove();
+    const mini = await waitFor(() =>
+      overlay.getByRole("region", { name: "Read aloud mini player" }),
+    );
+    expect(audioInstances[0]?.pause).not.toHaveBeenCalled();
+    const second = timelineRow("message_1");
+    await waitFor(() =>
+      expect(second.column.querySelector("[data-tts-inline-player]")).not.toBeNull(),
+    );
+    await waitFor(() =>
+      expect(
+        overlay.queryByRole("region", { name: "Read aloud mini player" }),
+      ).toBeNull(),
+    );
+    second.row.remove();
+    await waitFor(() =>
+      expect(
+        overlay.getByRole("region", { name: "Read aloud mini player" }),
+      ).toBeTruthy(),
+    );
+    expect(mini).toBeTruthy();
+    const miniPlayer = overlay.getByRole("region", {
+      name: "Read aloud mini player",
+    });
+    fireEvent.click(
+      within(miniPlayer).getByRole("button", {
+        name: "Stop reading response aloud",
+      }),
+    );
+    expect(audioInstances[0]?.pause).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        overlay.queryByRole("region", { name: "Read aloud mini player" }),
+      ).toBeNull(),
+    );
+    overlay.lifecycle.unmount();
+  });
+
+  it("navigates from the mini player back to the thread being read", async () => {
+    const audioInstances = stubPlayingSession();
+    const overlay = renderSlot(
+      app.appOverlays[0]!,
+      {},
+      { pluginId: "tts", context: { threadId: "thread_2" } },
+    );
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    fireEvent.click(
+      await waitFor(() =>
+        overlay.getByRole("button", {
+          name: "Go to the message being read aloud",
+        }),
+      ),
+    );
+    expect(overlay.inspection.navigateCalls).toContainEqual({
+      method: "toThread",
+      threadId: "thread_1",
+    });
     overlay.lifecycle.unmount();
   });
 
