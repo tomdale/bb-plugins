@@ -24,52 +24,62 @@ export const MIGRATIONS = [
      created_at INTEGER NOT NULL,
      PRIMARY KEY (walkthrough_id, id)
    )`,
+  `CREATE TABLE walkthroughs_v2 (
+     id TEXT PRIMARY KEY,
+     thread_id TEXT NOT NULL,
+     worker_thread_id TEXT,
+     status TEXT NOT NULL,
+     data TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX walkthroughs_v2_by_thread ON walkthroughs_v2 (thread_id, created_at)`,
+  `CREATE INDEX walkthroughs_v2_by_worker ON walkthroughs_v2 (worker_thread_id)`,
 ];
 
 export class WalkthroughStore {
   constructor(private readonly db: Database.Database) {}
 
-  /** The thread's newest walkthrough, finished or not. */
-  latestForThread(threadId: string): Walkthrough | null {
-    const row = this.db
-      .prepare(`SELECT data FROM walkthroughs WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`)
-      .get(threadId) as { data: string } | undefined;
+  private parse(row: { data: string } | undefined): Walkthrough | null {
     return row ? walkthroughSchema.parse(JSON.parse(row.data)) : null;
-  }
-
-  /** The thread's walkthrough that has not finished, if any. */
-  activeForThread(threadId: string): Walkthrough | null {
-    const latest = this.latestForThread(threadId);
-    return latest && latest.status !== "finished" ? latest : null;
-  }
-
-  /** Threads whose latest walkthrough is unfinished and waiting on a pause. */
-  threadsWithPauses(): string[] {
-    const rows = this.db
-      .prepare(
-        `SELECT thread_id FROM walkthroughs w WHERE status != 'finished'
-           AND json_extract(data, '$.pause') IS NOT NULL
-           AND created_at = (SELECT MAX(created_at) FROM walkthroughs WHERE thread_id = w.thread_id)`,
-      )
-      .all() as Array<{ thread_id: string }>;
-    return rows.map((row) => row.thread_id);
   }
 
   get(id: string): Walkthrough | null {
-    const row = this.db.prepare(`SELECT data FROM walkthroughs WHERE id = ?`).get(id) as
-      | { data: string }
-      | undefined;
-    return row ? walkthroughSchema.parse(JSON.parse(row.data)) : null;
+    return this.parse(this.db.prepare(`SELECT data FROM walkthroughs_v2 WHERE id = ?`).get(id) as { data: string } | undefined);
+  }
+
+  /** The walkthrough a hidden worker thread writes, if any. */
+  byWorker(workerThreadId: string): Walkthrough | null {
+    return this.parse(
+      this.db.prepare(`SELECT data FROM walkthroughs_v2 WHERE worker_thread_id = ?`).get(workerThreadId) as
+        | { data: string }
+        | undefined,
+    );
+  }
+
+  /** Walkthroughs started from a thread, newest first. */
+  forThread(threadId: string, limit = 20): Walkthrough[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM walkthroughs_v2 WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`)
+      .all(threadId, limit) as Array<{ data: string }>;
+    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
+  }
+
+  /** Unfinished walkthroughs, for resuming worker requests after a restart. */
+  unfinished(): Walkthrough[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM walkthroughs_v2 WHERE status NOT IN ('done', 'failed')`)
+      .all() as Array<{ data: string }>;
+    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
   }
 
   save(walkthrough: Walkthrough): void {
     const data = JSON.stringify(walkthroughSchema.parse(walkthrough));
     this.db
       .prepare(
-        `INSERT INTO walkthroughs (id, thread_id, status, data, created_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data`,
+        `INSERT INTO walkthroughs_v2 (id, thread_id, worker_thread_id, status, data, created_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET worker_thread_id = excluded.worker_thread_id, status = excluded.status, data = excluded.data`,
       )
-      .run(walkthrough.id, walkthrough.threadId, walkthrough.status, data, walkthrough.createdAt);
+      .run(walkthrough.id, walkthrough.threadId, walkthrough.workerThreadId, walkthrough.status, data, walkthrough.createdAt);
   }
 
   notes(walkthroughId: string): Note[] {

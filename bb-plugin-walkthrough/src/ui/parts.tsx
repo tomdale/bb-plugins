@@ -4,20 +4,8 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatLocation, shortRef } from "../model.ts";
 import type { DiffResult } from "../rpc.ts";
-import type { GroupStatus, Location, Walkthrough } from "../schemas.ts";
+import type { Location, Walkthrough } from "../schemas.ts";
 import { errorMessage, useWalkthroughRpc } from "./hooks.ts";
-
-const GROUP_ICON: Record<GroupStatus, { name: string; className: string; label: string }> = {
-  pending: { name: "Circle", className: "text-muted-foreground", label: "Not started" },
-  current: { name: "Target", className: "text-foreground", label: "Current" },
-  done: { name: "CircleCheck", className: "text-muted-foreground", label: "Covered" },
-  skipped: { name: "Minus", className: "text-muted-foreground/60", label: "Skipped" },
-};
-
-export function GroupStatusIcon({ status }: { status: GroupStatus }) {
-  const icon = GROUP_ICON[status];
-  return <Icon name={icon.name} className={cn("size-4 shrink-0", icon.className)} aria-label={icon.label} />;
-}
 
 /** A clickable workspace file reference, or plain text when no workspace is known. */
 export function LocationLink({
@@ -56,12 +44,10 @@ const COLLAPSE_AFTER_LINES = 24;
 
 /** The base-to-head change for one file, narrowed to a line range when given. */
 export function DiffView({
-  threadId,
   walkthrough,
   location,
   withFullFile = false,
 }: {
-  threadId: string;
   walkthrough: Walkthrough;
   location: Location;
   withFullFile?: boolean;
@@ -78,7 +64,7 @@ export function DiffView({
     setResult(null);
     rpc
       .call("diff", {
-        threadId,
+        walkthroughId: walkthrough.id,
         path,
         ...(startLine === undefined ? {} : { startLine }),
         ...(endLine === undefined ? {} : { endLine }),
@@ -95,7 +81,7 @@ export function DiffView({
     return () => {
       live = false;
     };
-  }, [rpc, threadId, path, startLine, endLine, withFullFile, walkthrough.baseRef]);
+  }, [rpc, walkthrough.id, path, startLine, endLine, withFullFile, walkthrough.baseRef]);
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">
