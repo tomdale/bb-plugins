@@ -13,6 +13,11 @@ import {
   useBbNavigate,
 } from "@get-bb/plugin-sdk/app";
 import type { ThreadChatMessageReference } from "@get-bb/plugin-sdk/app";
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { extractSpeechText } from "./tts.js";
 
 const MAX_ERROR_LENGTH = 240;
@@ -740,7 +745,9 @@ function PlayerCard({
 }
 
 const MINI_STYLES = `
-.tts-mini{--tts-level:0;position:fixed;right:1rem;bottom:1rem;z-index:60;display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:2.75rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;background:radial-gradient(120% 160% at 50% 0%,color-mix(in oklab,var(--ink) calc(6% + var(--tts-level) * 10%),transparent),transparent 70%),color-mix(in oklab,var(--canvas) 78%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 10px 40px -12px color-mix(in oklab,var(--ink) 28%,transparent),inset 0 0 0 1px color-mix(in oklab,var(--ink) 7%,transparent);transform-origin:100% 100%;animation:tts-mini-in .42s ${EASE_OUT} both}
+.tts-mini{--tts-level:0;position:fixed;z-index:60;cursor:grab;touch-action:none;transition:top .35s ${EASE_OUT},bottom .35s ${EASE_OUT};display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:2.75rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;background:radial-gradient(120% 160% at 50% 0%,color-mix(in oklab,var(--ink) calc(6% + var(--tts-level) * 10%),transparent),transparent 70%),color-mix(in oklab,var(--canvas) 78%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 10px 40px -12px color-mix(in oklab,var(--ink) 28%,transparent),inset 0 0 0 1px color-mix(in oklab,var(--ink) 7%,transparent);animation:tts-mini-in .42s ${EASE_OUT} both}
+.tts-mini[data-dragging]{cursor:grabbing;user-select:none;transition:none;box-shadow:0 18px 50px -12px color-mix(in oklab,var(--ink) 38%,transparent),inset 0 0 0 1px color-mix(in oklab,var(--ink) 9%,transparent)}
+.tts-mini[data-dragging] .tts-mini__open{cursor:grabbing}
 .tts-mini[data-leaving]{pointer-events:none;animation:tts-mini-out .22s ease-in both}
 .tts-mini__open{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:.15rem;padding:.25rem .375rem;border:0;border-radius:.5rem;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .tts-mini__open:hover .tts-mini__title{text-decoration:underline;text-decoration-color:color-mix(in oklab,var(--ink) 35%,transparent);text-underline-offset:2px}
@@ -755,6 +762,206 @@ const MINI_STYLES = `
 `;
 
 const MINI_EXIT_MS = 220;
+const MINI_CORNER_KEY = "bb-plugin-tts:mini-corner";
+const MINI_MARGIN_PX = 16;
+const COMPOSER_GAP_PX = 12;
+const DRAG_THRESHOLD_PX = 4;
+const MINI_CORNERS = [
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+] as const;
+type MiniCorner = (typeof MINI_CORNERS)[number];
+
+function readMiniCorner(): MiniCorner {
+  try {
+    const stored = window.localStorage.getItem(MINI_CORNER_KEY);
+    const corner = MINI_CORNERS.find((candidate) => candidate === stored);
+    if (corner) return corner;
+  } catch {
+    return "bottom-right";
+  }
+  return "bottom-right";
+}
+
+function writeMiniCorner(corner: MiniCorner): void {
+  try {
+    window.localStorage.setItem(MINI_CORNER_KEY, corner);
+  } catch {
+    return;
+  }
+}
+
+function composerClearance(): number {
+  const footer = document.querySelector<HTMLElement>("[data-scroll-footer]");
+  if (!footer) return MINI_MARGIN_PX;
+  const clearance =
+    window.innerHeight - footer.getBoundingClientRect().top + COMPOSER_GAP_PX;
+  return clearance > MINI_MARGIN_PX && clearance < window.innerHeight / 2
+    ? clearance
+    : MINI_MARGIN_PX;
+}
+
+function useMiniDock(active: boolean) {
+  const ref = useRef<HTMLElement>(null);
+  const [corner, setCorner] = useState<MiniCorner>(readMiniCorner);
+  const [bottomOffset, setBottomOffset] = useState(MINI_MARGIN_PX);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClickRef = useRef(false);
+  const flipFromRef = useRef<DOMRect | null>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    let observedFooter: HTMLElement | null = null;
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => schedule());
+    const measure = () => {
+      frame = 0;
+      const footer = document.querySelector<HTMLElement>(
+        "[data-scroll-footer]",
+      );
+      if (footer !== observedFooter) {
+        resize?.disconnect();
+        if (footer) resize?.observe(footer);
+        observedFooter = footer;
+      }
+      setBottomOffset(composerClearance());
+    };
+    const schedule = () => {
+      if (frame === 0) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      mutations.disconnect();
+      resize?.disconnect();
+      window.removeEventListener("resize", schedule);
+      if (frame !== 0) cancelAnimationFrame(frame);
+    };
+  }, [active]);
+
+  const springBack = (element: HTMLElement, from: DOMRect) => {
+    element.style.removeProperty("translate");
+    const to = element.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    if (
+      typeof element.animate !== "function" ||
+      prefersReducedMotion() ||
+      (dx === 0 && dy === 0)
+    )
+      return;
+    element.animate(
+      [{ translate: `${dx}px ${dy}px` }, { translate: "0px 0px" }],
+      { duration: 560, easing: springOrFallback(0.24) },
+    );
+  };
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    const from = flipFromRef.current;
+    flipFromRef.current = null;
+    if (element && from) springBack(element, from);
+  }, [corner]);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest("canvas, button:not(.tts-mini__open)")
+    )
+      return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    const element = ref.current;
+    if (!drag || !element || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      element.setPointerCapture?.(event.pointerId);
+      setDragging(true);
+    }
+    element.style.translate = `${dx}px ${dy}px`;
+  };
+
+  const onPointerEnd = (event: ReactPointerEvent<HTMLElement>) => {
+    const drag = dragRef.current;
+    const element = ref.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (!drag.moved || !element) return;
+    element.releasePointerCapture?.(event.pointerId);
+    suppressClickRef.current = true;
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+    setDragging(false);
+    const box = element.getBoundingClientRect();
+    const vertical =
+      box.top + box.height / 2 < window.innerHeight / 2 ? "top" : "bottom";
+    const horizontal =
+      box.left + box.width / 2 < window.innerWidth / 2 ? "left" : "right";
+    const target: MiniCorner = `${vertical}-${horizontal}`;
+    writeMiniCorner(target);
+    if (target === corner) {
+      springBack(element, box);
+      return;
+    }
+    flipFromRef.current = box;
+    setCorner(target);
+  };
+
+  const onClickCapture = (event: ReactMouseEvent<HTMLElement>) => {
+    if (!suppressClickRef.current) return;
+    suppressClickRef.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const [vertical, horizontal] = corner.split("-");
+  const style: CSSProperties = {
+    [vertical === "top" ? "top" : "bottom"]:
+      vertical === "top" ? MINI_MARGIN_PX : bottomOffset,
+    [horizontal === "left" ? "left" : "right"]: MINI_MARGIN_PX,
+    transformOrigin: `${horizontal === "left" ? "0%" : "100%"} ${
+      vertical === "top" ? "0%" : "100%"
+    }`,
+  };
+  return {
+    ref,
+    style,
+    dragging,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: onPointerEnd,
+      onPointerCancel: onPointerEnd,
+      onClickCapture,
+    },
+  };
+}
 
 function MiniPlayer({
   visible,
@@ -781,6 +988,7 @@ function MiniPlayer({
 }) {
   const present = visible && (active !== null || error !== "");
   const [mounted, setMounted] = useState(present);
+  const dock = useMiniDock(mounted);
   const [leaving, setLeaving] = useState(false);
   const lastViewRef = useRef({ active, error, threadId });
   useEffect(() => {
@@ -809,9 +1017,13 @@ function MiniPlayer({
   } as const;
   return (
     <section
+      ref={dock.ref}
       className="tts-mini"
       aria-label="Read aloud mini player"
       data-leaving={leaving ? "" : undefined}
+      data-dragging={dock.dragging ? "" : undefined}
+      style={dock.style}
+      {...dock.handlers}
     >
       <style>{PLAYER_STYLES}</style>
       <style>{MINI_STYLES}</style>

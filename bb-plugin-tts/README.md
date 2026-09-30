@@ -12,6 +12,8 @@ is immediate. Playback
 continues when you navigate to another thread or scroll the message out of
 view; a floating mini player then shows the thread being read with pause,
 stop, and seek controls, and clicking the thread title returns to the message.
+In a bottom corner it rests above the thread's composer; drag it to snap it to
+any corner of the window, and it remembers that corner.
 The inline player reappears beneath the message when its thread is open again.
 One response plays at a time: reading another response stops the current one.
 Clicking the action for the active response again also stops it. It reads assistant text

@@ -534,6 +534,75 @@ describe("read aloud message action", () => {
     overlay.lifecycle.unmount();
   });
 
+  it("docks the mini player above the composer", async () => {
+    const audioInstances = stubPlayingSession();
+    const footer = document.createElement("div");
+    footer.dataset.scrollFooter = "";
+    footer.getBoundingClientRect = () =>
+      DOMRect.fromRect({ x: 0, y: window.innerHeight - 100, width: 800, height: 100 });
+    document.body.append(footer);
+    onTestFinished(() => footer.remove());
+    const overlay = renderSlot(app.appOverlays[0]!, {}, { pluginId: "tts" });
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    const mini = await waitFor(() =>
+      overlay.getByRole("region", { name: "Read aloud mini player" }),
+    );
+    await waitFor(() => expect(mini.style.bottom).toBe("112px"));
+    expect(mini.style.right).toBe("16px");
+    overlay.lifecycle.unmount();
+  });
+
+  it("drags the mini player to a remembered corner without opening the thread", async () => {
+    window.localStorage.removeItem("bb-plugin-tts:mini-corner");
+    onTestFinished(() =>
+      window.localStorage.removeItem("bb-plugin-tts:mini-corner"),
+    );
+    const audioInstances = stubPlayingSession();
+    const overlay = renderSlot(
+      app.appOverlays[0]!,
+      {},
+      { pluginId: "tts", context: { threadId: "thread_2" } },
+    );
+    act(() =>
+      app.messageActions[0]!.run({
+        threadId: "thread_1",
+        message: assistantMessage(),
+        openPanel: () => false,
+      }),
+    );
+    await waitFor(() => expect(audioInstances).toHaveLength(1));
+    const mini = await waitFor(() =>
+      overlay.getByRole("region", { name: "Read aloud mini player" }),
+    );
+    const title = within(mini).getByRole("button", {
+      name: "Go to the message being read aloud",
+    });
+    fireEvent.pointerDown(title, { pointerId: 1, button: 0, clientX: 600, clientY: 700 });
+    fireEvent.pointerMove(title, { pointerId: 1, clientX: 40, clientY: 30 });
+    fireEvent.pointerUp(title, { pointerId: 1, clientX: 40, clientY: 30 });
+    fireEvent.click(title);
+    expect(overlay.inspection.navigateCalls).toEqual([]);
+    expect(window.localStorage.getItem("bb-plugin-tts:mini-corner")).toBe(
+      "top-left",
+    );
+    await waitFor(() => expect(mini.style.top).toBe("16px"));
+    expect(mini.style.left).toBe("16px");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.click(title);
+    expect(overlay.inspection.navigateCalls).toContainEqual({
+      method: "toThread",
+      threadId: "thread_1",
+    });
+    overlay.lifecycle.unmount();
+  });
+
   it("cleans up in-flight playback on unmount", async () => {
     let resolveFetch!: (response: Response) => void;
     const fetchDeferred = new Promise<Response>((resolve) => {
