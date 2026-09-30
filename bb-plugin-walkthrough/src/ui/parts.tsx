@@ -52,6 +52,8 @@ export function Muted({ children, className }: { children: ReactNode; className?
   return <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>;
 }
 
+const COLLAPSE_AFTER_LINES = 24;
+
 /** The base-to-head change for one file, narrowed to a line range when given. */
 export function DiffView({
   threadId,
@@ -67,6 +69,10 @@ export function DiffView({
   const rpc = useWalkthroughRpc();
   const [result, setResult] = useState<DiffResult | null>(null);
   const { path, startLine, endLine } = location;
+  const [expanded, setExpanded] = useState(false);
+  const changedLines =
+    result?.outcome === "available" ? result.patch.split("\n").filter((line) => /^[ +-]/u.test(line) && !/^(\+\+\+|---) /u.test(line)).length : 0;
+  const long = changedLines > COLLAPSE_AFTER_LINES;
   useEffect(() => {
     let live = true;
     setResult(null);
@@ -108,11 +114,26 @@ export function DiffView({
         <p className="px-3 py-2 text-xs text-muted-foreground">{result.message}</p>
       ) : (
         <>
-          <Diff
-            patch={result.patch}
-            path={result.path}
-            {...(result.fullFileContents ? { experimental_fullFileContents: result.fullFileContents } : {})}
-          />
+          <div className={cn("relative", long && !expanded && "max-h-[26rem] overflow-hidden")}>
+            <Diff
+              patch={result.patch}
+              path={result.path}
+              {...(result.fullFileContents ? { experimental_fullFileContents: result.fullFileContents } : {})}
+            />
+            {long && !expanded ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-card to-transparent" />
+            ) : null}
+          </div>
+          {long ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              aria-expanded={expanded}
+              className="w-full border-t border-border px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
+            >
+              {expanded ? "Collapse" : `Show all ${changedLines} lines`}
+            </button>
+          ) : null}
           {result.filtered || result.truncated ? (
             <p className="border-t border-border px-3 py-1 text-xs text-muted-foreground">
               {result.truncated ? "Patch truncated. " : ""}

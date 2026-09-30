@@ -249,7 +249,7 @@ function PauseControls({
               setLines(chosen?.startLine ? `${chosen.startLine}${chosen.endLine && chosen.endLine !== chosen.startLine ? `-${chosen.endLine}` : ""}` : "");
             }}
             aria-label="Attach the note to"
-            className="h-8 max-w-[16rem] truncate rounded-md border border-input bg-transparent px-2 text-xs"
+            className="h-8 min-w-0 max-w-[14rem] truncate rounded-md border border-input bg-transparent px-2 text-xs"
           >
             <option value={-1}>{groupLocationLabel}</option>
             {payload.locations.map((location, index) => (
@@ -267,7 +267,7 @@ function PauseControls({
             placeholder="lines"
             inputMode="numeric"
             className={cn(
-              "h-8 w-24 rounded-md border bg-transparent px-2 text-xs",
+              "h-8 w-20 rounded-md border bg-transparent px-2 text-xs",
               lines.trim() !== "" && parseLineRange(lines) === null ? "border-destructive" : "border-input",
             )}
           />

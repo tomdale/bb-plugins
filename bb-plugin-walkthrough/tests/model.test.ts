@@ -128,7 +128,7 @@ describe("filterPatchToRange", () => {
     " a",
     "+b",
     " c",
-    "@@ -40,2 +41,3 @@",
+    "@@ -40,1 +41,2 @@",
     " x",
     "+y",
     "",
@@ -137,9 +137,23 @@ describe("filterPatchToRange", () => {
   it("keeps only hunks intersecting the range", () => {
     const result = filterPatchToRange(patch, 41, 42);
     expect(result.filtered).toBe(true);
-    expect(result.patch).toContain("@@ -40,2 +41,3 @@");
+    expect(result.patch).toContain("@@ -40,1 +41,2 @@");
     expect(result.patch).not.toContain("@@ -1,3 +1,4 @@");
     expect(result.patch.startsWith("diff --git")).toBe(true);
+  });
+
+  it("trims a large hunk to the requested lines", () => {
+    const added = ["diff --git a/n.ts b/n.ts", "new file mode 100644", "--- /dev/null", "+++ b/n.ts", "@@ -0,0 +1,6 @@", "+1", "+2", "+3", "+4", "+5", "+6", ""].join("\n");
+    const result = filterPatchToRange(added, 3, 4);
+    expect(result.filtered).toBe(true);
+    expect(result.patch).toContain("@@ -0,0 +3,2 @@\n+3\n+4\n");
+    expect(result.patch).not.toContain("+5");
+  });
+
+  it("keeps removed lines that sit inside the range", () => {
+    const mixed = ["--- a/m.ts", "+++ b/m.ts", "@@ -10,4 +10,4 @@", " a", "-b", "+B", " c", " d", ""].join("\n");
+    const result = filterPatchToRange(mixed, 11, 11);
+    expect(result.patch).toContain("@@ -11,1 +11,1 @@\n-b\n+B\n");
   });
 
   it("returns the whole patch when nothing matches", () => {

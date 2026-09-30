@@ -114,7 +114,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           .max(4)
           .default([])
           .describe(
-            "3-4 useful questions the user might ask about the opening or current group; at the finish, the follow-up offers. The controls already provide continue, finish, close, and note recording, so never suggest those, and never repeat questions already recorded.",
+            "3-4 short prompts in the user's voice; clicking one sends it as the user's message. Normally questions they might ask about the opening or current group; at the finish, follow-up requests such as \"Investigate the open questions\". The controls already provide continue, finish, close, and note recording, so never suggest those, and never repeat questions already recorded.",
           ),
       })
       .strict(),
