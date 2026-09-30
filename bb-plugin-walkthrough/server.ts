@@ -3,6 +3,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { describeProgress } from "./src/model.ts";
 import { rpcContract } from "./src/rpc.ts";
+import { PauseController } from "./src/pause.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
 import { registerTools } from "./src/tools.ts";
@@ -29,7 +30,27 @@ export default function plugin(bb: BbPluginApi) {
   const store = new WalkthroughStore(db);
   const service = new WalkthroughService(bb, store);
 
+  const pauses = new PauseController(bb, service);
+  service.pauseOpen = (threadId) => pauses.isOpen(threadId);
+  bb.onDispose(() => pauses.dispose());
+
   registerTools(bb, service);
+
+  // The pause controls open once the agent's turn ends.
+  bb.events.on("thread.idle", ({ thread }) => {
+    if (thread.queuedMessageCount > 0) return;
+    void pauses.maybeOpen(thread.id, "idle");
+  });
+  // Pauses outlive a plugin reload or server restart; reopen them once loaded.
+  bb.background.service("reopen-pauses", {
+    async start(signal) {
+      for (const threadId of store.threadsWithPauses()) {
+        if (signal.aborted) return;
+        await pauses.maybeOpen(threadId, "startup");
+      }
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+  });
 
   bb.agents.contributeInstructions(({ threadId }) => {
     if (!threadId) return null;
@@ -72,22 +93,15 @@ export default function plugin(bb: BbPluginApi) {
     },
     diff: ({ threadId, path, startLine, endLine, withFullFile }) =>
       service.diff(threadId, path, { startLine, endLine }, withFullFile ?? false),
-    sendToAgent: async ({ threadId, request }) => {
+    showPause: async ({ threadId }) => ({ opened: await pauses.maybeOpen(threadId, "explicit") }),
+    requestReviewPost: async ({ threadId, event }) => {
       const view = service.view(threadId);
-      if (view === null) rethrow(new WalkthroughError("This thread has no walkthrough."));
-      const { walkthrough } = view;
-      if (request.kind === "resume") {
-        if (walkthrough.status === "finished" || view.pausePending) return { sent: false };
-        await service.sendToAgent(threadId, "Continue the walkthrough from where we paused.");
-        return { sent: true };
-      }
-      if (walkthrough.pr === null || walkthrough.review === null) {
-        rethrow(new WalkthroughError("There is no draft PR review to post."));
-      }
-      await service.sendToAgent(
-        threadId,
-        `Post the walkthrough's draft review to PR #${walkthrough.pr.number} on GitHub now as a ${request.event} review, with its body and inline comments exactly as drafted. This is my explicit request to submit it. Then mark it posted with walkthrough_review.`,
-      );
+      const walkthrough = view?.walkthrough;
+      if (!walkthrough?.pr || !walkthrough.review) rethrow(new WalkthroughError("There is no draft PR review to post."));
+      await service.sendMessage(threadId, {
+        visible: `Post the draft review to PR #${walkthrough.pr.number} as ${event === "COMMENT" ? "a comment" : event === "APPROVE" ? "an approval" : "a request for changes"}.`,
+        agent: `[Walkthrough ${walkthrough.id}] This is the user's explicit request to submit the walkthrough's draft review to GitHub PR #${walkthrough.pr.number} with event ${event}, body and inline comments exactly as drafted (read them with walkthrough_status). Submit it as one review, then mark it posted with walkthrough_review.`,
+      });
       return { sent: true };
     },
   });

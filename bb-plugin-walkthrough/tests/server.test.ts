@@ -6,15 +6,18 @@ const THREAD = "thr_1";
 
 async function setup() {
   const writes: Array<{ path: string; content: string }> = [];
-  const sent: string[] = [];
+  const sent: Array<{ visible: string; agent: string }> = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
     sdk: {
       threads: {
-        get: async () => makeThreadResponse({ id: THREAD, environmentId: "env_1" }),
+        get: async () => makeThreadResponse({ id: THREAD, environmentId: "env_1", status: "idle" }),
         send: async (args) => {
-          const first = args.input[0];
-          sent.push(first && "text" in first ? first.text : "");
+          const texts = args.input.map((part) => ("text" in part ? { text: part.text, agentOnly: part.visibility === "agent-only" } : null));
+          sent.push({
+            visible: texts.filter((part) => part && !part.agentOnly).map((part) => part!.text).join("\n"),
+            agent: texts.filter((part) => part?.agentOnly).map((part) => part!.text).join("\n"),
+          });
           return {} as never;
         },
       },
@@ -49,7 +52,13 @@ async function setup() {
   const tool = (name: string, input: unknown) => harness.behavior.callAgentTool(name, input, { threadId: THREAD });
   const textOf = (result: unknown) =>
     typeof result === "string" ? result : (result as { content: Array<{ text: string }> }).content.map((part) => part.text).join("\n");
-  return { bb, harness, tool, textOf, writes, sent };
+  /** Ends the agent's turn the way BB does, which opens any requested pause. */
+  const endTurn = () =>
+    harness.behavior.emitThreadEvent("thread.idle", {
+      thread: makeThreadResponse({ id: THREAD, environmentId: "env_1", status: "idle" }),
+      lastAssistantText: "narration",
+    });
+  return { bb, harness, tool, textOf, writes, sent, endTurn };
 }
 
 const START = {
@@ -62,55 +71,103 @@ const START = {
   ],
 };
 
-async function waitForInteraction(harness: Awaited<ReturnType<typeof setup>>["harness"]) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const pending = harness.inspection.pendingInteractions;
-    if (pending.length > 0) return pending[pending.length - 1]!;
+async function waitFor(check: () => boolean | Promise<boolean>) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error("no pending interaction");
+  throw new Error("condition not met");
+}
+
+async function waitForInteraction(harness: Awaited<ReturnType<typeof setup>>["harness"], after?: string) {
+  let found: (typeof harness.inspection.pendingInteractions)[number] | undefined;
+  await waitFor(() => {
+    const pending = harness.inspection.pendingInteractions.filter((entry) => entry.id !== after);
+    found = pending[pending.length - 1];
+    return found !== undefined;
+  });
+  return found!;
 }
 
 describe("walkthrough tools", () => {
-  it("starts, pauses, advances, and finishes through the pause form", async () => {
-    const { harness, tool, textOf } = await setup();
+  it("opens the pause controls after the turn and delivers choices as chat messages", async () => {
+    const { harness, tool, textOf, sent, endTurn } = await setup();
     const started = textOf(await tool("walkthrough_start", START));
     expect(started).toContain("started in local mode with 2 groups");
     expect(started).toContain("/work/repo/.agent/review-notes.md");
 
-    const firstPause = tool("walkthrough_pause", { suggestions: [] });
+    const paused = textOf(await tool("walkthrough_pause", { suggestions: ["Why two groups?"] }));
+    expect(paused).toContain("final message of this turn");
+    expect(harness.inspection.pendingInteractions).toHaveLength(0);
+
+    await endTurn();
     const overview = await waitForInteraction(harness);
     expect(overview.rendererId).toBe("walkthrough-pause");
-    expect(overview.payload).toMatchObject({ stage: "overview", nextGroupTitle: "Schema" });
+    expect(overview.title).toBe("Walkthrough overview · 2 groups");
+    expect(overview.payload).toMatchObject({ stage: "overview", nextGroupTitle: "Schema", suggestions: ["Why two groups?"] });
     harness.behavior.submitInteraction(overview.id, { action: "next" });
-    const group1 = textOf(await firstPause);
-    expect(group1).toContain("Group 1 of 2");
-    expect(group1).toContain("src/schema.ts:1-20");
+    await waitFor(() => sent.length === 1);
+    expect(sent[0]!.visible).toBe("Start: 1. Schema");
+    expect(sent[0]!.agent).toContain("Group 1 of 2");
+    expect(sent[0]!.agent).toContain("src/schema.ts:1-20");
 
     const view = await harness.behavior.callRpc("get", { threadId: THREAD });
-    expect(view).toMatchObject({ view: { walkthrough: { status: "reviewing", currentGroup: 0 } } });
+    expect(view).toMatchObject({ view: { walkthrough: { status: "reviewing", currentGroup: 0, pause: null } } });
 
-    const secondPause = tool("walkthrough_pause", { suggestions: ["Why a new table?"] });
-    const groupPause = await waitForInteraction(harness);
+    await tool("walkthrough_pause", { suggestions: [] });
+    await endTurn();
+    const groupPause = await waitForInteraction(harness, overview.id);
     await harness.behavior.callRpc("addNote", { threadId: THREAD, kind: "todo", text: "Rename column" });
     harness.behavior.submitInteraction(groupPause.id, { action: "finish" });
-    const finish = textOf(await secondPause);
-    expect(finish).toContain("Finish procedure (local mode)");
-    expect(finish).toContain('n1 todo [Group 1: Schema]: "Rename column"');
+    await waitFor(() => sent.length === 2);
+    expect(sent[1]!.visible).toBe("Finish the walkthrough");
+    expect(sent[1]!.agent).toContain("Finish procedure (local mode)");
+    expect(sent[1]!.agent).toContain('n1 todo [Group 1: Schema]: "Rename column"');
   });
 
-  it("answers ask without moving state", async () => {
-    const { harness, tool, textOf } = await setup();
+  it("sends a typed question verbatim and keeps the group", async () => {
+    const { harness, tool, sent, endTurn } = await setup();
     await tool("walkthrough_start", START);
     await tool("walkthrough_advance", { action: "next" });
-    const pause = tool("walkthrough_pause", {});
+    await tool("walkthrough_pause", {});
+    await endTurn();
     const pending = await waitForInteraction(harness);
     harness.behavior.submitInteraction(pending.id, { action: "ask", text: "What calls this?" });
-    const result = textOf(await pause);
-    expect(result).toContain('"What calls this?"');
-    expect(result).toContain("call walkthrough_pause again");
+    await waitFor(() => sent.length === 1);
+    expect(sent[0]!.visible).toBe("What calls this?");
+    expect(sent[0]!.agent).toContain('group 1 ("Schema")');
     const view = (await harness.behavior.callRpc("get", { threadId: THREAD })) as { view: { walkthrough: { currentGroup: number } } };
     expect(view.view.walkthrough.currentGroup).toBe(0);
+  });
+
+  it("closes without an agent turn and reopens dismissed controls on request", async () => {
+    const { harness, tool, sent, endTurn } = await setup();
+    await tool("walkthrough_start", START);
+    await tool("walkthrough_pause", {});
+    await endTurn();
+    const first = await waitForInteraction(harness);
+    harness.behavior.cancelInteraction(first.id);
+    await waitFor(async () => {
+      const view = (await harness.behavior.callRpc("get", { threadId: THREAD })) as { view: { pauseRequested: boolean } };
+      return view.view.pauseRequested;
+    });
+    await endTurn();
+    expect(harness.inspection.pendingInteractions.filter((entry) => entry.id !== first.id)).toHaveLength(0);
+    expect(await harness.behavior.callRpc("showPause", { threadId: THREAD })).toEqual({ opened: true });
+    const reopened = await waitForInteraction(harness, first.id);
+    harness.behavior.submitInteraction(reopened.id, { action: "complete" });
+    await waitFor(async () => {
+      const view = (await harness.behavior.callRpc("get", { threadId: THREAD })) as { view: { walkthrough: { status: string } } };
+      return view.view.walkthrough.status === "finished";
+    });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("ignores PR metadata outside PR mode", async () => {
+    const { harness, tool } = await setup();
+    await tool("walkthrough_start", { ...START, pr: { number: 1, url: "", title: "" } });
+    const view = (await harness.behavior.callRpc("get", { threadId: THREAD })) as { view: { walkthrough: { pr: unknown } } };
+    expect(view.view.walkthrough.pr).toBeNull();
   });
 
   it("reports user-recorded notes once and mirrors them to the notes file", async () => {
@@ -154,9 +211,9 @@ describe("walkthrough tools", () => {
       await tool("walkthrough_review", { body: "Looks good", comments: [{ path: "src/schema.ts", line: 3, body: "Nit" }] }),
     );
     expect(saved).toContain("1 inline comments");
-    await harness.behavior.callRpc("sendToAgent", { threadId: THREAD, request: { kind: "postReview", event: "COMMENT" } });
-    expect(sent.at(-1)).toContain("PR #12");
-    expect(sent.at(-1)).toContain("explicit request");
+    await harness.behavior.callRpc("requestReviewPost", { threadId: THREAD, event: "COMMENT" });
+    expect(sent.at(-1)!.visible).toContain("PR #12");
+    expect(sent.at(-1)!.agent).toContain("explicit request");
   });
 
   it("contributes instructions only while a walkthrough is active", async () => {

@@ -28,6 +28,7 @@ function walkthrough(overrides: Partial<Walkthrough> = {}): Walkthrough {
     workspacePath: "/w",
     notesFile: { enabled: true, path: "/w/.agent/review-notes.md", written: false, error: null },
     review: null,
+    pause: null,
     nextNoteNumber: 1,
     createdAt: 0,
     updatedAt: 0,

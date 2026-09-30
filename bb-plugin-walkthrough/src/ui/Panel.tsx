@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { formatLocation, groupLabel, NOTE_KIND_LABEL, NOTE_SECTIONS, primaryNoteKinds } from "../model.ts";
+import { formatLocation, groupLabel, NOTE_KIND_LABEL, NOTE_SECTIONS, primaryNoteKinds, shortRef } from "../model.ts";
 import type { Group, Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
 import { clearNoteDraft, errorMessage, useNoteDraft, useWalkthrough, type WalkthroughRpc } from "./hooks.ts";
 import { DiffView, GroupStatusIcon, LocationLink, Muted } from "./parts.tsx";
@@ -92,16 +92,16 @@ export function WalkthroughPanel({ threadId }: PluginThreadPanelProps) {
 function PanelHeader({ threadId, view, rpc }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc }) {
   const { walkthrough } = view;
   const covered = walkthrough.groups.filter((group) => group.status === "done").length;
-  const [sending, setSending] = useState(false);
-  const resume = async () => {
-    setSending(true);
+  const [opening, setOpening] = useState(false);
+  const showControls = async () => {
+    setOpening(true);
     try {
-      const { sent } = await rpc.call("sendToAgent", { threadId, request: { kind: "resume" } });
-      if (!sent) toast.info("The walkthrough is already waiting for you in the composer.");
+      const { opened } = await rpc.call("showPause", { threadId });
+      if (!opened) toast.info("The controls return when the agent finishes its current turn.");
     } catch (cause) {
       toast.error(errorMessage(cause));
     } finally {
-      setSending(false);
+      setOpening(false);
     }
   };
   const toggleNotesFile = (enabled: boolean) => {
@@ -129,16 +129,16 @@ function PanelHeader({ threadId, view, rpc }: { threadId: string; view: Walkthro
               "Local review"
             )}
             {" · "}
-            base <code>{walkthrough.baseRef}</code>
+            base <code title={walkthrough.baseRef}>{shortRef(walkthrough.baseRef)}</code>
             {" · "}
             {STATUS_LABEL[walkthrough.status]}
             {walkthrough.groups.length > 0 ? ` · ${covered}/${walkthrough.groups.length} groups` : ""}
           </p>
         </div>
-        {walkthrough.status !== "finished" && !view.pausePending ? (
-          <Button type="button" size="sm" variant="outline" disabled={sending} onClick={() => void resume()}>
+        {view.pauseRequested ? (
+          <Button type="button" size="sm" variant="outline" disabled={opening} onClick={() => void showControls()}>
             <Icon name="Play" className="size-3.5" aria-hidden />
-            Resume
+            Show controls
           </Button>
         ) : null}
       </div>
@@ -533,7 +533,7 @@ function NoteRow({ threadId, walkthrough, note, rpc }: { threadId: string; walkt
           ) : null}
           {note.resolution ? (
             <div className="text-xs text-muted-foreground">
-              <Markdown content={`**Answer:** ${note.resolution}`} />
+              <Markdown content={`**${note.kind === "todo" ? "Outcome" : "Answer"}:** ${note.resolution}`} />
             </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
@@ -595,7 +595,7 @@ function ReviewTab({ threadId, walkthrough, rpc }: { threadId: string; walkthrou
   const post = async () => {
     setSending(true);
     try {
-      await rpc.call("sendToAgent", { threadId, request: { kind: "postReview", event } });
+      await rpc.call("requestReviewPost", { threadId, event });
       setConfirming(false);
       toast.success("Asked the agent to post the review.");
     } catch (cause) {

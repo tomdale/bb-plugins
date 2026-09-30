@@ -31,7 +31,6 @@ export interface StartInput {
   includeUncommitted?: boolean | undefined;
   pr?: { number: number; url?: string | undefined; title?: string | undefined } | undefined;
   groups: Array<Pick<Group, "title" | "summary" | "locations">>;
-  sessionRoot?: string | undefined;
   replace?: boolean | undefined;
 }
 
@@ -61,8 +60,8 @@ const MAX_FULL_FILE_BYTES = 1_000_000;
 const MERGE_BASE_TTL_MS = 60_000;
 
 export class WalkthroughService {
-  /** threadId → walkthroughId for pause forms this server generation holds open. */
-  private readonly pendingPauses = new Map<string, string>();
+  /** Reports whether the pause controls are open; set by the PauseController. */
+  pauseOpen: (threadId: string) => boolean = () => false;
   /** Serializes notes-file writes per walkthrough so renders land in order. */
   private readonly fileWrites = new Map<string, Promise<void>>();
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
@@ -90,10 +89,12 @@ export class WalkthroughService {
   view(threadId: string): WalkthroughView | null {
     const walkthrough = this.store.latestForThread(threadId);
     if (walkthrough === null) return null;
+    const pausePending = walkthrough.status !== "finished" && this.pauseOpen(threadId);
     return {
       walkthrough,
       notes: this.store.notes(walkthrough.id),
-      pausePending: this.pendingPauses.get(threadId) === walkthrough.id,
+      pausePending,
+      pauseRequested: walkthrough.status !== "finished" && walkthrough.pause !== null && !pausePending,
     };
   }
 
@@ -122,7 +123,7 @@ export class WalkthroughService {
       this.save({ ...existing, status: "finished", updatedAt: this.now() });
     }
     const workspace = await this.resolveWorkspace(threadId);
-    const root = input.sessionRoot?.replace(/\/+$/u, "") || workspace.path;
+    const root = workspace.path;
     const now = this.now();
     const walkthrough: Walkthrough = {
       id: `wt_${randomUUID().replace(/-/gu, "").slice(0, 12)}`,
@@ -133,7 +134,10 @@ export class WalkthroughService {
       baseRef: input.baseRef,
       headRef: input.headRef ?? null,
       includeUncommitted: input.includeUncommitted ?? input.mode === "local",
-      pr: input.pr ? { number: input.pr.number, url: input.pr.url ?? null, title: input.pr.title ?? null } : null,
+      pr:
+        input.mode === "pr" && input.pr
+          ? { number: input.pr.number, url: input.pr.url || null, title: input.pr.title || null }
+          : null,
       groups: input.groups.map((group): Group => ({ ...group, status: "pending" })),
       currentGroup: null,
       environmentId: workspace.environmentId,
@@ -146,6 +150,7 @@ export class WalkthroughService {
         error: null,
       },
       review: null,
+      pause: null,
       nextNoteNumber: 1,
       createdAt: now,
       updatedAt: now,
@@ -163,16 +168,6 @@ export class WalkthroughService {
   publish(threadId: string, reason: "started" | "changed" = "changed"): void {
     const walkthrough = this.store.latestForThread(threadId);
     this.bb.realtime.publish(CHANGED_CHANNEL, { threadId, reason, walkthroughId: walkthrough?.id ?? null });
-  }
-
-  setPausePending(threadId: string, walkthroughId: string | null): void {
-    if (walkthroughId === null) this.pendingPauses.delete(threadId);
-    else this.pendingPauses.set(threadId, walkthroughId);
-    this.publish(threadId);
-  }
-
-  isPausePending(threadId: string): boolean {
-    return this.pendingPauses.has(threadId);
   }
 
   // -- notes ----------------------------------------------------------------
@@ -377,8 +372,19 @@ export class WalkthroughService {
 
   // -- agent messages ---------------------------------------------------------
 
-  async sendToAgent(threadId: string, text: string): Promise<void> {
-    await this.bb.sdk.threads.send({ threadId, mode: "auto", input: [{ type: "text", text, mentions: [] }] });
+  /**
+   * Sends a user-attributed message: `visible` shows in the transcript and
+   * `agent` reaches only the agent.
+   */
+  async sendMessage(threadId: string, message: { visible: string; agent?: string }): Promise<void> {
+    await this.bb.sdk.threads.send({
+      threadId,
+      mode: "auto",
+      input: [
+        { type: "text", text: message.visible, mentions: [] },
+        ...(message.agent ? [{ type: "text" as const, text: message.agent, mentions: [], visibility: "agent-only" as const }] : []),
+      ],
+    });
   }
 
   // -- workspace --------------------------------------------------------------

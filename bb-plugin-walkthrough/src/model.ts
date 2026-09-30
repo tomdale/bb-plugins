@@ -32,6 +32,11 @@ export function primaryNoteKinds(mode: Mode): NoteKind[] {
   return mode === "pr" ? ["question", "comment", "todo"] : ["question", "todo"];
 }
 
+/** Abbreviates a full commit SHA; branch names and short refs pass through. */
+export function shortRef(ref: string): string {
+  return /^[0-9a-f]{12,40}$/iu.test(ref) ? ref.slice(0, 8) : ref;
+}
+
 export function formatLocation(location: Location | null | undefined): string | null {
   if (!location) return null;
   const { path, startLine, endLine } = location;
@@ -182,7 +187,7 @@ function bullet(walkthrough: Walkthrough, note: Note, prefix: string | null): st
   const head = label === "" ? "" : `[${label}] `;
   const lines = [`- ${head}${note.text.replace(/\n+/gu, " ")} (${note.id})`];
   if (note.quote) lines.push(`  > ${note.quote.replace(/\n+/gu, " ").slice(0, 400)}`);
-  if (note.resolution) lines.push(`  Answer: ${note.resolution.replace(/\n+/gu, " ")}`);
+  if (note.resolution) lines.push(`  ${note.kind === "todo" ? "Outcome" : "Answer"}: ${note.resolution.replace(/\n+/gu, " ")}`);
   return lines.join("\n");
 }
 
@@ -190,7 +195,7 @@ function bullet(walkthrough: Walkthrough, note: Note, prefix: string | null): st
 export function renderNotesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
   const out = ["# Review Notes", ""];
   const scope = walkthrough.mode === "pr" && walkthrough.pr ? `PR #${walkthrough.pr.number}` : "Local review";
-  out.push(`${walkthrough.title} (${scope}; base \`${walkthrough.baseRef}\`).`, "");
+  out.push(`${walkthrough.title} (${scope}; base \`${shortRef(walkthrough.baseRef)}\`).`, "");
   for (const section of NOTE_SECTIONS) {
     const items = notes.filter((note) => note.kind === section.kind && note.status === "open");
     if (items.length === 0) continue;
@@ -261,17 +266,17 @@ export function describeOutline(walkthrough: Walkthrough): string {
 export function finishProcedure(mode: Mode): string {
   if (mode === "pr") {
     return [
-      "Finish procedure (PR mode), in order:",
-      "1. Briefly recap the sequence and nonempty notes.",
-      "2. Todos: complete or resolve each locally; stop and ask when one is ambiguous, risky, blocked, or needs input. Resolve completed todos with walkthrough_note (status resolved); leave blocked ones open.",
-      "3. Questions: answer from code, diff, tests, commits, and the PR body; resolve answered ones with walkthrough_note; leave author-intent or unavailable facts open.",
-      "4. Comments: only now offer a draft review by calling walkthrough_pause with that offer among the suggestions. On acceptance, build it with walkthrough_review. Never post or submit anything without a separate explicit request.",
+      "Finish procedure (PR mode). Do the note work first, then pause, then write the recap as your final message:",
+      "1. Todos: complete or resolve each locally; stop and ask when one is ambiguous, risky, blocked, or needs input. Resolve completed todos with walkthrough_note (status resolved, resolution = outcome); leave blocked ones open.",
+      "2. Questions: answer from code, diff, tests, commits, and the PR body; resolve answered ones with walkthrough_note; leave author-intent or unavailable facts open.",
+      "3. Call walkthrough_pause with follow-up offers as suggestions; offer the draft review there when comments or open questions exist. Build it with walkthrough_review only after the user accepts. Never post or submit anything without a separate explicit request.",
+      "4. Final message: a brief recap of the sequence, what you resolved, and what remains open.",
     ].join("\n");
   }
   return [
-    "Finish procedure (local mode):",
-    "1. Briefly recap the sequence and nonempty notes.",
-    "2. Resolve recorded questions from code, diff, tests, and commits; record answers with walkthrough_note (status resolved) and leave unknowable questions open.",
-    "3. Call walkthrough_pause with suggestions offering remaining-question investigation and todo edits or a plan. Never offer a GitHub review solely because notes exist. Act on notes only after the user opts in.",
+    "Finish procedure (local mode). Do the note work first, then pause, then write the recap as your final message:",
+    "1. Resolve recorded questions from code, diff, tests, and commits with walkthrough_note (status resolved, resolution = the answer); leave unknowable questions open. Do not act on todos yet.",
+    "2. Call walkthrough_pause with follow-up offers as suggestions: remaining-question investigation and todo edits or a plan. Never offer a GitHub review solely because notes exist.",
+    "3. Final message: a brief recap of the sequence, the answers, and what remains open.",
   ].join("\n");
 }

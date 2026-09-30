@@ -3,16 +3,15 @@
 // panel, the pause form, and the notes file always agree with the agent.
 import type { BbPluginApi, PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { PAUSE_THEN_WRITE, stateInstructions } from "./messages.ts";
 import {
-  applyPauseResponse,
+  advance,
   complete,
   describeNoteForAgent,
   describeNotesForAgent,
   describeOutline,
   describeProgress,
   enterFinishing,
-  advance,
-  finishProcedure,
   formatLocation,
   NOTE_KIND_LABEL,
   pauseStage,
@@ -23,20 +22,10 @@ import {
   modeSchema,
   noteKindSchema,
   noteStatusSchema,
-  PAUSE_RENDERER_ID,
-  pauseResponseSchema,
   reviewCommentSchema,
   reviewEventSchema,
-  type PausePayload,
-  type PauseResponse,
-  type Walkthrough,
 } from "./schemas.ts";
 import { WalkthroughError, type WalkthroughService } from "./service.ts";
-
-/** One requestInput window; bb caps a single form at one hour. */
-const PAUSE_WINDOW_MS = 60 * 60 * 1000;
-/** A pause re-opens after each window until this much time has passed. */
-const PAUSE_MAX_MS = 24 * 60 * 60 * 1000;
 
 const groupInputSchema = z
   .object({
@@ -69,78 +58,6 @@ async function guard(run: () => Promise<PluginAgentToolResult> | PluginAgentTool
   }
 }
 
-function userNotesSection(service: WalkthroughService, walkthrough: Walkthrough): string | null {
-  const fresh = service.takeUnreported(walkthrough.id);
-  if (fresh.length === 0) return null;
-  return `Notes the user recorded or edited since your last walkthrough call (already saved; do not re-record them):\n${fresh
-    .map((note) => describeNoteForAgent(walkthrough, note))
-    .join("\n")}`;
-}
-
-function groupBrief(walkthrough: Walkthrough, index: number): string {
-  const group = walkthrough.groups[index]!;
-  const lines = [`Group ${index + 1} of ${walkthrough.groups.length}: ${JSON.stringify(group.title)}`];
-  if (group.summary) lines.push(`Summary: ${group.summary}`);
-  const locations = group.locations.map(formatLocation).filter(Boolean);
-  if (locations.length > 0) lines.push(`Locations: ${locations.join(", ")}`);
-  return lines.join("\n");
-}
-
-/** What the agent does after the walkthrough moved to a new state. */
-function transitionText(service: WalkthroughService, walkthrough: Walkthrough, cause: string): string {
-  const parts = [cause];
-  if (walkthrough.status === "reviewing" && walkthrough.currentGroup !== null) {
-    parts.push(
-      `Present this group now.\n${groupBrief(walkthrough, walkthrough.currentGroup)}`,
-      "Narrate prior behavior, the change, and why, with only the relevant snippets and file references; connect earlier groups without spoiling later ones. Then call walkthrough_pause with 3-4 useful questions about this group and write nothing after it.",
-    );
-  } else if (walkthrough.status === "finishing") {
-    parts.push(
-      finishProcedure(walkthrough.mode),
-      `Covered groups:\n${describeOutline(walkthrough)}`,
-      `All notes:\n${describeNotesForAgent(walkthrough, service.notes(walkthrough.id))}`,
-    );
-    service.markAllReported(walkthrough.id);
-  } else if (walkthrough.status === "finished") {
-    parts.push("The walkthrough is closed. Act on remaining notes only if the user asks.");
-  }
-  const fresh = userNotesSection(service, walkthrough);
-  if (fresh) parts.push(fresh);
-  return parts.join("\n\n");
-}
-
-function pausePayload(walkthrough: Walkthrough, suggestions: string[]): PausePayload {
-  const stage = pauseStage(walkthrough);
-  if (stage === null) throw new WalkthroughError("The walkthrough is finished; there is nothing to pause.");
-  const index = walkthrough.currentGroup;
-  const upcoming = walkthrough.groups.findIndex((group) => group.status === "pending");
-  return {
-    walkthroughId: walkthrough.id,
-    mode: walkthrough.mode,
-    stage,
-    groupIndex: index,
-    groupCount: walkthrough.groups.length,
-    groupTitle: index === null ? null : walkthrough.groups[index]!.title,
-    nextGroupTitle: stage === "finish" || upcoming < 0 ? null : walkthrough.groups[upcoming]!.title,
-    suggestions,
-    locations: index === null ? [] : walkthrough.groups[index]!.locations,
-    environmentId: walkthrough.environmentId,
-  };
-}
-
-function describePauseChoice(payload: PausePayload, response: PauseResponse): { title: string; detail?: string } {
-  switch (response.action) {
-    case "next":
-      return { title: payload.nextGroupTitle ? `Next: ${payload.nextGroupTitle}` : "Finished the last group" };
-    case "finish":
-      return { title: "Finished the walkthrough early" };
-    case "complete":
-      return { title: "Closed the walkthrough" };
-    case "ask":
-      return { title: "Asked a question", detail: response.text };
-  }
-}
-
 export function registerTools(bb: BbPluginApi, service: WalkthroughService): void {
   bb.agents.registerTool({
     name: "walkthrough_start",
@@ -168,12 +85,6 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           .strict()
           .optional(),
         groups: z.array(groupInputSchema).min(1).max(40).describe("Ordered by dependency and substance: foundations before consumers."),
-        sessionRoot: z
-          .string()
-          .trim()
-          .max(1024)
-          .optional()
-          .describe("Absolute session root for .agent/review-notes.md; defaults to the thread's workspace."),
         replace: z.boolean().optional().describe("Close an unfinished walkthrough in this thread and start over."),
       })
       .strict(),
@@ -185,7 +96,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           [
             `Walkthrough ${walkthrough.id} started in ${walkthrough.mode} mode with ${walkthrough.groups.length} groups. The Walkthrough panel shows the outline and notes.`,
             `Notes file: ${notesPath} (written after the first recorded item).`,
-            "Next: write the opening (prior behavior, the change, its apparent reason, how the pieces connect) and the outline as compact concept names. Put ::walkthrough-outline on its own line to render the live outline. Then call walkthrough_pause and write nothing after it; group 1 begins when the user continues.",
+            "Next: call walkthrough_pause with 3-4 questions the user might ask about the overview, then write the opening as the final message of this turn: prior behavior, the change, its apparent reason, and how the pieces connect. Put ::walkthrough-outline on its own line in it; that card is the outline, so do not also list the groups. Group 1 begins when the user continues.",
           ].join("\n"),
         );
       }),
@@ -194,7 +105,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
   bb.agents.registerTool({
     name: "walkthrough_pause",
     description:
-      "Pause the walkthrough for the user: after the opening, after each group, and after the finish recap. Shows BB's pause controls (continue, finish, ask, record notes, close) in place of the composer. Call it as the last action of your message and write nothing after it: the controls are the user's prompt, and their choice arrives later as this tool's result.",
+      "Request BB's pause controls (continue, finish, ask, record notes, close) for the current step: after the opening, after each group, after answering a question, and after the finish recap. Call it right before writing the step's content, which must be the final message of your turn: BB shows only a turn's last message, and the controls open when the turn ends. The user's choice arrives as their next chat message.",
     presentation: { label: { pending: "Pausing walkthrough", completed: "Paused walkthrough" }, icon: { glyph: "Pause" }, suppress: true },
     parameters: z
       .object({
@@ -203,84 +114,25 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
           .max(4)
           .default([])
           .describe(
-            "3-4 useful questions the user might ask about the opening or current group; at the finish, the follow-up offers. The controls already provide continue, finish, close, and note recording, so never suggest those.",
+            "3-4 useful questions the user might ask about the opening or current group; at the finish, the follow-up offers. The controls already provide continue, finish, close, and note recording, so never suggest those, and never repeat questions already recorded.",
           ),
       })
       .strict(),
     execute: (input, ctx) =>
-      guard(async () => {
+      guard(() => {
         const walkthrough = service.requireActive(ctx.threadId);
-        if (service.isPausePending(ctx.threadId)) {
-          return failure("The walkthrough is already paused and waiting for the user. End your turn.");
-        }
-        const payload = pausePayload(walkthrough, input.suggestions);
-        const openedAt = Date.now();
-        service.setPausePending(ctx.threadId, walkthrough.id);
-        let outcome: Awaited<ReturnType<typeof bb.ui.requestInput>>;
-        try {
-          for (;;) {
-            outcome = await bb.ui.requestInput(
-              {
-                threadId: ctx.threadId,
-                rendererId: PAUSE_RENDERER_ID,
-                title: payload.groupTitle ? `Walkthrough: ${payload.groupTitle}` : "Walkthrough",
-                payload,
-                timeoutMs: PAUSE_WINDOW_MS,
-                presentation: {
-                  label: { pending: "Walkthrough paused", completed: "Walkthrough continued" },
-                  icon: { glyph: "Explore" },
-                },
-                describeSubmission: (value) => {
-                  const parsed = pauseResponseSchema.safeParse(value);
-                  return parsed.success ? describePauseChoice(payload, parsed.data) : {};
-                },
-              },
-              { signal: ctx.signal },
-            );
-            const expired = outcome.outcome === "cancelled" && outcome.reason === "timeout";
-            if (!expired || Date.now() - openedAt >= PAUSE_MAX_MS || ctx.signal.aborted) break;
-          }
-        } finally {
-          service.setPausePending(ctx.threadId, null);
-        }
-        if (outcome.outcome === "cancelled") {
-          return failure(
-            outcome.reason === "user"
-              ? "The user closed the walkthrough controls to use the chat composer. Wait for their message; call walkthrough_pause again when you next stop for input."
-              : `The walkthrough pause ended without a choice (${outcome.reason}). Call walkthrough_pause again when you next stop for input.`,
-          );
-        }
-        const parsed = pauseResponseSchema.safeParse(outcome.value);
-        if (!parsed.success) return failure("The pause response could not be read. Ask the user how to continue.");
-        const current = service.active(ctx.threadId);
-        if (current === null || current.id !== walkthrough.id) {
-          return failure("The walkthrough changed while paused. Call walkthrough_status.");
-        }
-        const response = parsed.data;
-        if (response.action === "ask") {
-          const parts = [
-            `The user asked, during ${payload.groupTitle ? `group ${(payload.groupIndex ?? 0) + 1} (${JSON.stringify(payload.groupTitle)})` : payload.stage === "finish" ? "the finish" : "the opening"}: ${JSON.stringify(response.text)}`,
-            payload.stage === "finish"
-              ? "Treat it as the user's direction for the follow-up. When you next need input, call walkthrough_pause."
-              : "Answer briefly when it unblocks understanding. For a tangent, suggest recording it as a question. When it depends on a later group, offer to answer now, later, or as a recorded question. Then call walkthrough_pause again for this group, which asks whether to continue, and write nothing after it.",
-          ];
-          const fresh = userNotesSection(service, current);
-          if (fresh) parts.push(fresh);
-          return text(parts.join("\n\n"));
-        }
-        const next = applyPauseResponse(current, response, Date.now());
-        service.save(next);
-        const cause =
-          response.action === "next"
-            ? current.status === "overview"
-              ? "The user is ready for group 1."
-              : next.status === "finishing"
-                ? "The user finished the last group."
-                : "The user chose to continue."
-            : response.action === "finish"
-              ? "The user chose to finish the walkthrough now."
-              : "The user closed the walkthrough.";
-        return text(transitionText(service, next, cause));
+        const stage = pauseStage(walkthrough);
+        if (stage === null) return failure("The walkthrough is finished; there is nothing to pause.");
+        service.save({ ...walkthrough, pause: { suggestions: input.suggestions, requestedAt: Date.now(), dismissed: false } });
+        const content =
+          stage === "overview"
+            ? "the opening with ::walkthrough-outline"
+            : stage === "finish"
+              ? "the recap"
+              : `the narration (or your answer) for group ${(walkthrough.currentGroup ?? 0) + 1}`;
+        return text(
+          `Pause recorded. Now write ${content} as the final message of this turn, with no tool calls after it. The controls open when your turn ends; the user's choice arrives as their next message.`,
+        );
       }),
   });
 
@@ -304,8 +156,15 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
                 ? current
                 : enterFinishing(current, now)
               : complete(current, now);
-        service.save(next);
-        return text(transitionText(service, next, `Walkthrough is now ${describeProgress(next)}.`));
+        service.save({ ...next, pause: null });
+        const fresh = service.takeUnreported(current.id);
+        const notes = service.notes(current.id);
+        if (next.status === "finishing") service.markAllReported(current.id);
+        return text(
+          [`Walkthrough is now ${describeProgress(next)}.`, stateInstructions(next, notes, fresh), next.status === "finished" ? null : PAUSE_THEN_WRITE]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
       }),
   });
 

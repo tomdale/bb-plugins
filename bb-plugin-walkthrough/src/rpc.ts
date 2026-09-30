@@ -93,20 +93,14 @@ export const rpcContract = defineRpcContract({
       .strict(),
     output: diffResultSchema,
   },
-  /**
-   * Sends a user-attributed message into the thread for actions that need the
-   * agent while no pause form is open.
-   */
-  sendToAgent: {
-    input: z
-      .object({
-        threadId: threadIdSchema,
-        request: z.discriminatedUnion("kind", [
-          z.object({ kind: z.literal("resume") }).strict(),
-          z.object({ kind: z.literal("postReview"), event: reviewEventSchema }).strict(),
-        ]),
-      })
-      .strict(),
+  /** Reopens the pause controls the user dismissed or that timed out. */
+  showPause: {
+    input: z.object({ threadId: threadIdSchema }).strict(),
+    output: z.object({ opened: z.boolean() }).strict(),
+  },
+  /** Sends the user's explicit request to post the draft review. */
+  requestReviewPost: {
+    input: z.object({ threadId: threadIdSchema, event: reviewEventSchema }).strict(),
     output: z.object({ sent: z.boolean() }).strict(),
   },
 });

@@ -43,6 +43,18 @@ export class WalkthroughStore {
     return latest && latest.status !== "finished" ? latest : null;
   }
 
+  /** Threads whose latest walkthrough is unfinished and waiting on a pause. */
+  threadsWithPauses(): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id FROM walkthroughs w WHERE status != 'finished'
+           AND json_extract(data, '$.pause') IS NOT NULL
+           AND created_at = (SELECT MAX(created_at) FROM walkthroughs WHERE thread_id = w.thread_id)`,
+      )
+      .all() as Array<{ thread_id: string }>;
+    return rows.map((row) => row.thread_id);
+  }
+
   get(id: string): Walkthrough | null {
     const row = this.db.prepare(`SELECT data FROM walkthroughs WHERE id = ?`).get(id) as
       | { data: string }

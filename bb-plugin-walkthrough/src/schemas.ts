@@ -115,6 +115,20 @@ export const walkthroughSchema = z
       })
       .strict(),
     review: reviewDraftSchema.nullable(),
+    /**
+     * Set by walkthrough_pause. The plugin opens the pause controls when the
+     * thread's turn ends; `dismissed` records that the user closed them to
+     * type in chat, so they reopen only on request or the next pause.
+     */
+    pause: z
+      .object({
+        suggestions: z.array(z.string()).max(4),
+        requestedAt: z.number(),
+        dismissed: z.boolean(),
+      })
+      .strict()
+      .nullable()
+      .default(null),
     nextNoteNumber: z.number().int().positive(),
     createdAt: z.number(),
     updatedAt: z.number(),
@@ -147,8 +161,10 @@ export const walkthroughViewSchema = z
   .object({
     walkthrough: walkthroughSchema,
     notes: z.array(noteSchema),
-    /** True while this server generation holds an open pause form. */
+    /** True while the pause controls are open in the thread. */
     pausePending: z.boolean(),
+    /** True when the agent has paused and the controls are closed or not yet open. */
+    pauseRequested: z.boolean(),
   })
   .strict();
 export type WalkthroughView = z.infer<typeof walkthroughViewSchema>;

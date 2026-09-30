@@ -17,10 +17,14 @@ import { errorMessage, useWalkthrough } from "./hooks.ts";
 
 type Feedback = { tone: "ok" | "error"; text: string } | null;
 
-function stageHeading(payload: PausePayload): string {
-  if (payload.stage === "overview") return "Walkthrough overview";
-  if (payload.stage === "finish") return "Walkthrough finish";
-  return `Group ${(payload.groupIndex ?? 0) + 1} of ${payload.groupCount}${payload.groupTitle ? `: ${payload.groupTitle}` : ""}`;
+/** "12" or "12-40" → a new-side line range; anything else is null. */
+function parseLineRange(value: string): { startLine: number; endLine?: number } | null {
+  const match = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/u.exec(value);
+  if (match === null) return null;
+  const start = Number(match[1]);
+  const end = match[2] === undefined ? start : Number(match[2]);
+  if (start < 1 || end < 1) return null;
+  return start === end ? { startLine: start } : { startLine: Math.min(start, end), endLine: Math.max(start, end) };
 }
 
 function primaryLabel(payload: PausePayload): string {
@@ -62,6 +66,7 @@ function PauseControls({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [locationIndex, setLocationIndex] = useState(-1);
+  const [lines, setLines] = useState("");
   const [showMoreKinds, setShowMoreKinds] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const inputId = useId();
@@ -91,7 +96,9 @@ function PauseControls({
   };
 
   const record = async (kind: NoteKind, noteText: string) => {
-    const location = locationIndex >= 0 ? payload.locations[locationIndex] ?? null : null;
+    const base = locationIndex >= 0 ? payload.locations[locationIndex] ?? null : null;
+    const range = parseLineRange(lines);
+    const location = base && (range ? { path: base.path, ...range } : base);
     setBusy(true);
     try {
       const note = await rpc.call("addNote", {
@@ -168,17 +175,6 @@ function PauseControls({
 
   return (
     <div className="flex flex-col gap-2.5 p-3" aria-busy={busy}>
-      <div className="flex items-center gap-2">
-        <Icon name="Explore" className="size-4 text-muted-foreground" aria-hidden />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-medium" title={stageHeading(payload)}>
-          {stageHeading(payload)}
-        </h2>
-        <Button type="button" variant="ghost" size="sm" onClick={openPanel} aria-label={`Open walkthrough panel, ${openNotes} open notes`}>
-          <Icon name="ListTodo" className="size-3.5" aria-hidden />
-          Notes{openNotes > 0 ? ` (${openNotes})` : ""}
-        </Button>
-      </div>
-
       {payload.suggestions.length > 0 ? (
         <div className="flex flex-wrap gap-1.5" aria-label="Suggested questions">
           {payload.suggestions.map((suggestion, index) => {
@@ -216,8 +212,10 @@ function PauseControls({
         onKeyDown={onKeyDown}
         placeholder={
           payload.stage === "finish"
-            ? "Tell the agent what to do next, or press Enter to close the walkthrough"
-            : "Ask about this group, or jot a note to record. Enter with nothing typed continues."
+            ? "Tell the agent what to do next. Done closes the walkthrough."
+            : payload.stage === "overview"
+              ? "Ask about the overview, or jot a note to record. Enter with nothing typed starts group 1."
+              : "Ask about this group, or jot a note to record. Enter with nothing typed continues."
         }
         className="min-h-[3.25rem] w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
@@ -244,7 +242,12 @@ function PauseControls({
         {payload.locations.length > 0 ? (
           <select
             value={locationIndex}
-            onChange={(event) => setLocationIndex(Number(event.target.value))}
+            onChange={(event) => {
+              const index = Number(event.target.value);
+              setLocationIndex(index);
+              const chosen = payload.locations[index];
+              setLines(chosen?.startLine ? `${chosen.startLine}${chosen.endLine && chosen.endLine !== chosen.startLine ? `-${chosen.endLine}` : ""}` : "");
+            }}
             aria-label="Attach the note to"
             className="h-8 max-w-[16rem] truncate rounded-md border border-input bg-transparent px-2 text-xs"
           >
@@ -256,16 +259,34 @@ function PauseControls({
             ))}
           </select>
         ) : null}
+        {locationIndex >= 0 ? (
+          <input
+            value={lines}
+            onChange={(event) => setLines(event.target.value)}
+            aria-label="Lines"
+            placeholder="lines"
+            inputMode="numeric"
+            className={cn(
+              "h-8 w-24 rounded-md border bg-transparent px-2 text-xs",
+              lines.trim() !== "" && parseLineRange(lines) === null ? "border-destructive" : "border-input",
+            )}
+          />
+        ) : null}
       </div>
 
+      <p
+        role="status"
+        aria-live="polite"
+        className={cn("min-h-4 text-xs", feedback?.tone === "error" ? "text-destructive" : "text-muted-foreground")}
+      >
+        {feedback?.text ?? ""}
+      </p>
+
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p
-          role="status"
-          aria-live="polite"
-          className={cn("min-w-0 flex-1 truncate text-xs", feedback?.tone === "error" ? "text-destructive" : "text-muted-foreground")}
-        >
-          {feedback?.text ?? ""}
-        </p>
+        <Button type="button" variant="ghost" size="sm" onClick={openPanel} aria-label={`Open the Walkthrough panel, ${openNotes} open notes`}>
+          <Icon name="ListTodo" className="size-3.5" aria-hidden />
+          Notes{openNotes > 0 ? ` (${openNotes})` : ""}
+        </Button>
         <div className="flex items-center gap-1.5">
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void cancel().catch(() => {})}>
             Use chat
@@ -278,7 +299,7 @@ function PauseControls({
           {trimmed !== "" && parseCommand(trimmed).kind === "text" ? (
             <Button type="button" size="sm" disabled={busy} onClick={submitText}>
               <Icon name="MessageQuestion" className="size-3.5" aria-hidden />
-              {payload.stage === "finish" ? "Send" : "Ask now"}
+              {payload.stage === "finish" ? "Send" : "Ask"}
             </Button>
           ) : (
             <Button

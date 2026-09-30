@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { experimental_Diff as Diff, experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { formatLocation } from "../model.ts";
+import { formatLocation, shortRef } from "../model.ts";
 import type { DiffResult } from "../rpc.ts";
 import type { GroupStatus, Location, Walkthrough } from "../schemas.ts";
 import { errorMessage, useWalkthroughRpc } from "./hooks.ts";
@@ -96,7 +96,9 @@ export function DiffView({
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <Icon name="FileDiff" className="size-3.5 text-muted-foreground" aria-hidden />
         <LocationLink environmentId={walkthrough.environmentId} location={location} />
-        <span className="ml-auto text-xs text-muted-foreground">vs {walkthrough.baseRef}</span>
+        <span className="ml-auto text-xs text-muted-foreground" title={walkthrough.baseRef}>
+          vs {shortRef(walkthrough.baseRef)}
+        </span>
       </div>
       {result === null ? (
         <p className="px-3 py-2 text-xs text-muted-foreground" role="status">
