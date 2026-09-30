@@ -627,15 +627,21 @@ describe("read aloud message action", () => {
     const title = within(mini).getByRole("button", {
       name: "Go to the message being read aloud",
     });
+    title.focus();
     fireEvent.pointerDown(title, { pointerId: 1, button: 0, clientX: 600, clientY: 700 });
     fireEvent.pointerMove(title, { pointerId: 1, clientX: 40, clientY: 30 });
     fireEvent.pointerUp(title, { pointerId: 1, clientX: 40, clientY: 30 });
     fireEvent.click(title);
     expect(overlay.inspection.navigateCalls).toEqual([]);
+    expect(document.activeElement).not.toBe(title);
     expect(window.localStorage.getItem("bb-plugin-tts:mini-corner")).toBe(
       "top-left",
     );
-    await waitFor(() => expect(mini.style.top).toBe("16px"));
+    await waitFor(() =>
+      expect(mini.style.top).toBe(
+        "calc(var(--bb-app-chrome-row-height, 3rem) + 8px)",
+      ),
+    );
     expect(mini.style.left).toBe("16px");
     await new Promise((resolve) => setTimeout(resolve, 0));
     fireEvent.click(title);
