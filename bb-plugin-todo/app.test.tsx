@@ -80,6 +80,16 @@ it("keeps the card in the composer when no measurable side gutter is available",
   slot.lifecycle.unmount();
 });
 
+it("announces a stale in-progress snapshot as pending while idle", async () => {
+  const slot = await mount(() => ({ tasks: [{ id: 1, subject, status: "in_progress" as const }], nextId: 2 }));
+  const row = await slot.findByText(subject);
+  const listItem = row.closest("li");
+  expect(listItem?.textContent).toContain("Pending:");
+  expect(listItem?.className).toContain("todo-row-pending");
+  expect(listItem?.querySelector(".todo-row-spinner")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });

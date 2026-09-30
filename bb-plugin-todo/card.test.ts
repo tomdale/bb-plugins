@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon } from "./card.ts";
+import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -52,6 +52,20 @@ test("uses spinner icons for in-progress tasks and never for the summary", () =>
   assert.equal(headerIcon(active), "Spinner");
   assert.equal(headerIcon(buildCardView([task(1, "completed")])), "CircleCheck");
   assert.equal(headerIcon(buildCardView([task(1, "pending")])), "ListTodo");
+});
+
+test("treats an idle snapshot's in-progress task as pending, but preserves it while running", () => {
+  const snapshot = [task(1, "in_progress"), task(2, "pending")];
+  const idle = buildCardView(tasksForRunState(snapshot, false));
+  assert.equal(idle.current, undefined);
+  assert.equal(idle.rows[0]?.task.status, "pending");
+  assert.equal(rowIcon(idle.rows[0]!), "Square");
+  assert.equal(headerIcon(idle), "ListTodo");
+
+  const running = buildCardView(tasksForRunState(snapshot, true));
+  assert.equal(running.current?.id, 1);
+  assert.equal(rowIcon(running.rows[0]!), "Spinner");
+  assert.equal(headerIcon(running), "Spinner");
 });
 
 test("opens automatically only while running with a task in progress", () => {

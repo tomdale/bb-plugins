@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 import type { Task } from "./model.js";
-import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, type CardRow } from "./card.js";
+import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, tasksForRunState, type CardRow } from "./card.js";
 import { computeTodoSidePlacement, type TodoRect, type TodoSidePlacement } from "./layout.js";
 import "./app.css";
 
@@ -186,7 +186,8 @@ function TodoCard() {
     const timer = window.setInterval(refresh, 1500);
     return () => window.clearInterval(timer);
   }, [view.run.isRunning, threadId, refresh]);
-  const card = useMemo(() => buildCardView(tasks), [tasks]);
+  const cardTasks = useMemo(() => tasksForRunState(tasks, view.run.isRunning), [tasks, view.run.isRunning]);
+  const card = useMemo(() => buildCardView(cardTasks), [cardTasks]);
   const tasksFingerprint = JSON.stringify(tasks);
   useEffect(() => {
     setHiddenAfterCompletion(false);

@@ -21,6 +21,12 @@ export interface CardView {
 // Matches BB's native todo card: the working task first, finished work last.
 const STATUS_RANK: Record<Task["status"], number> = { in_progress: 0, pending: 1, completed: 2, deleted: 3 };
 
+/** Idle thread snapshots can retain Pi's last in-progress tool status until another call. */
+export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): readonly Task[] {
+  if (isRunning) return tasks;
+  return tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" } : task);
+}
+
 export function buildCardView(tasks: readonly Task[]): CardView {
   const visible = tasks.filter(task => task.status !== "deleted");
   const byId = new Map(visible.map(task => [task.id, task]));
