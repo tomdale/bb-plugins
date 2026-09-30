@@ -740,12 +740,11 @@ function PlayerCard({
 }
 
 const MINI_STYLES = `
-.tts-mini{--tts-level:0;position:fixed;right:1rem;bottom:1rem;z-index:60;display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:3rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;background:radial-gradient(120% 160% at 50% 0%,color-mix(in oklab,var(--ink) calc(6% + var(--tts-level) * 10%),transparent),transparent 70%),color-mix(in oklab,var(--canvas) 78%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 10px 40px -12px color-mix(in oklab,var(--ink) 28%,transparent),inset 0 0 0 1px color-mix(in oklab,var(--ink) 7%,transparent);transform-origin:100% 100%;animation:tts-mini-in .42s ${EASE_OUT} both}
+.tts-mini{--tts-level:0;position:fixed;right:1rem;bottom:1rem;z-index:60;display:flex;align-items:center;gap:.5rem;width:min(calc(100vw - 2rem),21rem);height:2.75rem;padding:0 .5rem;border-radius:1.5rem;color:var(--ink);font-size:.75rem;line-height:1.2;background:radial-gradient(120% 160% at 50% 0%,color-mix(in oklab,var(--ink) calc(6% + var(--tts-level) * 10%),transparent),transparent 70%),color-mix(in oklab,var(--canvas) 78%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 10px 40px -12px color-mix(in oklab,var(--ink) 28%,transparent),inset 0 0 0 1px color-mix(in oklab,var(--ink) 7%,transparent);transform-origin:100% 100%;animation:tts-mini-in .42s ${EASE_OUT} both}
 .tts-mini[data-leaving]{pointer-events:none;animation:tts-mini-out .22s ease-in both}
 .tts-mini__open{display:flex;flex:1;min-width:0;flex-direction:column;align-items:flex-start;gap:.15rem;padding:.25rem .375rem;border:0;border-radius:.5rem;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .tts-mini__open:hover .tts-mini__title{text-decoration:underline;text-decoration-color:color-mix(in oklab,var(--ink) 35%,transparent);text-underline-offset:2px}
 .tts-mini__open:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
-.tts-mini__eyebrow{font-size:.625rem;letter-spacing:.06em;text-transform:uppercase;color:color-mix(in oklab,var(--ink) 50%,transparent)}
 .tts-mini__title{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .tts-mini .tts-player__wave{flex:none;width:4.5rem;height:1.25rem}
 @keyframes tts-mini-in{from{opacity:0;filter:blur(6px);transform:translateY(8px) scale(.94)}}
@@ -819,7 +818,6 @@ function MiniPlayer({
       {view.error ? (
         <>
           <span className="tts-mini__open" role="alert">
-            <span className="tts-mini__eyebrow">Read aloud</span>
             <span className="tts-mini__title">{view.error}</span>
           </span>
           <button
@@ -882,9 +880,6 @@ function MiniPlayer({
             aria-label="Go to the message being read aloud"
             onClick={onOpen}
           >
-            <span className="tts-mini__eyebrow">
-              {view.active.state === "paused" ? "Paused" : "Reading aloud"}
-            </span>
             <span className="tts-mini__title">
               {view.threadId ? <ThreadTitle threadId={view.threadId} /> : null}
             </span>
