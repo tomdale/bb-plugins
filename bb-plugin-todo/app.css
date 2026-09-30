@@ -1,16 +1,26 @@
-/*
- * Mirrors BB's native composer todo card (ThreadTodoCard + activity-row
- * styles) using only theme tokens. The host supplies the rounded, bordered
- * card chrome; everything here stays inside the plugin's own markup.
- */
+/* The inline card is part of the prompt stack; only its portaled form owns chrome. */
 .todo-card {
   min-width: 0;
   overflow: hidden;
-  /* Host chrome has a 1px border and does not clip children. */
-  border-radius: calc(var(--radius, 0.5rem) - 1px);
   color: var(--foreground);
   font-size: 12px;
   line-height: 16px;
+}
+
+.todo-card-floating {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius, 0.5rem) - 1px);
+  background: var(--surface-raised-solid, var(--background));
+}
+
+.todo-anchor { width: 100%; height: 0; pointer-events: none; visibility: hidden; }
+
+.todo-card-floating {
+  position: fixed;
+  z-index: 30;
+  min-height: 0;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 12%, transparent);
 }
 
 .todo-header {

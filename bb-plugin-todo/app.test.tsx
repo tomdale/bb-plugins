@@ -5,17 +5,80 @@ import { afterEach, expect, it } from "vitest";
 
 const subject = "Plan the release";
 const idleSnapshot = () => ({ tasks: [{ id: 1, subject, status: "pending" as const }], nextId: 2 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.querySelectorAll("[data-thread-window]").forEach(element => element.remove());
+});
 
-async function mount(snapshot: () => unknown = idleSnapshot, settings: Record<string, unknown> = {}) {
+async function mount(
+  snapshot: () => unknown = idleSnapshot,
+  settings: Record<string, unknown> = {},
+  sideGutter = false,
+) {
   const app = await loadPluginApp(() => import("./app.js"));
   const banner = app.composerCustomizations[0]!.banners![0]!;
-  return renderSlot(banner, {}, {
+  const slot = renderSlot(banner, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
     rpc: { snapshot },
     settings,
   });
+  const footer = document.createElement("div");
+  footer.setAttribute("data-scroll-footer", "");
+  footer.dataset.testSideGutter = String(sideGutter);
+  const threadWindow = document.createElement("div");
+  threadWindow.setAttribute("data-thread-window", "");
+  const scrollArea = document.createElement("div");
+  Object.defineProperty(scrollArea, "clientHeight", { value: 700 });
+  Object.defineProperty(scrollArea, "scrollHeight", { value: 1200 });
+  scrollArea.style.overflowY = "auto";
+  const messageColumn = document.createElement("div");
+  messageColumn.setAttribute("data-message-column", "");
+  Object.defineProperty(messageColumn, "clientWidth", { value: 700 });
+  messageColumn.getBoundingClientRect = () => ({ x: 0, y: 300, left: 0, right: 700, top: 300, bottom: 500, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
+  scrollArea.append(messageColumn);
+  scrollArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: sideGutter ? 1500 : 1000, top: 0, bottom: 700, width: sideGutter ? 1500 : 1000, height: 700, toJSON: () => ({}) } as DOMRect);
+  footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: sideGutter ? 1500 : 1000, top: 650, bottom: 700, width: sideGutter ? 1500 : 1000, height: 50, toJSON: () => ({}) } as DOMRect);
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: sideGutter ? 1500 : 1024 });
+  Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+  threadWindow.append(scrollArea);
+  scrollArea.append(messageColumn, footer);
+  footer.append(slot.container);
+  document.body.append(threadWindow);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return slot;
 }
+
+it("uses the right-side gutter beside the latest visible message when it fits", async () => {
+  const slot = await mount(idleSnapshot, {}, true);
+  const liveAnchor = document.querySelector<HTMLElement>("[data-message-column]")!;
+  Object.defineProperty(liveAnchor, "clientWidth", { value: 700 });
+  liveAnchor.getBoundingClientRect = () => ({ x: 0, y: 300, left: 0, right: 700, top: 300, bottom: 500, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
+  const liveArea = liveAnchor.parentElement!;
+  liveArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: 1500, top: 0, bottom: 700, width: 1500, height: 700, toJSON: () => ({}) } as DOMRect);
+  const scrollArea = liveArea.parentElement!;
+  scrollArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: 1500, top: 0, bottom: 700, width: 1500, height: 700, toJSON: () => ({}) } as DOMRect);
+  const footer = scrollArea.querySelector<HTMLElement>("[data-scroll-footer]")!;
+  footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
+  const card = await slot.findByText(subject);
+  await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
+  expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("712px");
+  slot.lifecycle.unmount();
+});
+
+it("keeps queued-message cards in their own composer instead of claiming the thread gutter", async () => {
+  const slot = await mount(idleSnapshot, {}, true);
+  await slot.behavior.setComposerScope({ kind: "queued-message", threadId: "thread-a", queuedMessageId: "queue-1" });
+  await slot.findByText(subject);
+  await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBeNull());
+  slot.lifecycle.unmount();
+});
+
+it("keeps the card in the composer when no measurable side gutter is available", async () => {
+  const slot = await mount();
+  const card = await slot.findByText(subject);
+  expect(card.closest(".todo-card")?.getAttribute("data-floating")).toBeNull();
+  slot.lifecycle.unmount();
+});
 
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
