@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Installs one BB plugin checkout into a throwaway BB server and checks that it
+# activates. The throwaway server has its own data directory and ports, so the
+# daily BB app, its plugins, and its data are never touched.
+#
+# Usage: bb-plugin-smoke <plugin-dir>
+# The plugin must already be built (dist/ present).
+set -euo pipefail
+
+plugin_dir=$(cd "${1:?usage: bb-plugin-smoke <plugin-dir>}" && pwd)
+server_js=${BB_SMOKE_SERVER_JS:-/Applications/bb.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/server/dist/index.js}
+[[ -f $server_js ]] || { echo "bb server entry not found: $server_js" >&2; exit 1; }
+[[ -d $plugin_dir/dist ]] || { echo "build $plugin_dir first (no dist/)" >&2; exit 1; }
+
+free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])'; }
+data_dir=$(mktemp -d "${TMPDIR:-/tmp}/bb-plugin-smoke.XXXXXX" | sed "s#//*#/#g")
+server_port=$(free_port)
+daemon_port=$(free_port)
+server_pid=""
+cleanup() {
+  if [[ -n $server_pid ]]; then
+    kill "$server_pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$server_pid" 2>/dev/null || break; sleep 0.5; done
+    kill -9 "$server_pid" 2>/dev/null || true
+  fi
+  rm -rf "$data_dir"
+}
+trap cleanup EXIT
+
+# Inherited BB_* variables point at the daily server and the calling thread.
+isolated=(env -u BB_THREAD_ID -u BB_PROJECT_ID -u BB_ENVIRONMENT_ID -u BB_THREAD_STORAGE -u BB_CLI
+  BB_DATA_DIR="$data_dir" BB_SERVER_BIND_HOST=127.0.0.1 BB_SERVER_PORT="$server_port"
+  BB_HOST_DAEMON_PORT="$daemon_port" BB_SERVER_URL="http://127.0.0.1:$server_port")
+
+"${isolated[@]}" node "$server_js" >"$data_dir/server.log" 2>&1 &
+server_pid=$!
+for _ in $(seq 1 60); do
+  curl -fs -o /dev/null "http://127.0.0.1:$server_port/" 2>/dev/null && break
+  kill -0 "$server_pid" 2>/dev/null || { echo "server exited:" >&2; tail -20 "$data_dir/server.log" >&2; exit 1; }
+  sleep 0.5
+done
+
+[[ $("${isolated[@]}" bb status 2>&1 | grep 'Data dir') == *"$data_dir"* ]] || { echo "bb CLI is not talking to the throwaway server" >&2; exit 1; }
+"${isolated[@]}" bb plugin install "$plugin_dir" --yes >"$data_dir/install.log" 2>&1 || { cat "$data_dir/install.log" >&2; exit 1; }
+sleep 2
+listing=$("${isolated[@]}" bb plugin list 2>&1)
+entry=$(printf '%s\n' "$listing" | grep -B1 "source: path:$plugin_dir\$" | head -1)
+echo "$entry"
+# A fresh data directory has no plugin settings or secrets, so a plugin that
+# needs them stops at needs-configuration after loading; that still proves it
+# activates.
+case $entry in
+  *" running"*) ;;
+  *" needs-configuration"*) echo "note: loaded, but needs settings this throwaway server lacks" >&2 ;;
+  *) echo "plugin did not activate" >&2; tail -40 "$data_dir/server.log" >&2; exit 1 ;;
+esac
