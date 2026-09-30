@@ -21,8 +21,8 @@ The composer's **+** menu also has **Start a walkthrough**.
 
 | Surface | What it does |
 | --- | --- |
-| Pause controls | Replace the composer at every pause: continue to the next group, finish early, ask a question (or pick a suggested one), and record a question, todo, comment (PR mode), or note against the current group or one of its files. Typing `.next`, `.finish`, `.notes`, or `.todo <text>` there works too. |
-| Walkthrough panel | Thread side panel with the outline and per-file diffs against the base, the notes list (add, edit, resolve, reopen, delete), the notes-file toggle, and the PR review draft with a Post action. Opens when a walkthrough starts. |
+| Pause controls | Replace the composer after each step: continue to the next group, finish early, ask a question (or pick a suggested one), and record a question, todo, comment (PR mode), or note against the current group, one of its files, and a line range. Typing `.next`, `.finish`, `.notes`, or `.todo <text>` there works too. "Use chat" closes them; the panel's Show controls reopens them. |
+| Walkthrough panel | Thread side panel with the outline and per-file diffs against the base, the notes list (add, edit, resolve, reopen, delete), the notes-file toggle, and the PR review draft (with diff context per inline comment) and its Post action. Opens when a walkthrough starts. |
 | Header chip | Shows progress and open notes; opens the panel. |
 | Chat directives | `::walkthrough-outline` renders the live outline; `::walkthrough-diff{path="…" lines="a-b"}` renders the real hunk for a file range. |
 | Message action | **Add to walkthrough notes** turns a selected passage of an agent message into a quoted note. |
@@ -36,11 +36,18 @@ note exists.
 
 `walkthrough_start`, `walkthrough_pause`, `walkthrough_advance`,
 `walkthrough_update_outline`, `walkthrough_note`, `walkthrough_status`, and
-`walkthrough_review`. `walkthrough_pause` opens the pause controls with
-`bb.ui.requestInput`; the user's choice returns as its result and resumes the
-agent. The plugin applies every state transition itself, so the panel and the
-notes file always match what the agent sees. Nothing is ever posted to
-GitHub without an explicit user request.
+`walkthrough_review`.
+
+BB shows only the last message of an agent turn, so each step ends with
+`walkthrough_pause` followed by the step's content as the final message. The
+plugin opens the pause controls (`bb.ui.requestInput`) once the turn goes idle
+and sends the user's choice back as a chat message: a short visible line
+("Next: 2. Storage", a typed question, "Finish the walkthrough") plus
+agent-only context with the group brief and any notes recorded meanwhile.
+Done closes the walkthrough without an agent turn. The plugin applies every
+state transition itself, so the panel and the notes file always match what
+the agent sees. Nothing is ever posted to GitHub without an explicit user
+request.
 
 ## Settings
 

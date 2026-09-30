@@ -51,7 +51,8 @@ export function pauseTitle(payload: PausePayload): string {
 function describeChoice(payload: PausePayload, response: PauseResponse): { title: string } {
   switch (response.action) {
     case "next":
-      return { title: payload.nextGroupTitle ? `Next: ${payload.nextGroupTitle}` : "Finished the last group" };
+      if (payload.nextGroupTitle === null) return { title: "Finished the last group" };
+      return { title: `${payload.stage === "overview" ? "Started" : "Continued to"} ${payload.nextGroupTitle}` };
     case "finish":
       return { title: "Finished the walkthrough" };
     case "complete":
