@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { bootstrap, entry } from "./fixtures.js";
 
 let app: Awaited<ReturnType<typeof loadPluginApp>>;
@@ -30,36 +36,51 @@ function mount(rpc = handlers) {
   )!;
   expect(customization.scopes).toEqual(["new-thread"]);
   expect(customization.banners).toBeUndefined();
-  return renderSlot(
-    customization.actions![0]!,
-    {},
-    {
-      rpc,
-      composer: {
-        scope: { kind: "new-thread", projectId: null },
-        text: "Fix auth safely",
-        selection: { projectId: "old", model: "current-model" },
-      },
+  expect(customization.actions).toBeUndefined();
+  const item = customization.plusMenu![0]!;
+  expect(item.label).toBe("Use Workforest checkout…");
+  const state = {
+    text: "Fix auth safely",
+    selection: { projectId: "old", model: "current-model" } as Record<
+      string,
+      unknown
+    >,
+    selections: [] as unknown[],
+  };
+  const composer = {
+    isSubmitting: false,
+    get selection() {
+      return state.selection;
     },
-  );
+    async setSelection(next: Record<string, unknown>) {
+      state.selection = { ...state.selection, ...next };
+      state.selections.push(next);
+      return state.selection;
+    },
+    focus() {},
+  };
+  const overlay = app.appOverlays.find(
+    (entry) => entry.id === "workforest-project-picker",
+  )!;
+  const slot = renderSlot(overlay, {}, { rpc });
+  return {
+    slot,
+    state,
+    open: () => act(() => item.run({ composer, view: {} } as never)),
+  };
 }
 describe("Composer Workforest project picker", () => {
   it("loads only on opening and selects an existing project without losing the draft", async () => {
-    const slot = mount();
+    const { slot, state, open } = mount();
     expect(slot.inspection.rpcCalls).toHaveLength(0);
-    expect(
-      slot.getByRole("button", { name: "Workforest project" }).textContent,
-    ).toBe("");
-    fireEvent.click(slot.getByRole("button", { name: "Workforest project" }));
+    await open();
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Use project for app/fix-auth",
       }),
     );
-    await waitFor(() =>
-      expect(slot.inspection.composer.selections).toHaveLength(1),
-    );
-    expect(slot.inspection.composer.selection).toEqual({
+    await waitFor(() => expect(state.selections).toHaveLength(1));
+    expect(state.selection).toEqual({
       projectId: "p1",
       model: "current-model",
       environment: {
@@ -68,18 +89,17 @@ describe("Composer Workforest project picker", () => {
         workspace: { type: "unmanaged", path: entry.path },
       },
     });
-    expect(slot.inspection.composer.text).toBe("Fix auth safely");
-    expect(slot.inspection.composer.submits).toHaveLength(0);
+    expect(state.text).toBe("Fix auth safely");
     expect(slot.inspection.navigateCalls).toHaveLength(0);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     slot.lifecycle.unmount();
   });
   it("filters checkouts and creates only when a row is selected", async () => {
-    const slot = mount({
+    const { slot, state, open } = mount({
       ...handlers,
       bootstrap: () => ({ ...bootstrap, projects: [] }),
     });
-    fireEvent.click(slot.getByRole("button", { name: "Workforest project" }));
+    await open();
     await screen.findByRole("button", {
       name: "Create project for app/fix-auth",
     });
@@ -98,9 +118,7 @@ describe("Composer Workforest project picker", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Create project for app/fix-auth" }),
     );
-    await waitFor(() =>
-      expect(slot.inspection.composer.selection?.projectId).toBe("p1"),
-    );
+    await waitFor(() => expect(state.selection?.projectId).toBe("p1"));
     expect(
       slot.inspection.rpcCalls.find((call) => call.method === "project")?.input,
     ).toEqual({ hostId: "h1", selector: entry.selector });
@@ -108,41 +126,39 @@ describe("Composer Workforest project picker", () => {
   });
   it("keeps the popup, draft, and selection on registration failure and allows retry", async () => {
     let fails = true;
-    const slot = mount({
+    const { slot, state, open } = mount({
       ...handlers,
       project: () => {
         if (fails) throw new Error("Checkout disappeared");
         return handlers.project();
       },
     });
-    fireEvent.click(slot.getByRole("button", { name: "Workforest project" }));
+    await open();
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Use project for app/fix-auth",
       }),
     );
     await screen.findByText("Checkout disappeared");
-    expect(slot.inspection.composer.selection?.projectId).toBe("old");
-    expect(slot.inspection.composer.text).toBe("Fix auth safely");
+    expect(state.selection?.projectId).toBe("old");
+    expect(state.text).toBe("Fix auth safely");
     fails = false;
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Use project for app/fix-auth",
       }),
     );
-    await waitFor(() =>
-      expect(slot.inspection.composer.selection?.projectId).toBe("p1"),
-    );
+    await waitFor(() => expect(state.selection?.projectId).toBe("p1"));
     slot.lifecycle.unmount();
   });
   it("shows machine inventory errors without creating a project", async () => {
-    const slot = mount({
+    const { slot, state, open } = mount({
       ...handlers,
       inventory: () => {
         throw new Error("Install wf on this machine");
       },
     });
-    fireEvent.click(slot.getByRole("button", { name: "Workforest project" }));
+    await open();
     await screen.findByText("Install wf on this machine");
     expect(
       slot.inspection.rpcCalls.some((call) => call.method === "project"),

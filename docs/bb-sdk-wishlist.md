@@ -18,8 +18,7 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 - **Limit:** the native `ProjectSelector` accepts existing projects and one
   core-owned create action. `ComposerCustomization` has no project-picker
   contribution surface.
-- **Workaround:** Workforest adds an icon-only new-thread composer toolbar
-  action. Its searchable popup creates or reuses an exact machine/path project,
+- **Workaround:** Workforest adds a labeled new-thread composer `+` menu item. Its searchable popup creates or reuses an exact machine/path project,
   then calls `composer.setSelection` without navigating or submitting. It cannot
   sit inside or beside the native project menu through a dedicated SDK slot.
 - **Possible API:** project source registrations with asynchronous discovery and

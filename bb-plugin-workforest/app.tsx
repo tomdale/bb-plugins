@@ -5,7 +5,10 @@ import {
   type PluginEnvironmentProviderInputsProps,
 } from "@get-bb/plugin-sdk/app";
 import { WorkforestPage } from "./ui/page.js";
-import { WorkforestProjectButton } from "./ui/composer-project.js";
+import {
+  WorkforestProjectOverlay,
+  openWorkforestProjectPicker,
+} from "./ui/composer-project.js";
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Template } from "./contracts.js";
@@ -119,7 +122,21 @@ export default definePluginApp((app) => {
   app.composer.customize({
     id: "workforest-project",
     scopes: ["new-thread"],
-    actions: [{ id: "picker", component: WorkforestProjectButton }],
+    plusMenu: [
+      {
+        id: "workforest-project",
+        label: "Use Workforest checkout…",
+        icon: "GitBranch",
+        description:
+          "Select an existing worktree or workspace as this thread's project.",
+        disabled: (composer) => composer.isSubmitting,
+        run: ({ composer }) => openWorkforestProjectPicker(composer),
+      },
+    ],
+  });
+  app.slots.experimental_appOverlay({
+    id: "workforest-project-picker",
+    component: WorkforestProjectOverlay,
   });
   app.slots.navPanel({
     id: "workspaces",

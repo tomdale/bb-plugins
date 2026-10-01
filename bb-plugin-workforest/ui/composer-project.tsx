@@ -1,7 +1,6 @@
-import { useComposer, useRpc } from "@get-bb/plugin-sdk/app";
-import { useState } from "react";
+import { useRpc, type PluginComposerApi } from "@get-bb/plugin-sdk/app";
+import { useState, useSyncExternalStore } from "react";
 import { Button } from "../components/ui/button.js";
-import { COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS } from "../components/ui/coarse-pointer-sizing.js";
 import {
   Dialog,
   DialogContent,
@@ -15,32 +14,43 @@ import type { Bootstrap, rpcContract } from "../contracts.js";
 import { useResource } from "../hooks/use-resource.js";
 import { Empty, ErrorMessage, selectClass } from "./shared.js";
 
-export function WorkforestProjectButton() {
-  const composer = useComposer();
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <span title="Workforest project" className="inline-flex">
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Workforest project"
-          className={COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS}
-          disabled={composer.isSubmitting}
-          onClick={() => setOpen(true)}
-        >
-          <Icon name="GitBranch" className="size-4" />
-        </Button>
-      </span>
-      {open && <ProjectPicker close={() => setOpen(false)} />}
-    </>
-  );
+type PickerComposer = Pick<
+  PluginComposerApi,
+  "isSubmitting" | "selection" | "setSelection" | "focus"
+>;
+let pickerComposer: PickerComposer | null = null;
+const listeners = new Set<() => void>();
+function setPickerComposer(next: PickerComposer | null) {
+  pickerComposer = next;
+  listeners.forEach((listener) => listener());
 }
 
-function ProjectPicker({ close }: { close: () => void }) {
+/** Opens one app-level picker for the composer whose `+` menu item was chosen. */
+export function openWorkforestProjectPicker(composer: PickerComposer) {
+  setPickerComposer(composer);
+}
+
+export function WorkforestProjectOverlay() {
+  const composer = useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    () => pickerComposer,
+  );
+  return composer ? (
+    <ProjectPicker composer={composer} close={() => setPickerComposer(null)} />
+  ) : null;
+}
+
+function ProjectPicker({
+  composer,
+  close,
+}: {
+  composer: PickerComposer;
+  close: () => void;
+}) {
   const rpc = useRpc<typeof rpcContract>();
-  const composer = useComposer();
   const bootstrap = useResource(
     "composer-projects",
     () => rpc.call("bootstrap", null),
