@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useBbNavigate, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
 import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
@@ -33,9 +33,9 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
  * by default (showing intelligent compact tasks or progress), can be toggled
- * or clicked to show the full list, hides itself a configurable time after
- * every task completes, and moves into the thread's right gutter when there is
- * room beside the latest message.
+ * or clicked to show the full list, renders in 2 columns when wide, adds scroll
+ * fade gradients when overflowing, and moves into the thread's right gutter
+ * when there is room beside the latest message.
  */
 export function TodoCard() {
   const composer = useComposer();
@@ -46,6 +46,8 @@ export function TodoCard() {
   const { state, loaded, error, refresh } = useTodoList(threadId);
   const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [scrollFade, setScrollFade] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
+  const listRef = useRef<HTMLUListElement>(null);
   const baseId = useId();
   const listId = `${baseId}-list`, toggleId = `${baseId}-toggle`;
 
@@ -64,18 +66,59 @@ export function TodoCard() {
     return () => window.clearTimeout(timer);
   }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
 
+  const updateScrollFade = useCallback(() => {
+    const el = listRef.current;
+    if (!el) {
+      setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
+      return;
+    }
+    const canScroll = el.scrollHeight > el.clientHeight + 1;
+    if (!canScroll) {
+      setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
+      return;
+    }
+    const isTop = el.scrollTop <= 1;
+    const isBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+    setScrollFade(prev => {
+      const next = { top: !isTop, bottom: !isBottom };
+      return prev.top === next.top && prev.bottom === next.bottom ? prev : next;
+    });
+  }, []);
+
   const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
 
+  const working = composer.isRunning && !card.allComplete;
+  const canEdit = composer.scope.kind === "thread";
+  const hasInProgress = card.collapsedRows.length > 0;
+  const showCountInActions = expanded || hasInProgress;
+  const displayRows = expanded ? card.rows : card.collapsedRows;
+
+  useLayoutEffect(() => {
+    updateScrollFade();
+  }, [displayRows.length, expanded, updateScrollFade]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => updateScrollFade());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateScrollFade]);
+
   if (!visible) return null;
 
-  const handleCardClick = () => {
-    if (!expanded) setExpanded(true);
+  const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, a, input, textarea, select, [role="button"]')) return;
+    if (typeof window !== "undefined" && window.getSelection()?.toString().trim()) return;
+    setExpanded(prev => !prev);
   };
 
   const frame = (className: string, children: ReactNode) => {
     const content = <div ref={cardRef} className={`todo-card ${className}${placement ? " todo-card-floating" : ""}`}
       data-floating={placement ? "" : undefined}
+      data-state={expanded ? "expanded" : "collapsed"}
       data-collapsed={!expanded ? "" : undefined}
       onClick={handleCardClick}
       style={placement ? { left: placement.left, top: placement.top, width: placement.width, maxHeight: placement.maxHeight } : undefined}>
@@ -93,39 +136,42 @@ export function TodoCard() {
     </div>);
   }
 
-  const working = composer.isRunning && !card.allComplete;
-  const canEdit = composer.scope.kind === "thread";
-  const hasInProgress = card.collapsedRows.length > 0;
-  const showCountInActions = expanded || hasInProgress;
-
   return frame(card.allComplete ? "todo-card-done" : "", (
     <div className="todo-card-inner">
       {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
       <div className="todo-card-content">
         {expanded ? (
-          <ul id={listId} className="todo-list" aria-label="All todos">
-            {card.rows.map(row => (
-              <TodoRow
-                key={row.task.id}
-                row={row}
-                showIds={card.showIds}
-                working={working}
-                subjects={subjects}
-              />
-            ))}
-          </ul>
+          <div className="todo-list-wrapper">
+            {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
+            <ul ref={listRef} id={listId} className="todo-list" onScroll={updateScrollFade} aria-label="All todos">
+              {card.rows.map(row => (
+                <TodoRow
+                  key={row.task.id}
+                  row={row}
+                  showIds={card.showIds}
+                  working={working}
+                  subjects={subjects}
+                />
+              ))}
+            </ul>
+            {scrollFade.bottom && <div className="todo-scroll-fade todo-scroll-fade-bottom" data-fade="bottom" aria-hidden="true" />}
+          </div>
         ) : hasInProgress ? (
-          <ul id={listId} className="todo-list" aria-label="Active todos">
-            {card.collapsedRows.map(row => (
-              <TodoRow
-                key={row.task.id}
-                row={row}
-                showIds={card.showIds}
-                working={working}
-                subjects={subjects}
-              />
-            ))}
-          </ul>
+          <div className="todo-list-wrapper">
+            {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
+            <ul ref={listRef} id={listId} className="todo-list" onScroll={updateScrollFade} aria-label="Active todos">
+              {card.collapsedRows.map(row => (
+                <TodoRow
+                  key={row.task.id}
+                  row={row}
+                  showIds={card.showIds}
+                  working={working}
+                  subjects={subjects}
+                />
+              ))}
+            </ul>
+            {scrollFade.bottom && <div className="todo-scroll-fade todo-scroll-fade-bottom" data-fade="bottom" aria-hidden="true" />}
+          </div>
         ) : card.allComplete ? (
           <div className="todo-summary" id={listId} aria-label="All todos complete">
             <Icon name="CircleCheck" className="todo-summary-icon text-muted-foreground" aria-hidden="true" />

@@ -4,6 +4,8 @@
  * prompt reads as one family. The panel and header use Tailwind host tokens.
  */
 .todo-card {
+  container-type: inline-size;
+  container-name: todo-card;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -12,13 +14,11 @@
   color: var(--foreground);
   font-size: 12px;
   line-height: 16px;
+  cursor: pointer;
   transition: background-color 150ms ease;
 }
 
-.todo-card[data-collapsed] {
-  cursor: pointer;
-}
-.todo-card[data-collapsed]:hover {
+.todo-card:hover {
   background: var(--state-hover);
 }
 
@@ -43,6 +43,32 @@
   align-items: flex-start;
   gap: 2px;
   padding: 4px;
+}
+
+.todo-list-wrapper {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.todo-scroll-fade {
+  position: absolute;
+  inset-inline: 0;
+  height: 16px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.todo-scroll-fade-top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--surface-raised-solid, var(--background)), transparent);
+}
+
+.todo-scroll-fade-bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--surface-raised-solid, var(--background)), transparent);
 }
 
 .todo-summary {
@@ -84,6 +110,16 @@
   overflow-y: auto;
 }
 .todo-card-floating .todo-list { max-height: none; }
+
+/* When card is wide enough, render lists in 2 columns */
+@container todo-card (min-width: 520px) {
+  .todo-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 8px;
+    row-gap: 1px;
+  }
+}
 
 .todo-actions {
   display: flex;

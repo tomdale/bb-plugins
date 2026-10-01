@@ -371,6 +371,69 @@ it("toggles back and forth between collapsed and expanded states at any time", a
   slot.lifecycle.unmount();
 });
 
+it("collapses the card when clicking anywhere non-interactive while expanded", async () => {
+  const slot = await mount(() => ({ tasks: [
+    { id: 1, subject: "First task", status: "pending" },
+    { id: 2, subject: "Second task", status: "pending" },
+  ], nextId: 3 }));
+  // Initially collapsed
+  expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
+
+  // Click card to expand
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+
+  // Click on a todo row to collapse
+  fireEvent.click(slot.getByText("First task"));
+  expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
+
+  // Click card to expand again
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+
+  // Click on card background to collapse
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
+
+  slot.lifecycle.unmount();
+});
+
+it("renders top and bottom scroll fade gradients based on scroll state when scrolling is needed", async () => {
+  const slot = await mount(() => ({ tasks: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, status: "pending" as const })), nextId: 11 }));
+  // Expand so the list with 10 items mounts
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  const list = slot.container.querySelector<HTMLUListElement>(".todo-list")!;
+  expect(list).toBeTruthy();
+
+  // Mock scrollable dimensions: scrollHeight > clientHeight
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+  Object.defineProperty(list, "scrollHeight", { configurable: true, value: 300 });
+  Object.defineProperty(list, "scrollTop", { configurable: true, value: 0 });
+
+  // At top: only bottom fade
+  fireEvent.scroll(list);
+  await waitFor(() => expect(slot.container.querySelector("[data-fade='bottom']")).toBeTruthy());
+  expect(slot.container.querySelector("[data-fade='top']")).toBeNull();
+
+  // Scrolled to middle: both top and bottom fade
+  Object.defineProperty(list, "scrollTop", { configurable: true, value: 50 });
+  fireEvent.scroll(list);
+  await waitFor(() => {
+    expect(slot.container.querySelector("[data-fade='top']")).toBeTruthy();
+    expect(slot.container.querySelector("[data-fade='bottom']")).toBeTruthy();
+  });
+
+  // Scrolled to bottom: only top fade
+  Object.defineProperty(list, "scrollTop", { configurable: true, value: 200 });
+  fireEvent.scroll(list);
+  await waitFor(() => {
+    expect(slot.container.querySelector("[data-fade='top']")).toBeTruthy();
+    expect(slot.container.querySelector("[data-fade='bottom']")).toBeNull();
+  });
+
+  slot.lifecycle.unmount();
+});
+
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
