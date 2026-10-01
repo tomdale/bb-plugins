@@ -26,12 +26,12 @@ export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): re
 }
 
 export function selectCollapsedRows(rows: readonly CardRow[]): CardRow[] {
-  const inProgress = rows.filter(row => row.task.status === "in_progress");
-  if (inProgress.length > 0) return inProgress.map(row => ({ ...row, depth: 0 }));
-  const pending = rows.filter(row => row.task.status === "pending");
-  if (pending.length > 0) return pending.slice(0, 2).map(row => ({ ...row, depth: 0 }));
-  const completed = rows.filter(row => row.task.status === "completed");
-  return completed.slice(0, 2).map(row => ({ ...row, depth: 0 }));
+  return rows.filter(row => row.task.status === "in_progress").map(row => ({ ...row, depth: 0 }));
+}
+
+export function collapsedSummary(view: CardView): string {
+  if (view.allComplete) return "All todos complete";
+  return `${view.completed} of ${view.total} todos done`;
 }
 
 export function buildCardView(tasks: readonly Task[]): CardView {

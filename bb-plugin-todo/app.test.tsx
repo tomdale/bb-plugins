@@ -224,7 +224,7 @@ it("titles a running card with the active task's working label", async () => {
 it("omits the edit button in queued-message composers, which have no side panel", async () => {
   const slot = await mount();
   await slot.behavior.setComposerScope({ kind: "queued-message", threadId: "thread-a", queuedMessageId: "queue-1" });
-  await slot.findByText(subject);
+  await slot.findByText("0 of 1 todos done");
   expect(slot.queryByRole("button", { name: "Edit todos" })).toBeNull();
   slot.lifecycle.unmount();
 });
@@ -240,7 +240,7 @@ it("uses the right-side gutter beside the latest visible message when it fits", 
   scrollArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: 1500, top: 0, bottom: 700, width: 1500, height: 700, toJSON: () => ({}) } as DOMRect);
   const footer = scrollArea.querySelector<HTMLElement>("[data-scroll-footer]")!;
   footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
-  const card = await slot.findByText(subject);
+  const card = await slot.findByText("0 of 1 todos done");
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("712px");
   slot.lifecycle.unmount();
@@ -249,29 +249,27 @@ it("uses the right-side gutter beside the latest visible message when it fits", 
 it("keeps queued-message cards in their own composer instead of claiming the thread gutter", async () => {
   const slot = await mount(idleSnapshot, {}, true);
   await slot.behavior.setComposerScope({ kind: "queued-message", threadId: "thread-a", queuedMessageId: "queue-1" });
-  await slot.findByText(subject);
+  await slot.findByText("0 of 1 todos done");
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBeNull());
   slot.lifecycle.unmount();
 });
 
 it("keeps the card in the composer when no measurable side gutter is available", async () => {
   const slot = await mount();
-  const card = await slot.findByText(subject);
+  const card = await slot.findByText("0 of 1 todos done");
   expect(card.closest(".todo-card")?.getAttribute("data-floating")).toBeNull();
   slot.lifecycle.unmount();
 });
 
 it("announces a stale in-progress snapshot as pending while idle", async () => {
   const slot = await mount(() => ({ tasks: [{ id: 1, subject, status: "in_progress" as const }], nextId: 2 }));
-  const row = await slot.findByText(subject);
-  const listItem = row.closest("li");
-  expect(listItem?.textContent).toContain("Pending:");
-  expect(listItem?.className).toContain("todo-row-pending");
-  expect(listItem?.querySelector(".todo-row-spinner")).toBeNull();
+  const summary = await slot.findByText("0 of 1 todos done");
+  expect(summary).toBeTruthy();
+  expect(slot.container.querySelector("svg[data-progress]")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
-it("shows the next two pending tasks while collapsed, and the full list when expanded", async () => {
+it("prints 'X of Y todos done' with circle progress indicator when no tasks are in progress", async () => {
   const slot = await mount(() => ({ tasks: [
     { id: 1, subject: "Done", status: "completed" },
     { id: 2, subject: "Next", status: "pending" },
@@ -280,13 +278,16 @@ it("shows the next two pending tasks while collapsed, and the full list when exp
   ], nextId: 5 }));
   const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(slot.getAllByRole("listitem").map(row => row.textContent)).toEqual([expect.stringContaining("Next"), expect.stringContaining("Then")]);
-  expect(slot.queryByText("Later")).toBeNull();
-  expect(slot.queryByText("Todos", { exact: true })).toBeNull();
-  fireEvent.click(toggle);
+  expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
+  expect(slot.container.querySelector("svg[data-progress]")).toBeTruthy();
+  // Entire card in collapsed state is clickable to expand
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
+  expect(slot.getByText("Next")).toBeTruthy();
+  expect(slot.getByText("Later")).toBeTruthy();
+  // In expanded state, toggle button collapses it back
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
-  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
@@ -314,7 +315,7 @@ it("keeps all active todos visible when a running card is collapsed", async () =
   slot.lifecycle.unmount();
 });
 
-it("hides a completed card after 30 seconds by default", async () => {
+it("states all todos complete with simple copy and hides after 30 seconds by default", async () => {
   vi.useFakeTimers();
   const app = await loadPluginApp(() => import("./app.js"));
   const completed = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
@@ -322,12 +323,20 @@ it("hides a completed card after 30 seconds by default", async () => {
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
+  expect(completed.getByText("All todos complete")).toBeTruthy();
   expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
+  // Entire card in collapsed state is clickable to expand
+  fireEvent.click(completed.container.querySelector(".todo-card")!);
   expect(completed.getByText(subject)).toBeTruthy();
+  expect(completed.getByRole("button", { name: "Show compact todos" })).toBeTruthy();
+  // Collapse it back
+  fireEvent.click(completed.getByRole("button", { name: "Show compact todos" }));
+  expect(completed.getByText("All todos complete")).toBeTruthy();
+
   await act(async () => { vi.advanceTimersByTime(29_999); });
-  expect(completed.getByText(subject)).toBeTruthy();
+  expect(completed.getByText("All todos complete")).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(1); });
-  expect(completed.queryByText(subject)).toBeNull();
+  expect(completed.queryByText("All todos complete")).toBeNull();
   completed.lifecycle.unmount();
 });
 
@@ -338,12 +347,8 @@ it("toggles back and forth between collapsed and expanded states at any time", a
     { id: 3, subject: "Upcoming", status: "pending" },
     { id: 4, subject: "Later", status: "pending" },
   ], nextId: 5 }));
-  // Initially collapsed: shows the next 2 pending tasks
-  expect(slot.getAllByRole("listitem")).toHaveLength(2);
-  expect(slot.getByText("Next")).toBeTruthy();
-  expect(slot.getByText("Upcoming")).toBeTruthy();
-  expect(slot.queryByText("Done")).toBeNull();
-  expect(slot.queryByText("Later")).toBeNull();
+  // Initially collapsed: shows 1 of 4 todos done
+  expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
   const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
 
   // Expand
@@ -354,39 +359,38 @@ it("toggles back and forth between collapsed and expanded states at any time", a
 
   // Collapse
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
-  expect(slot.getAllByRole("listitem")).toHaveLength(2);
-  expect(slot.queryByText("Done")).toBeNull();
+  expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
 
-  // Expand again
-  fireEvent.click(slot.getByRole("button", { name: "Show all 4 todos" }));
+  // Expand again by clicking the card
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
 
   // Collapse again
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
-  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
-  await slot.findByText(subject);
-  await waitFor(() => expect(slot.queryByText(subject)).toBeNull());
+  await slot.findByText("All todos complete");
+  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
-  await slot.findByText("Next task");
+  await slot.findByText("1 of 2 todos done");
   slot.lifecycle.unmount();
 });
 
 it("restarts the completion delay after another completed-list mutation", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.15 });
-  await slot.findByText(subject);
+  await slot.findByText("All todos complete");
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await new Promise(resolve => setTimeout(resolve, 90));
-  expect(slot.getByText("Updated completed task")).toBeTruthy();
-  await waitFor(() => expect(slot.queryByText("Updated completed task")).toBeNull());
+  expect(slot.getByText("All todos complete")).toBeTruthy();
+  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
   slot.lifecycle.unmount();
 });

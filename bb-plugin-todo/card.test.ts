@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
+import { autoExpanded, buildCardView, collapsedSummary, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -63,20 +63,20 @@ test("treats an idle snapshot's in-progress task as pending, but preserves it wh
   assert.equal(rowIcon(running.rows[0]!), "Spinner");
 });
 
-test("collapsed previews show every active task, or next two pending, or completed when all complete", () => {
+test("collapsed rows show every active task, and empty when none are in progress", () => {
   const tasks = [task(1, "completed"), task(2, "pending"), task(3, "in_progress", { parentId: 2 }), task(4, "in_progress"), task(5, "in_progress"), task(6, "pending"), task(7, "pending"), task(8, "deleted")];
   const active = buildCardView(tasks);
   assert.deepEqual(active.collapsedRows.map(row => [row.task.id, row.depth]), [[3, 0], [4, 0], [5, 0]]);
   const idle = buildCardView(tasksForRunState(tasks, false));
-  assert.deepEqual(idle.collapsedRows.map(row => row.task.id), [2, 3]);
+  assert.deepEqual(idle.collapsedRows, []);
 
   const completed = buildCardView([task(1, "completed"), task(2, "completed"), task(3, "completed"), task(4, "deleted")]);
-  assert.deepEqual(completed.collapsedRows.map(row => row.task.id), [1, 2]);
+  assert.deepEqual(completed.collapsedRows, []);
+  assert.equal(collapsedSummary(completed), "All todos complete");
 
-  const singleCompleted = buildCardView([task(1, "completed"), task(2, "deleted")]);
-  assert.deepEqual(singleCompleted.collapsedRows.map(row => row.task.id), [1]);
-
-  assert.deepEqual(buildCardView([]).collapsedRows, []);
+  const partial = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "pending")]);
+  assert.deepEqual(partial.collapsedRows, []);
+  assert.equal(collapsedSummary(partial), "1 of 3 todos done");
 });
 
 test("opens automatically only while running with a task in progress", () => {

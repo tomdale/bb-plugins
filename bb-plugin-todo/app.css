@@ -12,6 +12,14 @@
   color: var(--foreground);
   font-size: 12px;
   line-height: 16px;
+  transition: background-color 150ms ease;
+}
+
+.todo-card[data-collapsed] {
+  cursor: pointer;
+}
+.todo-card[data-collapsed]:hover {
+  background: var(--state-hover);
 }
 
 .todo-card-floating {
@@ -35,6 +43,32 @@
   align-items: flex-start;
   gap: 2px;
   padding: 4px;
+}
+
+.todo-summary {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--muted-foreground);
+}
+
+.todo-summary-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.todo-summary-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .todo-list {

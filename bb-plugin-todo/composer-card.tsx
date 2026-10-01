@@ -1,8 +1,9 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useBbNavigate, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { buildCardView, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
 import type { Task } from "./model.js";
+import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
 import { TODO_PANEL_ACTION_ID } from "./editor-button.js";
@@ -31,9 +32,10 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
 
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
- * by default (showing intelligent compact tasks), can be toggled to show the
- * full list, hides itself a configurable time after every task completes, and
- * moves into the thread's right gutter when there is room beside the latest message.
+ * by default (showing intelligent compact tasks or progress), can be toggled
+ * or clicked to show the full list, hides itself a configurable time after
+ * every task completes, and moves into the thread's right gutter when there is
+ * room beside the latest message.
  */
 export function TodoCard() {
   const composer = useComposer();
@@ -67,9 +69,15 @@ export function TodoCard() {
 
   if (!visible) return null;
 
+  const handleCardClick = () => {
+    if (!expanded) setExpanded(true);
+  };
+
   const frame = (className: string, children: ReactNode) => {
     const content = <div ref={cardRef} className={`todo-card ${className}${placement ? " todo-card-floating" : ""}`}
       data-floating={placement ? "" : undefined}
+      data-collapsed={!expanded ? "" : undefined}
+      onClick={handleCardClick}
       style={placement ? { left: placement.left, top: placement.top, width: placement.width, maxHeight: placement.maxHeight } : undefined}>
       {children}
     </div>;
@@ -87,23 +95,48 @@ export function TodoCard() {
 
   const working = composer.isRunning && !card.allComplete;
   const canEdit = composer.scope.kind === "thread";
-  const displayRows = expanded ? card.rows : card.collapsedRows;
+  const hasInProgress = card.collapsedRows.length > 0;
+  const showCountInActions = expanded || hasInProgress;
 
   return frame(card.allComplete ? "todo-card-done" : "", (
     <div className="todo-card-inner">
       {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
       <div className="todo-card-content">
-        <ul id={listId} className="todo-list" aria-label={expanded ? "All todos" : "Current todos"}>
-          {displayRows.map(row => (
-            <TodoRow
-              key={row.task.id}
-              row={row}
-              showIds={card.showIds}
-              working={working}
-              subjects={subjects}
-            />
-          ))}
-        </ul>
+        {expanded ? (
+          <ul id={listId} className="todo-list" aria-label="All todos">
+            {card.rows.map(row => (
+              <TodoRow
+                key={row.task.id}
+                row={row}
+                showIds={card.showIds}
+                working={working}
+                subjects={subjects}
+              />
+            ))}
+          </ul>
+        ) : hasInProgress ? (
+          <ul id={listId} className="todo-list" aria-label="Active todos">
+            {card.collapsedRows.map(row => (
+              <TodoRow
+                key={row.task.id}
+                row={row}
+                showIds={card.showIds}
+                working={working}
+                subjects={subjects}
+              />
+            ))}
+          </ul>
+        ) : card.allComplete ? (
+          <div className="todo-summary" id={listId} aria-label="All todos complete">
+            <Icon name="CircleCheck" className="todo-summary-icon text-muted-foreground" aria-hidden="true" />
+            <span className="todo-summary-text">{collapsedSummary(card)}</span>
+          </div>
+        ) : (
+          <div className="todo-summary" id={listId} aria-label={collapsedSummary(card)}>
+            <ProgressRing completed={card.completed} total={card.total} className="todo-summary-icon text-muted-foreground" />
+            <span className="todo-summary-text">{collapsedSummary(card)}</span>
+          </div>
+        )}
         <div className="todo-actions">
           <button
             type="button"
@@ -112,9 +145,14 @@ export function TodoCard() {
             aria-expanded={expanded}
             aria-controls={listId}
             aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
-            onClick={() => setExpanded(prev => !prev)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(prev => !prev);
+            }}
           >
-            <span className="todo-count" aria-hidden="true">{card.completed}/{card.total}</span>
+            {showCountInActions && (
+              <span className="todo-count" aria-hidden="true">{card.completed}/{card.total}</span>
+            )}
             <Icon name={expanded ? "ChevronUp" : "ChevronDown"} className="todo-chevron" aria-hidden="true" />
           </button>
           {canEdit && (
@@ -123,7 +161,10 @@ export function TodoCard() {
               className="todo-edit"
               aria-label="Edit todos"
               title="Edit todos"
-              onClick={() => { navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID }); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID });
+              }}
             >
               <Icon name="Edit" aria-hidden="true" />
             </button>
