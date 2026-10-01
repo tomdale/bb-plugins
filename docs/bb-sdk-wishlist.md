@@ -74,8 +74,8 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 - **Status:** not filed
 - **Observed:** BB 0.44.0, Plugin SDK 0.6.5
 - **Use case:** a turn that ends with an open question card ends properly, so
-  Workstreams must not remind it. The card often comes from another plugin's
-  tool (`toolbelt-ask-user-question`) that opened `bb.ui.requestInput`.
+  Workstreams must not remind it. The card often comes from Workstreams' own
+  `AskUserQuestion` tool, which opens `bb.ui.requestInput`.
 - **Limit:** a plugin form opened from a detached tool call reaches
   `interaction.pending` with `turnId: null`. `threads.get` has no
   `hasPendingInteraction` (only `threads.list` items do), and no event reports
