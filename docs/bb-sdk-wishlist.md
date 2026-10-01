@@ -8,6 +8,37 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Preserve pending user questions across plugin reloads
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** a user should be able to finish answering a Workstreams question
+  while another thread builds and reloads the plugin, without losing the card,
+  partial input, or the agent's waiting tool call
+- **Limit:** `plugin-runtime.ts` unload calls
+  `pendingInteractions.interruptPluginInteractions(id)`, marking interactions
+  `plugin-disposed`. Detached tool results are dropped. `ui.requestInput` offers
+  neither a durable request ID nor a way for a new plugin generation to adopt
+  the request and its waiter. The server log confirms questions dropped at
+  exactly the reload timestamp. Removing the abort signal cannot prevent
+  plugin-owned interaction disposal
+- **Workaround:** Workstreams records unanswered questions in its own SQLite
+  database before requesting native input. The composer restores orphaned cards
+  after reload, retains partial input in per-tab session storage, and delivers
+  recovered answers through `threads.send` as ordinary user messages. Recap
+  enforcement stands aside while the durable question remains unresolved. Native
+  waiting status and original tool-call continuity are not preserved; the
+  frontend disappears briefly while its bundle reloads. Recovered delivery
+  claims the record before sending to prevent concurrent-tab duplicates, but the
+  SDK offers no idempotency key: a crash or ambiguous network failure during
+  send cannot guarantee exactly-once delivery. This is recovery, not transparent
+  native interaction persistence
+- **Possible API:** `ui.requestInput({ durableKey, ... })` with
+  `ui.adoptInput({ durableKey, describeSubmission })` on reload; retain the
+  interaction, renderer state, expiry policy, and detached provider tool waiter
+  across compatible generations. Distinguish reload from disable/uninstall,
+  expose durable terminal results, and support idempotent answer delivery
+
 ## Provide projects and add items to the composer project menu
 
 - **Status:** not filed
