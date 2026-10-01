@@ -256,6 +256,8 @@
 
 .todo-row-active { background: var(--state-hover); color: var(--foreground); }
 .todo-row-active .todo-row-text { font-weight: 500; }
+.todo-card[data-collapsed] .todo-row-active { background: transparent; }
+.todo-card[data-collapsed] .todo-row-active .todo-row-text { font-weight: inherit; }
 .todo-row-pending .todo-row-icon,
 .todo-row-blocked .todo-row-icon,
 .todo-row-completed .todo-row-icon { color: var(--subtle-foreground); }
