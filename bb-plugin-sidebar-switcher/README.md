@@ -18,7 +18,10 @@ from the main window instead of Settings → Appearance.
 Each choice writes the same server-synced UI preference that Settings →
 Appearance writes (`sidebar.threadListProvider`, `sidebar.navigationProvider`,
 `sidebar.headerProvider`), so it applies to every window and survives
-restarts. **Automatic** and **None** are BB's own sentinel choices.
+restarts. The menu lists providers only; when a slot is set to BB's
+**Automatic**, the provider it resolves to is checked, and picking a row
+replaces Automatic with that explicit choice. The header group's **None**
+means BB's own header only.
 
 ## How providers are discovered
 
@@ -41,7 +44,7 @@ its contract. One consequence: a plugin that keeps an
 sidebar slot would have that controller replaced by a no-op once the switcher
 inspects it.
 
-The *Automatic* row's hint approximates BB's choice with plugin-id order;
+Which provider Automatic resolves to is approximated with plugin-id order;
 BB's actual order is internal.
 
 ## Development

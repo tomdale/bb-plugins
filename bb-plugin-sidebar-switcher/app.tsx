@@ -14,6 +14,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
   choicesFor,
+  effectiveValue,
   nextProvider,
   SIDEBAR_SLOT_KINDS,
   SLOT_LABEL,
@@ -149,7 +150,7 @@ function SlotSection({
 }) {
   const saved = state.preferences?.[kind].value ?? null;
   const pending = state.pending[kind];
-  const selected = pending ?? saved;
+  const selected = pending ?? effectiveValue(kind, state.providers[kind], saved);
   const choices = choicesFor(kind, state.providers[kind], saved);
   return (
     <div role="group" aria-label={SLOT_LABEL[kind]} className="py-1">

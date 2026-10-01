@@ -199,25 +199,33 @@ export function normalizePreference(
 }
 
 /**
- * The switcher's rows for one slot: BB's sentinel choice first, then every
- * provider, then the saved value when it names a provider that is missing.
+ * The value the switcher marks as selected. `__automatic__` is shown as the
+ * provider it resolves to, since the menu offers providers rather than BB's
+ * Automatic sentinel.
+ */
+export function effectiveValue(
+  kind: SidebarSlotKind,
+  providers: readonly ProviderOption[],
+  savedValue: string | null,
+): string | null {
+  if (savedValue !== AUTOMATIC) return savedValue;
+  return resolveAutomatic(kind, providers)?.value ?? null;
+}
+
+/**
+ * The switcher's rows for one slot: every provider by title, with the header
+ * slot's None first, then the saved value when it names a provider that is
+ * missing. BB's Automatic sentinel is never a row.
  */
 export function choicesFor(
   kind: SidebarSlotKind,
   providers: readonly ProviderOption[],
   currentValue: string | null,
 ): Choice[] {
-  const sentinel: Choice =
-    kind === "header"
-      ? { value: BUILTIN, label: "None", detail: "BB's own header only", isUnavailable: false }
-      : {
-          value: AUTOMATIC,
-          label: "Automatic",
-          detail: resolveAutomatic(kind, providers)?.title ?? null,
-          isUnavailable: false,
-        };
   const choices: Choice[] = [
-    sentinel,
+    ...(kind === "header"
+      ? [{ value: BUILTIN, label: "None", detail: "BB's own header only", isUnavailable: false }]
+      : []),
     ...sortProviders(providers).map((provider) => ({
       value: provider.value,
       label: provider.title,
@@ -227,6 +235,7 @@ export function choicesFor(
   ];
   if (
     currentValue !== null &&
+    currentValue !== AUTOMATIC &&
     !choices.some((choice) => choice.value === currentValue)
   ) {
     choices.push({

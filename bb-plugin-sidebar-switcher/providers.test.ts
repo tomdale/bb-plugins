@@ -3,6 +3,7 @@ import {
   bundleMayRegisterSidebarSlots,
   choicesFor,
   collectSidebarRegistrations,
+  effectiveValue,
   nextProvider,
   normalizePreference,
   resolveAutomatic,
@@ -110,16 +111,26 @@ describe("preferences and choices", () => {
     expect(resolveAutomatic("threadList", [])).toBeNull();
   });
 
-  it("lists the sentinel first, providers by title, then a missing saved value", () => {
+  it("lists providers by title, then a missing saved value, and never Automatic", () => {
     const choices = choicesFor("threadList", [workstreams, bundled], "gone/list");
     expect(choices.map((c) => c.value)).toEqual([
-      "__automatic__",
       "thread-list/thread-list",
       "workstreams/sidebar",
       "gone/list",
     ]);
     expect(choices.at(-1)?.isUnavailable).toBe(true);
+    expect(
+      choicesFor("threadList", [workstreams, bundled], "__automatic__").map((c) => c.value),
+    ).toEqual(["thread-list/thread-list", "workstreams/sidebar"]);
     expect(choicesFor("header", [], "__builtin__").map((c) => c.label)).toEqual(["None"]);
+  });
+
+  it("marks Automatic as the provider it resolves to", () => {
+    expect(effectiveValue("threadList", [bundled, workstreams], "__automatic__")).toBe(
+      "workstreams/sidebar",
+    );
+    expect(effectiveValue("threadList", [bundled], "inbox/inbox")).toBe("inbox/inbox");
+    expect(effectiveValue("threadList", [], "__automatic__")).toBeNull();
   });
 
   it("cycles providers in title order and wraps", () => {
