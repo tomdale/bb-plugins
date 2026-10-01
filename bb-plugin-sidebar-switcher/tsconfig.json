@@ -25,6 +25,7 @@
     "app.tsx",
     "providers.ts",
     "store.ts",
+    "menu.ts",
     "*.test.ts",
     "components",
     "lib"

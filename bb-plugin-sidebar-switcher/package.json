@@ -55,6 +55,7 @@
     "app.tsx",
     "providers.ts",
     "store.ts",
+    "menu.ts",
     "components",
     "lib",
     "tsconfig.json",

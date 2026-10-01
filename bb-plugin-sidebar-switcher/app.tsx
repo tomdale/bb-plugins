@@ -2,7 +2,8 @@
 // that change which plugin renders BB's sidebar (the thread list slot) and,
 // when alternatives exist, its navigation and header,
 // without a trip to Settings → Appearance.
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import type { RefObject } from "react";
 import {
   definePluginApp,
   experimental_usePluginId,
@@ -21,6 +22,7 @@ import {
   type Choice,
   type SidebarSlotKind,
 } from "./providers";
+import { menuFocusTarget } from "./menu";
 import {
   createSwitcherStore,
   type PluginSummary,
@@ -106,6 +108,9 @@ function ChoiceRow({
       type="button"
       role="menuitemradio"
       aria-checked={isSelected}
+      // Roving focus: arrows move between rows, so only the checked row is
+      // a Tab stop.
+      tabIndex={isSelected ? 0 : -1}
       disabled={disabled}
       onClick={onSelect}
       className={cn(
@@ -183,23 +188,80 @@ function SlotSection({
   );
 }
 
+const ITEM_SELECTOR = '[role="menuitemradio"]:not(:disabled)';
+
+/**
+ * Moves focus into the menu on open and onto a row once rows exist (the
+ * checked row, else the first), and hands focus back to whatever had it when the menu closes, so
+ * opening from the footer button or the palette is fully keyboard-operable.
+ */
+function useMenuFocus(menu: RefObject<HTMLDivElement | null>, hasItems: boolean) {
+  const returnFocusTo = useRef<Element | null>(null);
+  const hasFocused = useRef(false);
+
+  useLayoutEffect(() => {
+    returnFocusTo.current = document.activeElement;
+    // Hold focus on the menu itself while rows load, so Escape works at once.
+    menu.current?.focus({ preventScroll: true });
+    return () => {
+      const target = returnFocusTo.current;
+      const active = document.activeElement;
+      const focusWasInMenu =
+        active === null || active === document.body || menu.current?.contains(active);
+      if (focusWasInMenu && target instanceof HTMLElement && target.isConnected) {
+        target.focus();
+      }
+    };
+  }, [menu]);
+
+  useEffect(() => {
+    if (hasFocused.current || !hasItems) return;
+    const root = menu.current;
+    if (root === null) return;
+    const item =
+      root.querySelector<HTMLElement>(`${ITEM_SELECTOR}[aria-checked="true"]`) ??
+      root.querySelector<HTMLElement>(ITEM_SELECTOR);
+    if (item === null) return;
+    hasFocused.current = true;
+    item.focus();
+  }, [menu, hasItems]);
+}
+
 function SwitcherDisclosure({ dismiss }: ExperimentalSidebarFooterDisclosureProps) {
   const state = useSwitcherState();
+  const menu = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // Pick up plugins enabled or preferences changed since the last open.
     if (store.isAttached()) void store.refresh();
   }, []);
   const kinds = SIDEBAR_SLOT_KINDS.filter((kind) => hasAlternatives(kind, state));
+  const isLoaded = state.status === "ready" || state.preferences !== null;
+  useMenuFocus(menu, isLoaded && kinds.length > 0);
   return (
     <div
+      ref={menu}
       role="menu"
       aria-label="Sidebar plugins"
-      className="max-h-[60vh] overflow-y-auto rounded-lg bg-sidebar-accent/40 p-1"
+      tabIndex={-1}
+      className="max-h-[60vh] overflow-y-auto rounded-lg bg-sidebar-accent/40 p-1 focus:outline-none"
       onKeyDown={(event) => {
-        if (event.key === "Escape") dismiss();
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+          return;
+        }
+        const items = Array.from(
+          event.currentTarget.querySelectorAll<HTMLElement>(ITEM_SELECTOR),
+        );
+        const current = items.indexOf(document.activeElement as HTMLElement);
+        const target = menuFocusTarget(event.key, current, items.length);
+        if (target === null) return;
+        event.preventDefault();
+        items[target]?.focus();
       }}
     >
-      {state.status === "ready" || state.preferences !== null ? (
+      {isLoaded ? (
         kinds.length === 0 ? (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">
             No alternative sidebar plugins are enabled.
