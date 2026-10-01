@@ -8,6 +8,23 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Preserve named fields in root-union tool schemas
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams validates complete, review, and continuing recaps
+  with different required fields using a Zod discriminated union.
+- **Limit:** a root union can reach a Pi agent as an empty parameter object,
+  although the server retains the union and rejects empty calls. Annotating
+  the root as `type: "object"` does not ensure its variant properties remain
+  visible to the model.
+- **Workaround:** register a concrete object with all named fields and their
+  state-specific descriptions, then parse the discriminated union before
+  accepting the recap. Provider schemas expose the fields while server-side
+  validation retains the state-specific contract.
+- **Possible API:** preserve object-union fields across provider conversion,
+  or reject registrations that a provider would expose with no parameters.
+
 ## Bound repeated failing tool calls within an active turn
 
 - **Status:** not filed
