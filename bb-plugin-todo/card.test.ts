@@ -70,6 +70,17 @@ test("treats an idle snapshot's in-progress task as pending, but preserves it wh
   assert.equal(rowIcon(running.rows[0]!), "Spinner");
 });
 
+test("collapsed previews show every active task, otherwise the next two pending tasks", () => {
+  const tasks = [task(1, "completed"), task(2, "pending"), task(3, "in_progress", { parentId: 2 }), task(4, "in_progress"), task(5, "in_progress"), task(6, "pending"), task(7, "pending"), task(8, "deleted")];
+  const active = buildCardView(tasks);
+  assert.deepEqual(active.collapsedRows.map(row => [row.task.id, row.depth]), [[3, 0], [4, 0], [5, 0]]);
+  assert.equal(cardTitle(active), "3 todos in progress");
+  const idle = buildCardView(tasksForRunState(tasks, false));
+  assert.deepEqual(idle.collapsedRows.map(row => row.task.id), [2, 3]);
+  assert.deepEqual(buildCardView([task(1, "completed"), task(2, "deleted")]).collapsedRows, []);
+  assert.deepEqual(buildCardView([]).collapsedRows, []);
+});
+
 test("opens automatically only while running with a task in progress", () => {
   const working = buildCardView([task(1, "in_progress"), task(2, "pending")]);
   assert.equal(autoExpanded(working, true), true);

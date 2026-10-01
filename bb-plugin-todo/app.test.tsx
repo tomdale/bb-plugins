@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { apply, type Input, type State } from "./model.js";
 
 const subject = "Plan the release";
 const idleSnapshot = () => ({ tasks: [{ id: 1, subject, status: "pending" as const }], nextId: 2 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   document.querySelectorAll("[data-thread-window]").forEach(element => element.remove());
 });
 
@@ -108,6 +109,16 @@ it("renders hierarchy and blockers in the panel and edits subjects on commit", a
   fireEvent.change(subject, { target: { value: "Discarded" } });
   fireEvent.keyDown(subject, { key: "Escape" });
   expect((subject as HTMLInputElement).value).toBe("Renamed parent");
+  slot.lifecycle.unmount();
+});
+
+it("summarizes concurrent tasks in the Todos panel", async () => {
+  const { slot } = await mountPanel({ tasks: [
+    { id: 1, subject: "First", status: "in_progress" },
+    { id: 2, subject: "Second", status: "in_progress" },
+  ], nextId: 3 });
+  await slot.findByRole("status");
+  expect(slot.getByRole("status").textContent).toContain("2 todos in progress");
   slot.lifecycle.unmount();
 });
 
@@ -259,11 +270,65 @@ it("announces a stale in-progress snapshot as pending while idle", async () => {
   slot.lifecycle.unmount();
 });
 
+it("shows the next two pending tasks while collapsed, and the full list when expanded", async () => {
+  const slot = await mount(() => ({ tasks: [
+    { id: 1, subject: "Done", status: "completed" },
+    { id: 2, subject: "Next", status: "pending" },
+    { id: 3, subject: "Then", status: "pending", blockedBy: [2] },
+    { id: 4, subject: "Later", status: "pending" },
+  ], nextId: 5 }));
+  const toggle = await slot.findByRole("button", { name: "Todos: 1 of 4 complete" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(slot.getAllByRole("listitem").map(row => row.textContent)).toEqual([expect.stringContaining("Next"), expect.stringContaining("Then")]);
+  expect(slot.queryByText("Later")).toBeNull();
+  fireEvent.click(toggle);
+  expect(slot.getAllByRole("listitem")).toHaveLength(4);
+  fireEvent.click(toggle);
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  slot.lifecycle.unmount();
+});
+
+it("keeps all active todos visible when a running card is collapsed", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  const slot = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
+    rpc: { snapshot: () => ({ tasks: [
+      { id: 1, subject: "First", status: "in_progress" },
+      { id: 2, subject: "Second", status: "in_progress" },
+      { id: 3, subject: "Third", status: "in_progress" },
+      { id: 4, subject: "Waiting", status: "pending" },
+    ], nextId: 5 }) },
+  });
+  const toggle = await slot.findByRole("button", { name: "Todos: 0 of 4 complete; 3 todos in progress" });
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(slot.getAllByRole("listitem")).toHaveLength(3);
+  expect(slot.container.querySelectorAll(".todo-row-spinner")).toHaveLength(3);
+  expect(slot.queryByText("Waiting")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+it("hides a completed card after 30 seconds by default", async () => {
+  vi.useFakeTimers();
+  const app = await loadPluginApp(() => import("./app.js"));
+  const completed = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" } },
+    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
+  });
+  await act(async () => {});
+  expect(completed.getByText("All todos complete")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(29_999); });
+  expect(completed.getByText("All todos complete")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(1); });
+  expect(completed.queryByText("All todos complete")).toBeNull();
+  completed.lifecycle.unmount();
+});
+
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
-  await slot.findByText(subject);
-  await waitFor(() => expect(slot.queryByText(subject)).toBeNull());
+  await slot.findByText("All todos complete");
+  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("Next task");
@@ -273,7 +338,8 @@ it("hides a completed card after the configured delay and shows it again when ta
 it("restarts the completion delay after another completed-list mutation", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.15 });
-  await slot.findByText(subject);
+  const toggle = await slot.findByRole("button", { name: "Todos: 1 of 1 complete" });
+  fireEvent.click(toggle);
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });

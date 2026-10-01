@@ -121,7 +121,6 @@ export function apply(state: State, input: Input): Outcome {
   if (action !== "update") return fail(`Unknown action: ${action}`);
   if (input.subject === undefined && input.description === undefined && input.activeForm === undefined && input.status === undefined && input.parentId === undefined && input.owner === undefined && input.metadata === undefined && !input.addBlockedBy?.length && !input.removeBlockedBy?.length && !input.move) fail("update requires at least one mutable field");
   if (input.status && !transitions[current.status].includes(input.status)) fail(`illegal transition ${current.status} → ${input.status}`);
-  if (input.status === "in_progress" && current.status !== "in_progress" && state.tasks.some(task => task.id !== current.id && task.status === "in_progress")) fail("another task is already in progress");
   if (input.parentId != null) checkParent(state, current.id, input.parentId);
   const deps = [...new Set([...(current.blockedBy ?? []).filter(id => !input.removeBlockedBy?.includes(id)), ...(input.addBlockedBy ?? [])])];
   if (input.addBlockedBy?.length) checkDependencies(state, current.id, deps, "addBlockedBy");

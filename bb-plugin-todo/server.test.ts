@@ -28,6 +28,34 @@ test("native todo tool persists per-thread state and publishes changes", async (
   await harness.lifecycle.dispose();
 });
 
+for (const event of ["thread.idle", "thread.failed", "thread.archived"] as const) {
+  test(`${event} resets all unfinished active tasks and preserves other threads and fields`, async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+    await plugin(bb);
+    const mutate = (threadId: string, change: Record<string, unknown>) => harness.behavior.callRpc("mutate", { threadId, change });
+    for (const threadId of ["ended", "other"]) {
+      for (const subject of ["First", "Second", "Done", "Deleted"]) await mutate(threadId, { action: "create", subject });
+      for (const id of [1, 2]) await mutate(threadId, { action: "update", id, status: "in_progress", activeForm: "Working", owner: "agent" });
+      await mutate(threadId, { action: "update", id: 3, status: "completed" });
+      await mutate(threadId, { action: "delete", id: 4 });
+    }
+    const payload = { thread: makeThreadResponse({ id: "ended" }), lastAssistantText: null, error: "Failed" };
+    await harness.behavior.emitThreadEvent(event, payload);
+    const settled = await harness.behavior.callRpc("snapshot", { threadId: "ended" });
+    assert.deepEqual(settled.tasks.map(task => task.status), ["pending", "pending", "completed", "deleted"]);
+    assert.equal(settled.tasks[0]?.activeForm, "Working");
+    assert.equal(settled.tasks[0]?.owner, "agent");
+    assert.equal(settled.nextId, 5);
+    const other = await harness.behavior.callRpc("snapshot", { threadId: "other" });
+    assert.deepEqual(other.tasks.map(task => task.status), ["in_progress", "in_progress", "completed", "deleted"]);
+    const signals = harness.realtimeSignals.length;
+    await harness.behavior.emitThreadEvent(event, payload);
+    assert.equal(harness.realtimeSignals.length, signals);
+    assert.deepEqual(await harness.behavior.callRpc("snapshot", { threadId: "ended" }), settled);
+    await harness.lifecycle.dispose();
+  });
+}
+
 test("rejects invalid dependency references without changing persisted state", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);

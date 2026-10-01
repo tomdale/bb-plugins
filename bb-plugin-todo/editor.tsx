@@ -87,7 +87,7 @@ function statusIcon(node: EditorNode): string {
   return node.waitingOn.length ? "Lock" : "Circle";
 }
 
-function StatusControl({ node, tasks, mutate, running }: { node: EditorNode; tasks: readonly Task[]; mutate: Mutate; running: boolean }) {
+function StatusControl({ node, mutate, running }: { node: EditorNode; mutate: Mutate; running: boolean }) {
   const { task } = node;
   const icon = <Icon name={statusIcon(node)} aria-hidden="true"
     className={cn(task.status === "in_progress" && running && "animate-spin", task.status === "in_progress" ? "text-foreground" : "text-muted-foreground")} />;
@@ -102,7 +102,7 @@ function StatusControl({ node, tasks, mutate, running }: { node: EditorNode; tas
       {icon}
     </DropdownMenuTrigger>
     <DropdownMenuContent align="start" mobileTitle={`Status for #${task.id}`} className="min-w-44">
-      {statusOptions(task, tasks).map(option => <DropdownMenuItem key={option.status} role="menuitemradio" aria-checked={task.status === option.status}
+      {statusOptions(task).map(option => <DropdownMenuItem key={option.status} role="menuitemradio" aria-checked={task.status === option.status}
         disabled={option.disabled} onSelect={() => { if (option.status !== task.status) void mutate({ action: "update", id: task.id, status: option.status }); }}>
         <Icon name={option.status === "completed" ? "CircleCheck" : option.status === "in_progress" ? "Spinner" : "Circle"} aria-hidden="true" />
         <span className="flex min-w-0 flex-col">
@@ -222,7 +222,7 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
   return <li className="min-w-0 list-none" data-task-id={task.id} data-status={task.status}>
     <div className={cn("group/row flex min-h-8 items-center gap-1 rounded-md pl-1 pr-0.5 hover:bg-state-hover/60 focus-within:bg-state-hover/60",
       task.status === "in_progress" && "bg-state-hover/40")}>
-      <StatusControl node={node} tasks={view.ordered} mutate={mutate} running={running} />
+      <StatusControl node={node} mutate={mutate} running={running} />
       <span className="w-6 shrink-0 text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">{task.id}</span>
       <CommitField aria-label={`Subject for #${task.id}`} data-subject-for={task.id} aria-keyshortcuts={SHORTCUT_ARIA}
         value={task.subject} required onKeyDown={shortcuts}
@@ -300,6 +300,7 @@ export function TodoEditor({ threadId }: Pick<PluginThreadPanelProps, "threadId"
     if (await mutate({ action: "create", subject: subject.trim() })) setSubject("");
     addRef.current?.focus();
   };
+  const activeCount = view.ordered.filter(task => task.status === "in_progress").length;
   const summary = view.completed === view.total ? `All ${view.total} complete` : `${view.completed} of ${view.total} complete`;
   return <section aria-label="Todos" className="flex h-full min-h-0 flex-col text-foreground">
     {view.total > 0 && <header className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border px-3">
@@ -308,7 +309,7 @@ export function TodoEditor({ threadId }: Pick<PluginThreadPanelProps, "threadId"
         : <ProgressRing completed={view.completed} total={view.total} className="size-3.5 shrink-0 text-muted-foreground" />}
       <p className="min-w-0 flex-1 truncate text-xs" role="status">
         <span className="font-medium">{summary}</span>
-        {view.current && <span className="text-muted-foreground"> · {view.current.activeForm?.trim() || view.current.subject}</span>}
+        {view.current && <span className="text-muted-foreground"> · {activeCount > 1 ? `${activeCount} todos in progress` : view.current.activeForm?.trim() || view.current.subject}</span>}
       </p>
       <ClearAll count={view.total} onConfirm={() => { void mutate({ action: "clear" }); setExpanded(new Set()); }} />
     </header>}

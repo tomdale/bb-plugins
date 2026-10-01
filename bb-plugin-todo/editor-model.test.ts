@@ -59,11 +59,11 @@ test("tracks unfinished blockers and the tasks each one blocks", () => {
   assert.deepEqual(blockerCandidates(view.ordered[0]!, view.ordered).map(item => item.id), [2, 3]);
 });
 
-test("status options mirror the reducer's transition and single-in-progress rules", () => {
+test("status options allow concurrent work and keep completion terminal", () => {
   const tasks = [task(1, "in_progress"), task(2, "pending"), task(3, "completed")];
-  const disabled = (id: number) => statusOptions(tasks.find(item => item.id === id)!, tasks).filter(option => option.disabled).map(option => option.status);
+  const disabled = (id: number) => statusOptions(tasks.find(item => item.id === id)!).filter(option => option.disabled).map(option => option.status);
   assert.deepEqual(disabled(1), []);
-  assert.deepEqual(disabled(2), ["in_progress"]);
-  assert.match(statusOptions(tasks[1]!, tasks)[1]!.reason!, /#1 is in progress/);
+  assert.deepEqual(disabled(2), []);
+  assert.equal(statusOptions(tasks[1]!)[1]!.reason, undefined);
   assert.deepEqual(disabled(3), ["pending", "in_progress"]);
 });

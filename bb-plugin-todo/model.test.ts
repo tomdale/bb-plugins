@@ -11,7 +11,8 @@ test("creates hierarchy and blocking dependencies, then completes in sequence", 
   assert.throws(() => mutate(state, { action: "update", id: 2, addBlockedBy: [3] }), /cycle/);
   assert.throws(() => mutate(state, { action: "update", id: 1, parentId: 3 }), /cycle/);
   state = mutate(state, { action: "update", id: 2, status: "in_progress" });
-  assert.throws(() => mutate(state, { action: "update", id: 3, status: "in_progress" }), /another task/);
+  state = mutate(state, { action: "update", id: 1, status: "in_progress" });
+  assert.deepEqual(state.tasks.filter(task => task.status === "in_progress").map(task => task.id), [1, 2]);
   state = mutate(state, { action: "update", id: 2, status: "completed" });
   assert.equal(state.tasks[1]?.status, "completed");
   assert.throws(() => mutate(state, { action: "update", id: 2, status: "pending" }), /illegal transition/);

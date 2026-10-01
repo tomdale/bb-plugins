@@ -105,11 +105,11 @@ export function TodoCard() {
         <Icon name="Edit" aria-hidden="true" />
       </button>}
     </div>
-    <section id={bodyId} role="region" aria-labelledby={toggleId} aria-hidden={!expanded} inert={!expanded}
-      className="todo-body" data-expanded={expanded || undefined}>
+    <section id={bodyId} role="region" aria-labelledby={toggleId}
+      className="todo-body" data-expanded={expanded || undefined} data-preview={!expanded || undefined}>
       <div className="todo-body-inner">
         {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-        <ul className="todo-list">{card.rows.map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} subjects={subjects} />)}</ul>
+        <ul className="todo-list">{(expanded ? card.rows : card.collapsedRows).map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} subjects={subjects} />)}</ul>
       </div>
     </section>
   </>);

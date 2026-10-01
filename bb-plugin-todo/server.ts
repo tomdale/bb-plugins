@@ -53,7 +53,7 @@ export default function plugin(bb: BbPluginApi) {
   });
   bb.agents.registerTool({
     name: "todo", description: "Manage a per-thread task list with parent tasks and blocking dependencies. Actions: create, update, get, list, delete, clear.",
-    instructions: "Use todo for work with three or more steps or a user-supplied task list; skip trivial requests. Create tasks promptly, set one task in_progress with an activeForm before starting it, and mark it completed immediately only after the work and its checks pass. A blocked task names prerequisites in blockedBy when created; update adds or removes edges with addBlockedBy/removeBlockedBy. Use parentId for hierarchy. Invalid references and cycles are rejected. Update {id,status} changes status; completed cannot reopen, and delete leaves a tombstone. list filters by status and hides deleted tasks unless includeDeleted is true. clear resets the list. If the user edits Todos in BB, call list to read the latest authoritative state before proceeding.",
+    instructions: "Use todo for work with three or more steps or a user-supplied task list; skip trivial requests. Create a concise list promptly with outcome-oriented subjects; create starts each task pending. Before working on a task, update {id,status:'in_progress',activeForm:'Implementing X'} with a present-tense working label. Keep every task actually being worked on in_progress; multiple tasks may be active for concurrent work. Mark each task completed as soon as its work and checks pass. Keep blocked, queued, and paused work pending; record prerequisites with blockedBy on create and addBlockedBy/removeBlockedBy on update, and satisfy them before starting the task. Use parentId for subtasks; complete a parent only after its required subtasks and checks pass. When a turn ends, unfinished in_progress tasks reset to pending; on continuation call list and mark resumed work in_progress again. The collapsed card shows all active tasks, or the next two pending tasks, so keep statuses and order current. Update {id,move:'up'|'down'} reorders siblings. list returns current tasks in display order, optionally filtered by status, and hides deleted tasks unless includeDeleted is true. Read list after user edits and before resuming prior work. Invalid references and cycles are rejected; completed tasks cannot reopen, delete leaves a tombstone, and clear resets the list and IDs. Preserve unfinished tasks across turns; use clear only when the list is obsolete or the user requests a reset.",
     parameters: input,
     async execute(params: Input, { threadId }) {
       try {
@@ -64,16 +64,19 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   bb.events.on("thread.active", ({ thread }) => bb.realtime.publish("todo-changed", { threadId: thread.id }));
-  bb.events.on("thread.idle", ({ thread }) => {
+  const settle = (threadId: string) => {
     const changed = db.transaction(() => {
-      const current = read(thread.id);
+      const current = read(threadId);
       if (!current.tasks.some(task => task.status === "in_progress")) return false;
       const tasks = current.tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" as const } : task);
-      save.run(thread.id, JSON.stringify({ ...current, tasks }));
+      save.run(threadId, JSON.stringify({ ...current, tasks }));
       return true;
     })();
-    if (changed) bb.realtime.publish("todo-changed", { threadId: thread.id });
-  });
+    if (changed) bb.realtime.publish("todo-changed", { threadId });
+  };
+  bb.events.on("thread.idle", ({ thread }) => settle(thread.id));
+  bb.events.on("thread.failed", ({ thread }) => settle(thread.id));
+  bb.events.on("thread.archived", ({ thread }) => settle(thread.id));
   bb.events.on("thread.deleted", ({ thread }) => { db.prepare("DELETE FROM todo_threads WHERE thread_id = ?").run(thread.id); });
   bb.agents.configure(() => ({ tools: ["todo"], skills: [] }));
 }

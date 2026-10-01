@@ -96,7 +96,8 @@ button.todo-toggle:hover { background: var(--state-hover); color: var(--foregrou
   pointer-events: none;
   transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
 }
-.todo-body[data-expanded] {
+.todo-body[data-expanded],
+.todo-body[data-preview] {
   grid-template-rows: 1fr;
   border-top: 1px solid var(--border);
   opacity: 1;
@@ -118,7 +119,8 @@ button.todo-toggle:hover { background: var(--state-hover); color: var(--foregrou
   overflow-y: auto;
   list-style: none;
 }
-.todo-card-floating .todo-list { max-height: none; }
+.todo-card-floating .todo-list,
+.todo-body[data-preview] .todo-list { max-height: none; }
 
 .todo-row {
   position: relative;

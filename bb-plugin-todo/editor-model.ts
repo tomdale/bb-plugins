@@ -79,15 +79,14 @@ export interface StatusOption {
   reason?: string;
 }
 
-/** Status choices for one task, mirroring the reducer's transition and single-in-progress rules. */
-export function statusOptions(task: Task, tasks: readonly Task[]): StatusOption[] {
-  const other = tasks.find(candidate => candidate.id !== task.id && candidate.status === "in_progress");
+/** Status choices for one task, mirroring the reducer's transitions. */
+export function statusOptions(task: Task): StatusOption[] {
   const done = task.status === "completed";
   return [
     { status: "pending", label: "Pending", disabled: done, reason: done ? "Completed todos can't reopen" : undefined },
     {
-      status: "in_progress", label: "In progress", disabled: done || !!other,
-      reason: done ? "Completed todos can't reopen" : other ? `#${other.id} is in progress` : undefined,
+      status: "in_progress", label: "In progress", disabled: done,
+      reason: done ? "Completed todos can't reopen" : undefined,
     },
     { status: "completed", label: "Completed", disabled: false },
   ];

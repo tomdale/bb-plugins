@@ -10,6 +10,7 @@ export interface CardRow {
 
 export interface CardView {
   rows: CardRow[];
+  collapsedRows: CardRow[];
   total: number;
   completed: number;
   current: Task | undefined;
@@ -54,6 +55,10 @@ export function buildCardView(tasks: readonly Task[]): CardView {
   const completed = visible.filter(task => task.status === "completed").length;
   return {
     rows,
+    collapsedRows: (rows.some(row => row.task.status === "in_progress")
+      ? rows.filter(row => row.task.status === "in_progress")
+      : rows.filter(row => row.task.status === "pending").slice(0, 2)
+    ).map(row => ({ ...row, depth: 0 })),
     total: visible.length,
     completed,
     current: visible.find(task => task.status === "in_progress"),
@@ -91,5 +96,6 @@ export function rowIcon(row: CardRow): TodoRowIcon {
 /** The card title: the active task's working label, or a neutral name for the list. */
 export function cardTitle(view: CardView): string {
   if (view.allComplete) return "All todos complete";
-  return currentLabel(view) ?? "Todos";
+  const activeCount = view.rows.filter(row => row.task.status === "in_progress").length;
+  return activeCount > 1 ? `${activeCount} todos in progress` : currentLabel(view) ?? "Todos";
 }
