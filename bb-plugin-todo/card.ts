@@ -92,10 +92,3 @@ const ROW_ICONS: Record<TodoRowState, TodoRowIcon> = { active: "Spinner", comple
 export function rowIcon(row: CardRow): TodoRowIcon {
   return ROW_ICONS[rowState(row)];
 }
-
-/** The card title: the active task's working label, or a neutral name for the list. */
-export function cardTitle(view: CardView): string {
-  if (view.allComplete) return "All todos complete";
-  const activeCount = view.rows.filter(row => row.task.status === "in_progress").length;
-  return activeCount > 1 ? `${activeCount} todos in progress` : currentLabel(view) ?? "Todos";
-}

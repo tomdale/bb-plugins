@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, cardTitle, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
+import { autoExpanded, buildCardView, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -51,19 +51,12 @@ test("maps row state to the circle-family status icons", () => {
   assert.deepEqual(view.rows.map(rowIcon), ["Spinner", "Circle", "CircleCheck", "Lock"]);
 });
 
-test("titles the card with the working label, a neutral name, or completion", () => {
-  assert.equal(cardTitle(buildCardView([task(1, "in_progress", { activeForm: "Porting styles" })])), "Porting styles");
-  assert.equal(cardTitle(buildCardView([task(1, "pending")])), "Todos");
-  assert.equal(cardTitle(buildCardView([task(1, "completed")])), "All todos complete");
-});
-
 test("treats an idle snapshot's in-progress task as pending, but preserves it while running", () => {
   const snapshot = [task(1, "in_progress"), task(2, "pending")];
   const idle = buildCardView(tasksForRunState(snapshot, false));
   assert.equal(idle.current, undefined);
   assert.equal(idle.rows[0]?.task.status, "pending");
   assert.equal(rowIcon(idle.rows[0]!), "Circle");
-  assert.equal(cardTitle(idle), "Todos");
 
   const running = buildCardView(tasksForRunState(snapshot, true));
   assert.equal(running.current?.id, 1);
@@ -74,7 +67,6 @@ test("collapsed previews show every active task, otherwise the next two pending 
   const tasks = [task(1, "completed"), task(2, "pending"), task(3, "in_progress", { parentId: 2 }), task(4, "in_progress"), task(5, "in_progress"), task(6, "pending"), task(7, "pending"), task(8, "deleted")];
   const active = buildCardView(tasks);
   assert.deepEqual(active.collapsedRows.map(row => [row.task.id, row.depth]), [[3, 0], [4, 0], [5, 0]]);
-  assert.equal(cardTitle(active), "3 todos in progress");
   const idle = buildCardView(tasksForRunState(tasks, false));
   assert.deepEqual(idle.collapsedRows.map(row => row.task.id), [2, 3]);
   assert.deepEqual(buildCardView([task(1, "completed"), task(2, "deleted")]).collapsedRows, []);

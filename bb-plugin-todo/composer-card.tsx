@@ -1,9 +1,8 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useBbNavigate, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { autoExpanded, buildCardView, cardTitle, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
+import { autoExpanded, buildCardView, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
 import type { Task } from "./model.js";
-import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
 import { TODO_PANEL_ACTION_ID } from "./editor-button.js";
@@ -48,7 +47,7 @@ export function TodoCard() {
   const [override, setOverride] = useState<{ auto: boolean; open: boolean } | null>(null);
   // Thread and queued-message composers can mount this card at the same time.
   const baseId = useId();
-  const bodyId = `${baseId}-body`, toggleId = `${baseId}-toggle`;
+  const bodyId = `${baseId}-body`, listId = `${baseId}-list`, toggleId = `${baseId}-toggle`;
   useEffect(() => { setOverride(null); }, [threadId]);
   // The server settles in-progress tasks when a run ends; refetch on both edges.
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
@@ -84,33 +83,26 @@ export function TodoCard() {
     </div>);
   }
   const working = composer.isRunning && !card.allComplete;
-  const title = cardTitle(card);
-  const shining = working && card.current !== undefined;
   // The queued-message editor has no thread side panel to open.
   const canEdit = composer.scope.kind === "thread";
   return frame(card.allComplete ? "todo-card-done" : "", <>
-    <div className="todo-header">
-      <button type="button" id={toggleId} className="todo-toggle" aria-expanded={expanded} aria-controls={bodyId}
-        aria-label={`Todos: ${card.completed} of ${card.total} complete${card.current && working ? `; ${title}` : ""}`}
+    <section id={bodyId} role="region" aria-label={expanded ? "All todos" : "Current todos"}
+      className="todo-body" data-expanded={expanded || undefined} data-preview={!expanded || undefined}>
+      <div className="todo-body-inner">
+        {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
+        <ul id={listId} className="todo-list">{(expanded ? card.rows : card.collapsedRows).map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} subjects={subjects} />)}</ul>
+      </div>
+    </section>
+    <div className="todo-controls">
+      <button type="button" id={toggleId} className="todo-view-toggle" aria-expanded={expanded} aria-controls={listId}
+        aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
         onClick={() => setOverride({ auto, open: !expanded })}>
-        {card.allComplete
-          ? <Icon name="CircleCheck" className="todo-header-icon" aria-hidden="true" />
-          : <ProgressRing completed={card.completed} total={card.total} className="todo-header-icon" />}
-        <span className={`todo-title${shining ? " animate-shine" : ""}`} title={title}>{title}</span>
-        <span className="todo-count" aria-hidden="true">{card.completed}/{card.total}</span>
-        <Icon name="ChevronDown" className="todo-chevron" aria-hidden="true" />
+        <Icon name={expanded ? "ChevronUp" : "ChevronDown"} aria-hidden="true" />
       </button>
       {canEdit && <button type="button" className="todo-edit" aria-label="Edit todos" title="Edit todos"
         onClick={() => { navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID }); }}>
         <Icon name="Edit" aria-hidden="true" />
       </button>}
     </div>
-    <section id={bodyId} role="region" aria-labelledby={toggleId}
-      className="todo-body" data-expanded={expanded || undefined} data-preview={!expanded || undefined}>
-      <div className="todo-body-inner">
-        {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-        <ul className="todo-list">{(expanded ? card.rows : card.collapsedRows).map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} subjects={subjects} />)}</ul>
-      </div>
-    </section>
   </>);
 }

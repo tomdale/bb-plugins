@@ -67,6 +67,28 @@ button.todo-toggle:hover { background: var(--state-hover); color: var(--foregrou
 .todo-chevron { color: var(--muted-foreground); transition: transform 200ms; }
 .todo-toggle[aria-expanded="true"] .todo-chevron { transform: rotate(180deg); }
 
+.todo-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 4px 4px;
+}
+.todo-view-toggle {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.todo-view-toggle svg { width: 14px; height: 14px; }
+.todo-view-toggle:hover { background: var(--state-hover); color: var(--foreground); }
+.todo-view-toggle:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+
 .todo-edit {
   display: inline-flex;
   width: 24px;
@@ -99,10 +121,10 @@ button.todo-toggle:hover { background: var(--state-hover); color: var(--foregrou
 .todo-body[data-expanded],
 .todo-body[data-preview] {
   grid-template-rows: 1fr;
-  border-top: 1px solid var(--border);
   opacity: 1;
   pointer-events: auto;
 }
+.todo-body[data-expanded] { border-top: 1px solid var(--border); }
 @media (prefers-reduced-motion: reduce) {
   .todo-body, .todo-chevron { transition: none; }
 }
@@ -121,6 +143,7 @@ button.todo-toggle:hover { background: var(--state-hover); color: var(--foregrou
 }
 .todo-card-floating .todo-list,
 .todo-body[data-preview] .todo-list { max-height: none; }
+.todo-body[data-preview] .todo-list { padding-bottom: 0; }
 
 .todo-row {
   position: relative;

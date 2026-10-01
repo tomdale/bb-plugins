@@ -214,8 +214,9 @@ it("titles a running card with the active task's working label", async () => {
     composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending" }], nextId: 3 }) },
   });
-  const toggle = await slot.findByRole("button", { name: "Todos: 0 of 2 complete; Planning the release" });
+  const toggle = await slot.findByRole("button", { name: "Show compact todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(slot.getByText(subject)).toBeTruthy();
   expect(slot.container.querySelector(".todo-row-spinner")).toBeTruthy();
   slot.lifecycle.unmount();
 });
@@ -277,13 +278,14 @@ it("shows the next two pending tasks while collapsed, and the full list when exp
     { id: 3, subject: "Then", status: "pending", blockedBy: [2] },
     { id: 4, subject: "Later", status: "pending" },
   ], nextId: 5 }));
-  const toggle = await slot.findByRole("button", { name: "Todos: 1 of 4 complete" });
+  const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getAllByRole("listitem").map(row => row.textContent)).toEqual([expect.stringContaining("Next"), expect.stringContaining("Then")]);
   expect(slot.queryByText("Later")).toBeNull();
+  expect(slot.queryByText("Todos", { exact: true })).toBeNull();
   fireEvent.click(toggle);
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
-  fireEvent.click(toggle);
+  fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getAllByRole("listitem")).toHaveLength(2);
   slot.lifecycle.unmount();
 });
@@ -299,7 +301,7 @@ it("keeps all active todos visible when a running card is collapsed", async () =
       { id: 4, subject: "Waiting", status: "pending" },
     ], nextId: 5 }) },
   });
-  const toggle = await slot.findByRole("button", { name: "Todos: 0 of 4 complete; 3 todos in progress" });
+  const toggle = await slot.findByRole("button", { name: "Show compact todos" });
   fireEvent.click(toggle);
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
@@ -316,19 +318,20 @@ it("hides a completed card after 30 seconds by default", async () => {
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
-  expect(completed.getByText("All todos complete")).toBeTruthy();
+  expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
+  expect(completed.queryByText("Plan the release")).toBeNull();
   await act(async () => { vi.advanceTimersByTime(29_999); });
-  expect(completed.getByText("All todos complete")).toBeTruthy();
+  expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(1); });
-  expect(completed.queryByText("All todos complete")).toBeNull();
+  expect(completed.queryByRole("button", { name: "Show all 1 todos" })).toBeNull();
   completed.lifecycle.unmount();
 });
 
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
-  await slot.findByText("All todos complete");
-  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
+  await slot.findByRole("button", { name: "Show all 1 todos" });
+  await waitFor(() => expect(slot.queryByRole("button", { name: "Show all 1 todos" })).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("Next task");
@@ -338,14 +341,12 @@ it("hides a completed card after the configured delay and shows it again when ta
 it("restarts the completion delay after another completed-list mutation", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.15 });
-  const toggle = await slot.findByRole("button", { name: "Todos: 1 of 1 complete" });
-  fireEvent.click(toggle);
+  const toggle = await slot.findByRole("button", { name: "Show all 1 todos" });
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
-  await slot.findByText("Updated completed task");
   await new Promise(resolve => setTimeout(resolve, 90));
-  expect(slot.getByText("Updated completed task")).toBeTruthy();
-  await waitFor(() => expect(slot.queryByText("Updated completed task")).toBeNull());
+  expect(slot.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
+  await waitFor(() => expect(slot.queryByRole("button", { name: "Show all 1 todos" })).toBeNull());
   slot.lifecycle.unmount();
 });
