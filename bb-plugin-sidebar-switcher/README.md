@@ -7,7 +7,7 @@ from the main window instead of Settings → Appearance.
 
 - **Sidebar footer → Sidebar plugins** (panel icon) opens a menu with one
   group per sidebar slot: **Thread list**, **Navigation**, and **Header**.
-  Pick a row to switch; the menu stays open so you can compare providers.
+  Pick a row to switch; the menu closes as the change applies.
   A group appears only when it has a real alternative.
 - **Command palette** (Mod+Shift+P):
   - *Switch to next sidebar thread list* cycles through enabled thread list

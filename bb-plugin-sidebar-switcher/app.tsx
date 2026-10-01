@@ -141,9 +141,11 @@ function ChoiceRow({
 function SlotSection({
   kind,
   state,
+  dismiss,
 }: {
   kind: SidebarSlotKind;
   state: SwitcherState;
+  dismiss: () => void;
 }) {
   const saved = state.preferences?.[kind].value ?? null;
   const pending = state.pending[kind];
@@ -162,6 +164,9 @@ function SlotSection({
           isPending={choice.value === pending}
           disabled={pending !== undefined || choice.isUnavailable}
           onSelect={() => {
+            // Close at once; the write lives in the store and reports
+            // failure by toast, so it outlives this menu.
+            dismiss();
             if (choice.value === selected) return;
             store.select(kind, choice.value).catch((cause: unknown) => {
               toast.error(
@@ -199,7 +204,7 @@ function SwitcherDisclosure({ dismiss }: ExperimentalSidebarFooterDisclosureProp
             No alternative sidebar plugins are enabled.
           </p>
         ) : (
-          kinds.map((kind) => <SlotSection key={kind} kind={kind} state={state} />)
+          kinds.map((kind) => <SlotSection key={kind} kind={kind} state={state} dismiss={dismiss} />)
         )
       ) : state.status === "error" ? null : (
         <p className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
