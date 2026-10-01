@@ -72,16 +72,24 @@ export function currentLabel(view: CardView): string | null {
   return view.current.activeForm?.trim() || view.current.subject;
 }
 
-export type TodoCardIcon = "Check" | "CircleCheck" | "ListTodo" | "Lock" | "Spinner" | "Square";
+export type TodoRowState = "active" | "completed" | "blocked" | "pending";
 
-export function rowIcon(row: CardRow): TodoCardIcon {
-  if (row.task.status === "in_progress") return "Spinner";
-  if (row.task.status === "completed") return "Check";
-  if (row.blockers.length > 0) return "Lock";
-  return "Square";
+export function rowState(row: CardRow): TodoRowState {
+  if (row.task.status === "in_progress") return "active";
+  if (row.task.status === "completed") return "completed";
+  return row.blockers.length > 0 ? "blocked" : "pending";
 }
 
-export function headerIcon(view: CardView): TodoCardIcon {
-  if (view.current && !view.allComplete) return "Spinner";
-  return view.allComplete ? "CircleCheck" : "ListTodo";
+export type TodoRowIcon = "CircleCheck" | "Circle" | "Lock" | "Spinner";
+
+const ROW_ICONS: Record<TodoRowState, TodoRowIcon> = { active: "Spinner", completed: "CircleCheck", blocked: "Lock", pending: "Circle" };
+
+export function rowIcon(row: CardRow): TodoRowIcon {
+  return ROW_ICONS[rowState(row)];
+}
+
+/** The card title: the active task's working label, or a neutral name for the list. */
+export function cardTitle(view: CardView): string {
+  if (view.allComplete) return "All todos complete";
+  return currentLabel(view) ?? "Todos";
 }

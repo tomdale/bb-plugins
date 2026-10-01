@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, tasksForRunState } from "./card.ts";
+import { autoExpanded, buildCardView, cardTitle, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -45,13 +45,16 @@ test("labels only unfinished, visible blockers on pending tasks and shows ids fo
   assert.equal(buildCardView([task(1, "completed"), task(2, "pending", { blockedBy: [1] })]).showIds, false);
 });
 
-test("uses spinner icons for in-progress tasks and never for the summary", () => {
-  const active = buildCardView([task(1, "in_progress"), task(2, "pending")]);
-  assert.equal(rowIcon(active.rows[0]!), "Spinner");
-  assert.equal(rowIcon(active.rows[1]!), "Square");
-  assert.equal(headerIcon(active), "Spinner");
-  assert.equal(headerIcon(buildCardView([task(1, "completed")])), "CircleCheck");
-  assert.equal(headerIcon(buildCardView([task(1, "pending")])), "ListTodo");
+test("maps row state to the circle-family status icons", () => {
+  const view = buildCardView([task(1, "in_progress"), task(2, "pending"), task(3, "completed"), task(4, "pending", { blockedBy: [2] })]);
+  assert.deepEqual(view.rows.map(rowState), ["active", "pending", "completed", "blocked"]);
+  assert.deepEqual(view.rows.map(rowIcon), ["Spinner", "Circle", "CircleCheck", "Lock"]);
+});
+
+test("titles the card with the working label, a neutral name, or completion", () => {
+  assert.equal(cardTitle(buildCardView([task(1, "in_progress", { activeForm: "Porting styles" })])), "Porting styles");
+  assert.equal(cardTitle(buildCardView([task(1, "pending")])), "Todos");
+  assert.equal(cardTitle(buildCardView([task(1, "completed")])), "All todos complete");
 });
 
 test("treats an idle snapshot's in-progress task as pending, but preserves it while running", () => {
@@ -59,13 +62,12 @@ test("treats an idle snapshot's in-progress task as pending, but preserves it wh
   const idle = buildCardView(tasksForRunState(snapshot, false));
   assert.equal(idle.current, undefined);
   assert.equal(idle.rows[0]?.task.status, "pending");
-  assert.equal(rowIcon(idle.rows[0]!), "Square");
-  assert.equal(headerIcon(idle), "ListTodo");
+  assert.equal(rowIcon(idle.rows[0]!), "Circle");
+  assert.equal(cardTitle(idle), "Todos");
 
   const running = buildCardView(tasksForRunState(snapshot, true));
   assert.equal(running.current?.id, 1);
   assert.equal(rowIcon(running.rows[0]!), "Spinner");
-  assert.equal(headerIcon(running), "Spinner");
 });
 
 test("opens automatically only while running with a task in progress", () => {

@@ -1,69 +1,95 @@
-/* The inline card is part of the prompt stack; only its portaled form owns chrome. */
+/*
+ * Composer card. Its chrome matches the host's composer context banners
+ * (rounded-lg, border, raised surface, 12px text) so the stack above the
+ * prompt reads as one family. The panel and header use Tailwind host tokens.
+ */
 .todo-card {
   min-width: 0;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 0.5rem);
+  background: var(--surface-raised-solid, var(--background));
   color: var(--foreground);
   font-size: 12px;
   line-height: 16px;
 }
 
 .todo-card-floating {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius, 0.5rem) - 1px);
-  background: var(--surface-raised-solid, var(--background));
-}
-
-.todo-anchor { width: 100%; height: 0; pointer-events: none; visibility: hidden; }
-
-.todo-card-floating {
   position: fixed;
   z-index: 30;
+  display: flex;
   min-height: 0;
-  overflow-y: auto;
-  box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 12%, transparent);
+  flex-direction: column;
+  box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 
 .todo-header {
   display: flex;
-  width: 100%;
   min-width: 0;
-  min-height: 32px;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+}
+.todo-toggle {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  flex: 1;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 0;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
   background: transparent;
-  color: var(--foreground);
+  color: var(--muted-foreground);
   font: inherit;
   text-align: left;
-  cursor: pointer;
-  transition: background-color 150ms;
 }
-.todo-header:hover { background: color-mix(in oklab, var(--background) 80%, transparent); }
-.todo-header:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+button.todo-toggle { cursor: pointer; }
+button.todo-toggle:hover { background: var(--state-hover); color: var(--foreground); }
+.todo-toggle:focus-visible,
+.todo-edit:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+
 .todo-header-icon, .todo-chevron, .todo-row-icon { flex: none; width: 14px; height: 14px; }
-.todo-header-spinner, .todo-row-spinner { color: var(--muted-foreground); }
-.todo-summary { flex: none; font-weight: 500; white-space: nowrap; }
-.todo-current {
+.todo-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  color: var(--subtle-foreground);
+  color: var(--foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.todo-chevron { transition: transform 200ms; }
-.todo-header[aria-expanded="true"] .todo-chevron { transform: rotate(180deg); }
+.todo-count {
+  flex: none;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.todo-chevron { color: var(--muted-foreground); transition: transform 200ms; }
+.todo-toggle[aria-expanded="true"] .todo-chevron { transform: rotate(180deg); }
 
-.todo-card-done .todo-header-icon,
-.todo-card-done .todo-chevron { color: var(--subtle-foreground); }
-.todo-card-done .todo-summary { color: var(--muted-foreground); font-weight: 400; }
-.todo-header-error { cursor: default; }
-.todo-header-error .todo-summary { color: var(--destructive-text, var(--destructive)); font-weight: 400; }
+.todo-edit {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.todo-edit svg { width: 14px; height: 14px; }
+.todo-edit:hover { background: var(--state-hover); color: var(--foreground); }
+
+.todo-card-done .todo-title { color: var(--muted-foreground); }
+.todo-card-error .todo-toggle,
+.todo-card-error .todo-title { color: var(--destructive-text, var(--destructive)); }
 
 .todo-body {
   display: grid;
+  min-height: 0;
   grid-template-rows: 0fr;
   overflow: hidden;
   opacity: 0;
@@ -76,34 +102,42 @@
   opacity: 1;
   pointer-events: auto;
 }
-.todo-body-inner { min-height: 0; overflow: hidden; background: var(--popover); }
+@media (prefers-reduced-motion: reduce) {
+  .todo-body, .todo-chevron { transition: none; }
+}
+.todo-body-inner { display: flex; min-height: 0; flex-direction: column; overflow: hidden; }
 
+/* About seven rows inline; the floating card instead fills its measured height. */
 .todo-list {
   display: grid;
-  gap: 4px;
-  max-height: 160px;
+  min-height: 0;
+  max-height: 184px;
+  gap: 1px;
   margin: 0;
-  padding: 8px 10px;
+  padding: 4px;
   overflow-y: auto;
   list-style: none;
 }
+.todo-card-floating .todo-list { max-height: none; }
 
 .todo-row {
   position: relative;
   display: flex;
   min-width: 0;
+  min-height: 24px;
   align-items: center;
-  gap: 8px;
-  margin-inline-start: calc(var(--todo-depth, 0) * 14px);
-  padding: 2px 8px;
+  gap: 6px;
+  margin-inline-start: calc(var(--todo-depth, 0) * 16px);
+  padding: 4px 8px;
   border-radius: calc(var(--radius, 0.5rem) - 2px);
+  color: var(--muted-foreground);
 }
-/* Rail under the parent's glyph for producer-supplied parentId nesting. */
+/* A rail under the parent's status icon marks producer-supplied nesting. */
 .todo-row[data-depth]::before {
   content: "";
   position: absolute;
-  inset-block: -2px;
-  inset-inline-start: 1px;
+  inset-block: -1px;
+  inset-inline-start: -1px;
   border-inline-start: 1px solid var(--border);
 }
 .todo-row-text {
@@ -114,36 +148,33 @@
   white-space: nowrap;
 }
 .todo-row-id {
-  margin-inline-end: 4px;
+  display: inline-block;
+  min-width: 2ch;
+  margin-inline-end: 6px;
   color: var(--subtle-foreground);
   font-variant-numeric: tabular-nums;
-  font-weight: 400;
+  text-align: end;
 }
 .todo-row-meta {
   flex: none;
-  color: var(--subtle-foreground);
-  font-size: var(--text-2xs, 0.625rem);
-  line-height: var(--text-2xs--line-height, 0.875rem);
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs, 0.6875rem);
   font-variant-numeric: tabular-nums;
 }
 
-.todo-row-active { padding-block: 4px; background: color-mix(in oklab, var(--background) 70%, transparent); }
-.todo-row-active .todo-row-icon,
-.todo-row-active .todo-row-text { color: var(--foreground); }
+.todo-row-active { background: var(--state-hover); color: var(--foreground); }
 .todo-row-active .todo-row-text { font-weight: 500; }
-.todo-row-pending { color: var(--muted-foreground); }
-.todo-row-pending .todo-row-icon { color: color-mix(in oklab, var(--muted-foreground) 45%, transparent); }
-.todo-row-completed,
+.todo-row-pending .todo-row-icon,
+.todo-row-blocked .todo-row-icon,
 .todo-row-completed .todo-row-icon { color: var(--subtle-foreground); }
 .todo-row-completed .todo-row-text {
   text-decoration: line-through;
-  text-decoration-color: color-mix(in oklab, var(--subtle-foreground) 70%, transparent);
+  text-decoration-color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
 }
-.todo-row-blocked { color: var(--subtle-foreground); opacity: 0.6; }
 
 .todo-error {
   margin: 0;
-  padding: 8px 12px 0;
+  padding: 6px 12px 0;
   color: var(--destructive-text, var(--destructive));
 }
 

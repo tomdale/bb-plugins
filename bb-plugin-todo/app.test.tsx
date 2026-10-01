@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { afterEach, expect, it } from "vitest";
+import { apply, type Input, type State } from "./model.js";
 
 const subject = "Plan the release";
 const idleSnapshot = () => ({ tasks: [{ id: 1, subject, status: "pending" as const }], nextId: 2 });
@@ -48,15 +49,171 @@ async function mount(
   return slot;
 }
 
-it("registers a native thread Todo editor panel", async () => {
+/** An in-memory server that runs the real reducer, so panel edits are validated like production. */
+function todoServer(initial: State) {
+  let state = initial;
+  return {
+    get state() { return state; },
+    rpc: {
+      snapshot: () => state,
+      mutate: ({ change }: { change: Input }) => { state = apply(state, change).state; return state; },
+    },
+  };
+}
+
+async function mountPanel(initial: State) {
   const app = await loadPluginApp(() => import("./app.js"));
-  expect(app.threadPanelActions.map(action => action.id)).toContain("todos");
-  expect(app.threadHeaderActions.map(action => action.id)).toContain("todos");
   const panel = app.threadPanelActions.find(action => action.id === "todos")!;
-  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, {
-    rpc: { snapshot: () => ({ tasks: [], nextId: 1 }), mutate: () => ({ tasks: [{ id: 1, subject: "New todo", status: "pending" }], nextId: 2 }) },
+  const server = todoServer(initial);
+  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, { rpc: server.rpc });
+  return { slot, server };
+}
+
+it("registers the Todos panel, header action and composer banner", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  expect(app.threadPanelActions.find(action => action.id === "todos")?.layout).toBe("flush");
+  expect(app.threadHeaderActions.map(action => action.id)).toContain("todos");
+  expect(app.composerCustomizations[0]?.banners?.[0]?.chrome).toBe("bare");
+});
+
+it("adds todos from the panel and shows an empty state before the first one", async () => {
+  const { slot, server } = await mountPanel({ tasks: [], nextId: 1 });
+  await slot.findByText("No todos in this thread");
+  const input = slot.getByLabelText("New todo");
+  fireEvent.change(input, { target: { value: "  Write the report  " } });
+  fireEvent.submit(input.closest("form")!);
+  await waitFor(() => expect(server.state.tasks).toEqual([{ id: 1, subject: "Write the report", status: "pending" }]));
+  expect((slot.getByLabelText("Subject for #1") as HTMLInputElement).value).toBe("Write the report");
+  expect((input as HTMLInputElement).value).toBe("");
+  slot.lifecycle.unmount();
+});
+
+it("renders hierarchy and blockers in the panel and edits subjects on commit", async () => {
+  const { slot, server } = await mountPanel({ tasks: [
+    { id: 1, subject: "Parent", status: "pending" },
+    { id: 2, subject: "Child", status: "pending", parentId: 1, blockedBy: [3] },
+    { id: 3, subject: "Prerequisite", status: "in_progress" },
+  ], nextId: 4 });
+  const subtasks = await slot.findByRole("list", { name: "Subtasks of #1" });
+  expect(within(subtasks).getByLabelText("Subject for #2")).toBeTruthy();
+  expect(slot.getByTitle("Waiting for #3").textContent).toContain("after #3");
+  expect(slot.getByRole("status").textContent).toContain("0 of 3 complete");
+  const subject = slot.getByLabelText("Subject for #1");
+  fireEvent.change(subject, { target: { value: "Renamed parent" } });
+  fireEvent.keyDown(subject, { key: "Enter" });
+  await waitFor(() => expect(server.state.tasks[0]?.subject).toBe("Renamed parent"));
+  fireEvent.change(subject, { target: { value: "   " } });
+  fireEvent.blur(subject);
+  expect((subject as HTMLInputElement).value).toBe("Renamed parent");
+  fireEvent.change(subject, { target: { value: "Discarded" } });
+  fireEvent.keyDown(subject, { key: "Escape" });
+  expect((subject as HTMLInputElement).value).toBe("Renamed parent");
+  slot.lifecycle.unmount();
+});
+
+it("edits dependencies and details from the disclosure", async () => {
+  const { slot, server } = await mountPanel({ tasks: [
+    { id: 1, subject: "First", status: "pending" },
+    { id: 2, subject: "Second", status: "pending", blockedBy: [1] },
+  ], nextId: 3 });
+  const toggle = await slot.findByRole("button", { name: "Show details for #2" });
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  const details = slot.getByRole("group", { name: "Details for #2" });
+  fireEvent.click(within(details).getByRole("button", { name: "Remove blocker #1" }));
+  await waitFor(() => expect(server.state.tasks[1]?.blockedBy).toBeUndefined());
+  fireEvent.change(within(details).getByLabelText("Add blocker for #2"), { target: { value: "1" } });
+  await waitFor(() => expect(server.state.tasks[1]?.blockedBy).toEqual([1]));
+  const owner = within(details).getByLabelText("Owner");
+  fireEvent.change(owner, { target: { value: "opus" } });
+  fireEvent.blur(owner);
+  await waitFor(() => expect(server.state.tasks[1]?.owner).toBe("opus"));
+  slot.lifecycle.unmount();
+});
+
+it("reorders and nests tasks with keyboard shortcuts on the subject field", async () => {
+  const { slot, server } = await mountPanel({ tasks: [
+    { id: 1, subject: "First", status: "pending" },
+    { id: 2, subject: "Second", status: "pending" },
+  ], nextId: 3 });
+  const second = await slot.findByLabelText("Subject for #2");
+  fireEvent.keyDown(second, { key: "ArrowUp", altKey: true });
+  await waitFor(() => expect(server.state.tasks.map(task => task.id)).toEqual([2, 1]));
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
+  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "ArrowRight", altKey: true });
+  expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBeUndefined();
+  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "]", ...mod });
+  await waitFor(() => expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBe(2));
+  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Subject for #1"));
+  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "[", ...mod });
+  await waitFor(() => expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBeUndefined());
+  slot.lifecycle.unmount();
+});
+
+it("shows a rejected edit as an alert without losing the list", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  const panel = app.threadPanelActions.find(action => action.id === "todos")!;
+  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, { rpc: {
+    snapshot: () => ({ tasks: [{ id: 1, subject: "Only", status: "pending" }], nextId: 2 }),
+    mutate: () => { throw new Error("subject cannot be empty"); },
+  } });
+  const subject = await slot.findByLabelText("Subject for #1");
+  fireEvent.change(subject, { target: { value: "Next" } });
+  fireEvent.blur(subject);
+  expect((await slot.findByRole("alert")).textContent).toContain("subject cannot be empty");
+  fireEvent.click(slot.getByRole("button", { name: "Dismiss" }));
+  expect(slot.queryByRole("alert")).toBeNull();
+  expect(slot.getByLabelText("Subject for #1")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+it("shows the completion count in the header action and opens the panel", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  const header = app.threadHeaderActions.find(action => action.id === "todos")!;
+  const slot = renderSlot(header, { threadId: "thread-a", projectId: "project", isCompactViewport: false }, { rpc: {
+    snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }, { id: 2, subject: "Next", status: "pending" }, { id: 3, subject: "Gone", status: "deleted" }], nextId: 4 }),
+  } });
+  const button = await slot.findByRole("button", { name: "Open Todos, 1 of 2 complete" });
+  expect(button.textContent).toBe("1/2");
+  fireEvent.click(button);
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
+  slot.lifecycle.unmount();
+});
+
+it("keeps the header action icon-only while the list is empty", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  const header = app.threadHeaderActions.find(action => action.id === "todos")!;
+  const slot = renderSlot(header, { threadId: "thread-a", projectId: "project", isCompactViewport: false }, { rpc: { snapshot: () => ({ tasks: [], nextId: 1 }) } });
+  const button = await slot.findByRole("button", { name: "Open Todos" });
+  expect(button.textContent).toBe("");
+  slot.lifecycle.unmount();
+});
+
+it("opens the panel from the composer card's edit button", async () => {
+  const slot = await mount();
+  fireEvent.click(await slot.findByRole("button", { name: "Edit todos" }));
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
+  slot.lifecycle.unmount();
+});
+
+it("titles a running card with the active task's working label", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  const banner = app.composerCustomizations[0]!.banners![0]!;
+  const slot = renderSlot(banner, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
+    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending" }], nextId: 3 }) },
   });
-  await slot.findByLabelText("New todo");
+  const toggle = await slot.findByRole("button", { name: "Todos: 0 of 2 complete; Planning the release" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(slot.container.querySelector(".todo-row-spinner")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+it("omits the edit button in queued-message composers, which have no side panel", async () => {
+  const slot = await mount();
+  await slot.behavior.setComposerScope({ kind: "queued-message", threadId: "thread-a", queuedMessageId: "queue-1" });
+  await slot.findByText(subject);
+  expect(slot.queryByRole("button", { name: "Edit todos" })).toBeNull();
   slot.lifecycle.unmount();
 });
 

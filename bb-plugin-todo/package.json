@@ -16,6 +16,7 @@
     "app": "./app.tsx"
   },
   "dependencies": {
+    "@radix-ui/react-slot": "^1.3.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -49,7 +50,7 @@
     "vitest": "^4.1.11"
   },
   "scripts": {
-    "test": "node --test model.test.ts card.test.ts server.test.ts && vitest run app.test.tsx layout.test.tsx",
+    "test": "node --test model.test.ts card.test.ts editor-model.test.ts server.test.ts && vitest run app.test.tsx layout.test.tsx",
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build"
   },
@@ -58,10 +59,19 @@
     "server.ts",
     "model.ts",
     "card.ts",
+    "layout.ts",
+    "editor-model.ts",
+    "use-todos.ts",
+    "use-side-placement.ts",
     "app.tsx",
+    "composer-card.tsx",
     "editor.tsx",
     "editor-button.tsx",
+    "progress-ring.tsx",
+    "components",
+    "lib",
     "app.css",
+    "components.json",
     "tsconfig.json",
     "dist"
   ]
