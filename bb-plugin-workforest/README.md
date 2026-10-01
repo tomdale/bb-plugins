@@ -4,6 +4,12 @@ Workforest checkouts and BB agents, connected without duplicating worktrees.
 
 ## UI
 
+- **Composer project shortcut:** in a new-thread composer, click **Workforest
+  project** to search existing worktrees and workspace roots on a connected
+  machine. Selecting a checkout creates or reuses its BB project by exact
+  machine and path, then selects that project and checkout in the composer.
+  The draft is preserved; no checkout or thread is created. Workforest still
+  owns checkout deletion.
 - **Workforest sidebar page:** compact repository/workspace groups with
   five-change previews, expand/collapse, search across member repositories and
   paths, type and needs-attention filters, and recency/name sorting. The
@@ -30,7 +36,7 @@ Workforest checkouts and BB agents, connected without duplicating worktrees.
 
 ## Requirements
 
-- BB 0.42+ with Plugin SDK 0.4.47+.
+- BB 0.44+ with Plugin SDK 0.6.5+.
 - Workforest on the PATH of each selected BB machine, supporting
   `wf list/status/template list/delete --json` and `wf task new`.
 - An enrolled, connected BB machine. The plugin never runs a remote machine's

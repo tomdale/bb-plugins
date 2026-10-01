@@ -5,6 +5,7 @@ import {
   type PluginEnvironmentProviderInputsProps,
 } from "@get-bb/plugin-sdk/app";
 import { WorkforestPage } from "./ui/page.js";
+import { WorkforestProjectButton } from "./ui/composer-project.js";
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
 import { useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Template } from "./contracts.js";
@@ -115,6 +116,13 @@ function WorkforestInputs({
 }
 
 export default definePluginApp((app) => {
+  app.composer.customize({
+    id: "workforest-project",
+    scopes: ["new-thread"],
+    banners: [
+      { id: "picker", chrome: "bare", component: WorkforestProjectButton },
+    ],
+  });
   app.slots.navPanel({
     id: "workspaces",
     title: "Workforest",

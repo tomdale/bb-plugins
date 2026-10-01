@@ -77,6 +77,72 @@ async function setup(environmentPath = entry.path) {
 }
 const target = { hostId: "h1", selector: entry.selector, path: entry.path };
 describe("BB integration", () => {
+  it("reuses a project only for an exact machine and checkout path", async () => {
+    const h = await setup();
+    expect(
+      await h.behavior.callRpc("project", {
+        hostId: "h1",
+        selector: entry.selector,
+      }),
+    ).toEqual({ projectId: "p1", path: entry.path });
+    expect(h.inspection.sdk.callsTo("projects.create")).toHaveLength(0);
+    expect(h.experimental_hostRpcCalls[0]?.method).toBe("detail");
+  });
+  it("registers the machine's fresh checkout path and coalesces concurrent requests", async () => {
+    const h = await setup();
+    h.sdk.stub("projects.list", async () => []);
+    const input = { hostId: "h2", selector: entry.selector };
+    const results = await Promise.all([
+      h.behavior.callRpc("project", input),
+      h.behavior.callRpc("project", input),
+    ]);
+    expect(results).toEqual([
+      { projectId: "p2", path: entry.path },
+      { projectId: "p2", path: entry.path },
+    ]);
+    expect(h.inspection.sdk.callsTo("projects.create")).toHaveLength(1);
+    expect(h.inspection.sdk.callsTo("projects.create")[0]).toEqual([
+      {
+        name: "app / fix-auth",
+        source: { type: "local_path", hostId: "h2", path: entry.path },
+      },
+    ]);
+  });
+  it("does not reuse another machine's project or a parent directory", async () => {
+    const h = await setup();
+    await h.behavior.callRpc("project", {
+      hostId: "h2",
+      selector: entry.selector,
+    });
+    expect(h.inspection.sdk.callsTo("projects.create")).toHaveLength(1);
+    h.sdk.stub("projects.list", async () => [
+      {
+        ...bootstrap.projects[0],
+        sources: [{ hostId: "h1", path: "/work/app" }],
+      },
+    ]);
+    await h.behavior.callRpc("project", {
+      hostId: "h1",
+      selector: entry.selector,
+    });
+    expect(h.inspection.sdk.callsTo("projects.create")).toHaveLength(2);
+  });
+  it("clears failed registration attempts so a retry can succeed", async () => {
+    const h = await setup();
+    h.sdk.stub("projects.list", async () => []);
+    h.sdk.stub("projects.create", async () => {
+      throw new Error("Machine offline");
+    });
+    const input = { hostId: "h1", selector: entry.selector };
+    await expect(h.behavior.callRpc("project", input)).rejects.toThrow(
+      "Machine offline",
+    );
+    h.sdk.stub("projects.create", async () => ({ id: "retry" }));
+    expect(await h.behavior.callRpc("project", input)).toEqual({
+      projectId: "retry",
+      path: entry.path,
+    });
+  });
   it("uses host and path, not branch identity, for thread context", async () => {
     const h = await setup();
     expect(await h.behavior.callRpc("context", { threadId: "t1" })).toEqual({

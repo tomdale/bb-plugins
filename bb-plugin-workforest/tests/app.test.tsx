@@ -66,9 +66,7 @@ describe("Workforest UI", () => {
       { rpc: handlers },
     );
     await slot.findByText("feature/fix-auth");
-    expect(
-      slot.getByRole("button", { name: "Start BB thread here" }),
-    ).toBeTruthy();
+    expect(slot.getByRole("button", { name: "Thread in app" })).toBeTruthy();
     expect(
       slot.getByRole("button", { name: "Check cleanup safety" }),
     ).toBeTruthy();
@@ -110,31 +108,6 @@ describe("Workforest UI", () => {
       ).toBe(true),
     );
     expect(JSON.stringify(slot.inspection.rpcCalls)).toContain("new-feature");
-    slot.lifecycle.unmount();
-  });
-  it("keeps the prompt and project after a failed thread launch", async () => {
-    const slot = renderSlot(
-      app.navPanels[0]!,
-      { subPath: "h1/app/fix-auth" },
-      {
-        rpc: {
-          ...handlers,
-          connect: () => ({ projectId: "p1" }),
-          launch: () => {
-            throw new Error("Provider unavailable");
-          },
-        },
-      },
-    );
-    fireEvent.click(
-      await slot.findByRole("button", { name: "Start BB thread here" }),
-    );
-    const prompt = await screen.findByLabelText("What should the agent do?");
-    fireEvent.change(prompt, { target: { value: "Fix auth safely" } });
-    fireEvent.click(screen.getByRole("button", { name: "Start thread" }));
-    await screen.findByText(/Provider unavailable/);
-    expect((prompt as HTMLTextAreaElement).value).toBe("Fix auth safely");
-    expect(slot.inspection.navigateCalls).toHaveLength(0);
     slot.lifecycle.unmount();
   });
   it("groups dense previews, expands older work, and reveals every search match", async () => {

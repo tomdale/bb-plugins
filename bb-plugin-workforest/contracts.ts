@@ -143,6 +143,10 @@ export const bootstrapSchema = z.object({
 });
 export const rpcContract = defineRpcContract({
   bootstrap: { input: z.null(), output: bootstrapSchema },
+  project: {
+    input: targetSchema,
+    output: z.object({ projectId: id, path: absolutePath }),
+  },
   inventory: { input: z.object({ hostId: id }), output: inventorySchema },
   templates: {
     input: z.object({ hostId: id }),

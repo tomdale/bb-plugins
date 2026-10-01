@@ -119,6 +119,34 @@ export default function plugin(bb: BbPluginApi) {
       throw error;
     }
   }
+  const pendingProjects = new Map<
+    string,
+    Promise<{ projectId: string; path: string }>
+  >();
+  function ensureProject(hostId: string, selector: string) {
+    const key = JSON.stringify([hostId, selector]);
+    const pending = pendingProjects.get(key);
+    if (pending) return pending;
+    const result = (async () => {
+      // Resolve on the machine again: a stale browser inventory must not register a removed checkout.
+      const detail = await host.call("detail", { selector }, { hostId });
+      const projects = await bb.sdk.projects.list();
+      const existing = projects.find((project) =>
+        project.sources.some(
+          (source) => source.hostId === hostId && source.path === detail.path,
+        ),
+      );
+      const project =
+        existing ??
+        (await bb.sdk.projects.create({
+          name: selector.replace("/", " / "),
+          source: { type: "local_path", hostId, path: detail.path },
+        }));
+      return { projectId: project.id, path: detail.path };
+    })().finally(() => pendingProjects.delete(key));
+    pendingProjects.set(key, result);
+    return result;
+  }
   bb.rpc.register(rpcContract, {
     bootstrap: async () => {
       const [hosts, projects] = await Promise.all([
@@ -127,6 +155,7 @@ export default function plugin(bb: BbPluginApi) {
       ]);
       return { hosts, projects };
     },
+    project: ({ hostId, selector }) => ensureProject(hostId, selector),
     inventory: ({ hostId }) => inventory(hostId),
     templates: ({ hostId }) => host.call("templates", null, { hostId }),
     detail: ({ hostId, selector }) =>
