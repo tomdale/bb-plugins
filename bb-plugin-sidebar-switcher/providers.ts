@@ -28,7 +28,7 @@ const SLOT_METHOD: Record<string, SidebarSlotKind> = {
 };
 
 export const SLOT_LABEL: Record<SidebarSlotKind, string> = {
-  threadList: "Thread list",
+  threadList: "Sidebar",
   navigation: "Navigation",
   header: "Header",
 };
@@ -199,23 +199,10 @@ export function normalizePreference(
 }
 
 /**
- * The value the switcher marks as selected. `__automatic__` is shown as the
- * provider it resolves to, since the menu offers providers rather than BB's
- * Automatic sentinel.
- */
-export function effectiveValue(
-  kind: SidebarSlotKind,
-  providers: readonly ProviderOption[],
-  savedValue: string | null,
-): string | null {
-  if (savedValue !== AUTOMATIC) return savedValue;
-  return resolveAutomatic(kind, providers)?.value ?? null;
-}
-
-/**
  * The switcher's rows for one slot: every provider by title, with the header
- * slot's None first, then the saved value when it names a provider that is
- * missing. BB's Automatic sentinel is never a row.
+ * slot's None first. BB's Automatic sentinel is listed only while it is the
+ * saved value, so picking a provider hides it; a saved value naming a
+ * missing provider is appended so the current state is always visible.
  */
 export function choicesFor(
   kind: SidebarSlotKind,
@@ -225,7 +212,9 @@ export function choicesFor(
   const choices: Choice[] = [
     ...(kind === "header"
       ? [{ value: BUILTIN, label: "None", detail: "BB's own header only", isUnavailable: false }]
-      : []),
+      : currentValue === AUTOMATIC
+        ? [{ value: AUTOMATIC, label: "Automatic", detail: null, isUnavailable: false }]
+        : []),
     ...sortProviders(providers).map((provider) => ({
       value: provider.value,
       label: provider.title,
@@ -235,7 +224,6 @@ export function choicesFor(
   ];
   if (
     currentValue !== null &&
-    currentValue !== AUTOMATIC &&
     !choices.some((choice) => choice.value === currentValue)
   ) {
     choices.push({
@@ -249,13 +237,15 @@ export function choicesFor(
 }
 
 /**
- * The provider that follows the effective current one, wrapping around. An
- * automatic or unknown current value counts as its resolved provider.
+ * The provider before or after the effective current one in title order,
+ * wrapping around. An automatic or unknown current value counts as its
+ * resolved provider.
  */
-export function nextProvider(
+export function stepProvider(
   kind: SidebarSlotKind,
   providers: readonly ProviderOption[],
   currentValue: string | null,
+  direction: 1 | -1,
 ): ProviderOption | null {
   const ordered = sortProviders(providers);
   if (ordered.length === 0) return null;
@@ -265,5 +255,6 @@ export function nextProvider(
       kind === "header" ? null : resolveAutomatic(kind, ordered);
     index = resolved === null ? -1 : ordered.indexOf(resolved);
   }
-  return ordered[(index + 1) % ordered.length] ?? null;
+  if (index === -1) return direction === 1 ? ordered[0]! : ordered.at(-1)!;
+  return ordered[(index + direction + ordered.length) % ordered.length]!;
 }

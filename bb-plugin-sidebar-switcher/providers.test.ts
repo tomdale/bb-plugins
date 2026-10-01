@@ -3,10 +3,9 @@ import {
   bundleMayRegisterSidebarSlots,
   choicesFor,
   collectSidebarRegistrations,
-  effectiveValue,
-  nextProvider,
   normalizePreference,
   resolveAutomatic,
+  stepProvider,
   type ProviderOption,
 } from "./providers";
 
@@ -111,7 +110,7 @@ describe("preferences and choices", () => {
     expect(resolveAutomatic("threadList", [])).toBeNull();
   });
 
-  it("lists providers by title, then a missing saved value, and never Automatic", () => {
+  it("lists providers by title, then a missing saved value", () => {
     const choices = choicesFor("threadList", [workstreams, bundled], "gone/list");
     expect(choices.map((c) => c.value)).toEqual([
       "thread-list/thread-list",
@@ -119,26 +118,27 @@ describe("preferences and choices", () => {
       "gone/list",
     ]);
     expect(choices.at(-1)?.isUnavailable).toBe(true);
-    expect(
-      choicesFor("threadList", [workstreams, bundled], "__automatic__").map((c) => c.value),
-    ).toEqual(["thread-list/thread-list", "workstreams/sidebar"]);
     expect(choicesFor("header", [], "__builtin__").map((c) => c.label)).toEqual(["None"]);
   });
 
-  it("marks Automatic as the provider it resolves to", () => {
-    expect(effectiveValue("threadList", [bundled, workstreams], "__automatic__")).toBe(
-      "workstreams/sidebar",
-    );
-    expect(effectiveValue("threadList", [bundled], "inbox/inbox")).toBe("inbox/inbox");
-    expect(effectiveValue("threadList", [], "__automatic__")).toBeNull();
+  it("lists Automatic only while it is the saved value", () => {
+    expect(
+      choicesFor("threadList", [workstreams, bundled], "__automatic__").map((c) => c.value),
+    ).toEqual(["__automatic__", "thread-list/thread-list", "workstreams/sidebar"]);
+    expect(
+      choicesFor("threadList", [workstreams, bundled], "workstreams/sidebar").map((c) => c.value),
+    ).toEqual(["thread-list/thread-list", "workstreams/sidebar"]);
   });
 
-  it("cycles providers in title order and wraps", () => {
+  it("steps providers in title order in both directions and wraps", () => {
     const all = [bundled, workstreams, inbox];
-    expect(nextProvider("threadList", all, "inbox/inbox")).toBe(bundled);
-    expect(nextProvider("threadList", all, "workstreams/sidebar")).toBe(inbox);
+    expect(stepProvider("threadList", all, "inbox/inbox", 1)).toBe(bundled);
+    expect(stepProvider("threadList", all, "workstreams/sidebar", 1)).toBe(inbox);
+    expect(stepProvider("threadList", all, "inbox/inbox", -1)).toBe(workstreams);
+    expect(stepProvider("threadList", all, "thread-list/thread-list", -1)).toBe(inbox);
     // Automatic counts as the provider it resolves to (inbox).
-    expect(nextProvider("threadList", all, "__automatic__")).toBe(bundled);
-    expect(nextProvider("threadList", [], "__automatic__")).toBeNull();
+    expect(stepProvider("threadList", all, "__automatic__", 1)).toBe(bundled);
+    expect(stepProvider("threadList", all, "__automatic__", -1)).toBe(workstreams);
+    expect(stepProvider("threadList", [], "__automatic__", 1)).toBeNull();
   });
 });

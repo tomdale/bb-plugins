@@ -1,5 +1,6 @@
 // Sidebar Switcher frontend: a sidebar-footer disclosure and palette commands
-// that change which plugin renders BB's thread list, navigation, and header,
+// that change which plugin renders BB's sidebar (the thread list slot) and,
+// when alternatives exist, its navigation and header,
 // without a trip to Settings → Appearance.
 import { useEffect, useSyncExternalStore } from "react";
 import {
@@ -14,8 +15,7 @@ import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
   choicesFor,
-  effectiveValue,
-  nextProvider,
+  stepProvider,
   SIDEBAR_SLOT_KINDS,
   SLOT_LABEL,
   type Choice,
@@ -150,7 +150,7 @@ function SlotSection({
 }) {
   const saved = state.preferences?.[kind].value ?? null;
   const pending = state.pending[kind];
-  const selected = pending ?? effectiveValue(kind, state.providers[kind], saved);
+  const selected = pending ?? saved;
   const choices = choicesFor(kind, state.providers[kind], saved);
   return (
     <div role="group" aria-label={SLOT_LABEL[kind]} className="py-1">
@@ -222,7 +222,8 @@ function SwitcherDisclosure({ dismiss }: ExperimentalSidebarFooterDisclosureProp
   );
 }
 
-async function switchToNextThreadList() {
+/** Steps the sidebar (thread list) provider forward or back in title order. */
+async function stepSidebar(direction: 1 | -1) {
   await store.refresh();
   const state = store.getState();
   if (state.status === "error") {
@@ -230,17 +231,22 @@ async function switchToNextThreadList() {
     return;
   }
   const current = state.preferences?.threadList.value ?? null;
-  const next = nextProvider("threadList", state.providers.threadList, current);
-  if (next === null || next.value === current) {
-    toast("No other thread list plugin is enabled.");
+  const target = stepProvider(
+    "threadList",
+    state.providers.threadList,
+    current,
+    direction,
+  );
+  if (target === null || target.value === current) {
+    toast("No other sidebar is enabled.");
     return;
   }
   try {
-    await store.select("threadList", next.value);
-    toast(`Thread list: ${next.title}`);
+    await store.select("threadList", target.value);
+    toast(`Sidebar: ${target.title}`);
   } catch (cause) {
     toast.error(
-      `Could not switch thread list: ${
+      `Could not switch sidebar: ${
         cause instanceof Error ? cause.message : String(cause)
       }`,
     );
@@ -259,11 +265,17 @@ export default definePluginApp((app) => {
   });
 
   app.commands.register({
-    id: "next-thread-list",
-    title: "Switch to next sidebar thread list",
+    id: "next-sidebar",
+    title: "Switch to next sidebar",
     defaultShortcut: { key: "l", mod: true, alt: true },
     isAvailable: () => store.isAttached(),
-    run: switchToNextThreadList,
+    run: () => stepSidebar(1),
+  });
+  app.commands.register({
+    id: "previous-sidebar",
+    title: "Switch to previous sidebar",
+    isAvailable: () => store.isAttached(),
+    run: () => stepSidebar(-1),
   });
   app.commands.register({
     id: "choose",
