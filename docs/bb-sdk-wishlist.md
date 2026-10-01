@@ -30,6 +30,28 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   the called tool (passing `toolName`), or let a tool result set its row's
   title, for example `{ content, presentation: { title } }`.
 
+## Refresh a running session's tools
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams changed `WorkstreamsRecap`'s `review` parameter
+  from one string to a list of steps. Existing threads keep calling the tool
+  with the schema their session was built with.
+- **Limit:** `bb.agents.configure` selections, `registerTool` schemas, and
+  instructions apply only when a provider session is next constructed (thread
+  start, or resume after a daemon restart, environment switch, or provider
+  restart). No SDK or CLI call rebuilds a thread's session or tells it that a
+  plugin's tools changed. One Pi session kept the string `review` schema
+  through several plugin reloads and sent a list as a JSON-encoded string.
+- **Workaround:** BB validates every call against the current schema, so the
+  current schema also accepts the earlier shapes (a single string or a
+  JSON-encoded list for `review`). Reminders go only to sessions
+  known to have the tool.
+- **Possible API:** `bb.agents.refreshSessions({ threadIds })` or a
+  registration flag that rebuilds affected sessions' tool sets at their next
+  turn boundary, or a `tools.changed` signal that providers apply between
+  turns.
+
 ## A hook before a turn completes
 
 - **Status:** not filed
