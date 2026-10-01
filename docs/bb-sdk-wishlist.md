@@ -8,6 +8,25 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Bound repeated failing tool calls within an active turn
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams must stop a turn that repeats a failing tool call,
+  including provider-side argument validation failures. Turn-end recap
+  correction budgets do not apply while a turn remains active.
+- **Limit:** the SDK exposes no per-tool failure hook or conditional stop for a
+  specific turn. `experimental_thread.events` coalesces notifications once per
+  second; `threads.stop` targets a thread rather than an expected turn ID.
+- **Workaround:** read incremental event history for enrolled active threads,
+  count five consecutive same-tool/same-error failures, verify the latest turn
+  and active status, suppress recap corrections, then stop the thread. This is
+  observe-and-stop protection, not an atomic veto: extra calls can run during
+  notification and stop delivery, and a turn can change after the final check.
+- **Possible API:** a tool-result hook covering validation failures with a
+  terminate decision, or `threads.stop({ threadId, expectedTurnId })` plus
+  uncoalesced failure notifications.
+
 ## Plugins render rows for the tools they register
 
 - **Status:** not filed
