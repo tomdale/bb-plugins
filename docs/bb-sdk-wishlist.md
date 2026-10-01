@@ -8,20 +8,24 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
-## Contribute discovered checkouts to the composer project selector
+## Provide projects and add items to the composer project menu
 
 - **Status:** not filed
 - **Observed:** BB 0.44.0, Plugin SDK 0.6.5
-- **Use case:** select a Workforest worktree or workspace directly while writing
-  a new-thread prompt, registering a BB project only when needed.
+- **Use case:** provide Workforest worktrees and workspaces as discoverable
+  projects in the composer's native project menu, or add a “From Workforest…”
+  action that opens a checkout picker and registers a project only when selected.
 - **Limit:** the native `ProjectSelector` accepts existing projects and one
   core-owned create action. `ComposerCustomization` has no project-picker
   contribution surface.
-- **Workaround:** Workforest renders a button in a bare new-thread composer
-  banner. Its searchable popup creates or reuses an exact machine/path project,
-  then calls `composer.setSelection` without navigating or submitting.
-- **Possible API:** project-selector source registrations with asynchronous
-  discovery and resolve-to-project callbacks, rendered as host-owned groups.
+- **Workaround:** Workforest adds an icon-only new-thread composer toolbar
+  action. Its searchable popup creates or reuses an exact machine/path project,
+  then calls `composer.setSelection` without navigating or submitting. It cannot
+  sit inside or beside the native project menu through a dedicated SDK slot.
+- **Possible API:** project source registrations with asynchronous discovery and
+  resolve-to-project callbacks, rendered as host-owned menu groups; additive
+  project-menu actions with labels, icons, and callbacks that can create/reuse
+  and select a project while preserving the current draft.
 
 ## Preserve named fields in root-union tool schemas
 

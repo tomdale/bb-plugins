@@ -119,9 +119,7 @@ export default definePluginApp((app) => {
   app.composer.customize({
     id: "workforest-project",
     scopes: ["new-thread"],
-    banners: [
-      { id: "picker", chrome: "bare", component: WorkforestProjectButton },
-    ],
+    actions: [{ id: "picker", component: WorkforestProjectButton }],
   });
   app.slots.navPanel({
     id: "workspaces",

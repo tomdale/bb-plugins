@@ -29,8 +29,9 @@ function mount(rpc = handlers) {
     (item) => item.id === "workforest-project",
   )!;
   expect(customization.scopes).toEqual(["new-thread"]);
+  expect(customization.banners).toBeUndefined();
   return renderSlot(
-    customization.banners![0]!,
+    customization.actions![0]!,
     {},
     {
       rpc,
@@ -46,6 +47,9 @@ describe("Composer Workforest project picker", () => {
   it("loads only on opening and selects an existing project without losing the draft", async () => {
     const slot = mount();
     expect(slot.inspection.rpcCalls).toHaveLength(0);
+    expect(
+      slot.getByRole("button", { name: "Workforest project" }).textContent,
+    ).toBe("");
     fireEvent.click(slot.getByRole("button", { name: "Workforest project" }));
     fireEvent.click(
       await screen.findByRole("button", {

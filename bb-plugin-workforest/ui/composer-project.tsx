@@ -1,6 +1,7 @@
 import { useComposer, useRpc } from "@get-bb/plugin-sdk/app";
 import { useState } from "react";
 import { Button } from "../components/ui/button.js";
+import { COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS } from "../components/ui/coarse-pointer-sizing.js";
 import {
   Dialog,
   DialogContent,
@@ -19,17 +20,19 @@ export function WorkforestProjectButton() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        className="h-7 text-xs"
-        disabled={composer.isSubmitting}
-        onClick={() => setOpen(true)}
-      >
-        <Icon name="GitBranch" className="size-3.5" />
-        Workforest project
-      </Button>
+      <span title="Workforest project" className="inline-flex">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Workforest project"
+          className={COARSE_POINTER_PROMPT_ICON_ACTION_BUTTON_CLASS}
+          disabled={composer.isSubmitting}
+          onClick={() => setOpen(true)}
+        >
+          <Icon name="GitBranch" className="size-4" />
+        </Button>
+      </span>
       {open && <ProjectPicker close={() => setOpen(false)} />}
     </>
   );

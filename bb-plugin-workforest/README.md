@@ -4,8 +4,9 @@ Workforest checkouts and BB agents, connected without duplicating worktrees.
 
 ## UI
 
-- **Composer project shortcut:** in a new-thread composer, click **Workforest
-  project** to search existing worktrees and workspace roots on a connected
+- **Composer project shortcut:** in an expanded new-thread composer, click the
+  branch icon in the prompt toolbar (**Workforest project**) to search existing
+  worktrees and workspace roots on a connected
   machine. Selecting a checkout creates or reuses its BB project by exact
   machine and path, then selects that project and checkout in the composer.
   The draft is preserved; no checkout or thread is created. Workforest still
