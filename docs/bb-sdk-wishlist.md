@@ -114,3 +114,28 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   every 60 seconds and on page focus, then diffs against plugin state.
 - **Possible API:** `thread.updated` with the changed fields, and
   `section.created`, `section.updated`, and `section.deleted` events.
+
+## Plugins call the user's AI service and model catalog
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams makes short, frequent model calls of its own:
+  summarizing each thread after a turn, suggesting a home for a new-thread
+  draft while the user types (about 1 s budget), and proposing a workstream map
+  (structured JSON, 5–15 s). The user wants to choose those models with BB's
+  own UI, from any model their machine can reach.
+- **Limit:** AI services run one way: a plugin registers a service with
+  `bb.experimental_aiServices.register`, and BB calls it for its own tasks
+  (`thread-title`, `commit-message`, `voice`) with BB's prompts, a 5-second
+  limit, and one-line cleanup. `bb.sdk.system.testAiService` takes only a task.
+  No API sends a plugin's prompt to the selected service. Separately,
+  `experimental_ProviderModelPicker` lists only a provider's scoped catalog
+  (Pi's `enabledModels`, 14 models here) with no way to supply a wider list,
+  and running a picked model means spawning a hidden worker thread (about 6 s
+  per call, against about 1.2 s for a direct completion).
+- **Workaround:** a `bb.host` entry calls AI Gateway directly with the key Pi
+  already has, for gateway models; other picks run in hidden worker threads.
+- **Possible API:** `bb.sdk.ai.complete({ prompt, model?: ProviderModelPickerValue,
+  maxTokens, signal })` that runs one tool-free completion through the chosen
+  provider without a thread, plus a picker `catalog: "all"` (or a `models`
+  prop) for providers whose scoped list is a subset of what they can reach.
