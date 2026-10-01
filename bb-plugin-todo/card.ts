@@ -1,6 +1,6 @@
 import type { Task } from "./model.js";
 
-/** One rendered list row; depth and blockers come only from producer-supplied fields. */
+/** One rendered list row; depth and blockers come from native task relationships. */
 export interface CardRow {
   task: Task;
   depth: number;
@@ -18,10 +18,7 @@ export interface CardView {
   showIds: boolean;
 }
 
-// Matches BB's native todo card: the working task first, finished work last.
-const STATUS_RANK: Record<Task["status"], number> = { in_progress: 0, pending: 1, completed: 2, deleted: 3 };
-
-/** Idle thread snapshots can retain Pi's last in-progress tool status until another call. */
+/** An idle thread can retain the last in-progress status until the next update. */
 export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): readonly Task[] {
   if (isRunning) return tasks;
   return tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" } : task);
@@ -39,7 +36,7 @@ export function buildCardView(tasks: readonly Task[]): CardView {
   const rows: CardRow[] = [];
   const visited = new Set<number>();
   const append = (parent: number | undefined, depth: number) => {
-    const siblings = [...(groups.get(parent) ?? [])].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]);
+    const siblings = groups.get(parent) ?? [];
     for (const task of siblings) {
       if (visited.has(task.id)) continue;
       visited.add(task.id);

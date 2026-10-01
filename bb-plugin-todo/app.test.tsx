@@ -48,6 +48,18 @@ async function mount(
   return slot;
 }
 
+it("registers a native thread Todo editor panel", async () => {
+  const app = await loadPluginApp(() => import("./app.js"));
+  expect(app.threadPanelActions.map(action => action.id)).toContain("todos");
+  expect(app.threadHeaderActions.map(action => action.id)).toContain("todos");
+  const panel = app.threadPanelActions.find(action => action.id === "todos")!;
+  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, {
+    rpc: { snapshot: () => ({ tasks: [], nextId: 1 }), mutate: () => ({ tasks: [{ id: 1, subject: "New todo", status: "pending" }], nextId: 2 }) },
+  });
+  await slot.findByLabelText("New todo");
+  slot.lifecycle.unmount();
+});
+
 it("uses the right-side gutter beside the latest visible message when it fits", async () => {
   const slot = await mount(idleSnapshot, {}, true);
   const liveAnchor = document.querySelector<HTMLElement>("[data-message-column]")!;
@@ -96,7 +108,7 @@ it("hides a completed card after the configured delay and shows it again when ta
   await slot.findByText(subject);
   await waitFor(() => expect(slot.queryByText(subject)).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
-  await slot.behavior.emitRealtime("todo-timeline-changed", { threadId: "thread-a" });
+  await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("Next task");
   slot.lifecycle.unmount();
 });
@@ -107,7 +119,7 @@ it("restarts the completion delay after another completed-list mutation", async 
   await slot.findByText(subject);
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
-  await slot.behavior.emitRealtime("todo-timeline-changed", { threadId: "thread-a" });
+  await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("Updated completed task");
   await new Promise(resolve => setTimeout(resolve, 90));
   expect(slot.getByText("Updated completed task")).toBeTruthy();

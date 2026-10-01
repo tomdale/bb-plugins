@@ -5,9 +5,9 @@ import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
 
-test("flat Pi plans sort working, pending, then completed without ids", () => {
+test("flat task lists preserve explicit order without ids", () => {
   const view = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "in_progress"), task(4, "deleted"), task(5, "pending")]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[3, 0], [2, 0], [5, 0], [1, 0]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 0], [3, 0], [5, 0]]);
   assert.equal(view.total, 4);
   assert.equal(view.completed, 1);
   assert.equal(view.showIds, false);
@@ -21,12 +21,12 @@ test("header prefers activeForm and drops the current task once everything is co
   assert.equal(currentLabel(done), null);
 });
 
-test("nests producer-supplied parents and promotes orphans without inventing structure", () => {
+test("nests parent tasks and promotes orphans without inventing structure", () => {
   const view = buildCardView([
     task(1, "pending"), task(2, "completed", { parentId: 1 }), task(3, "in_progress", { parentId: 1 }),
     task(4, "pending", { parentId: 3 }), task(5, "pending", { parentId: 9 }), task(6, "pending", { parentId: 7 }), task(7, "deleted"),
   ]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [3, 1], [4, 2], [2, 1], [5, 0], [6, 0]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 1], [3, 1], [4, 2], [5, 0], [6, 0]]);
 });
 
 test("keeps parent cycles visible", () => {

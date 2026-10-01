@@ -1,70 +1,42 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.ts";
-import { callFromEvent, snapshotForThread } from "./snapshot.ts";
 
-test("only successful completed Pi todo events replay", () => {
-  const item = (status: string, result: unknown, args: unknown, tool = "todo") => ({
-    seq: 1, type: "item/completed", data: { item: { type: "toolCall", status, result, tool, arguments: args } },
-  });
-  assert.deepEqual(callFromEvent(item("completed", "Created #1", { action: "create", subject: "OK" })), { action: "create", subject: "OK" });
-  assert.equal(callFromEvent(item("failed", "Created #1", { action: "create", subject: "No" })), null);
-  assert.equal(callFromEvent(item("completed", "Error: failed", { action: "create", subject: "No" })), null);
-  assert.equal(callFromEvent(item("completed", "Created", { action: "create" }, "bb_todo")), null);
-});
-
-test("paginates in sequence and keeps separate thread snapshots via public SDK", async () => {
+test("native todo tool persists per-thread state and publishes changes", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
-  const events = Array.from({ length: 501 }, (_, i) => ({
-    id: `ev${i}`, seq: i + 1, type: "item/completed" as const, threadId: "thread-a", scope: { kind: "thread" as const }, createdAt: i,
-    data: { item: { type: "toolCall", tool: "todo", status: "completed", id: `c${i}`, arguments: i === 0 ? { action: "batch", operations: [{ action: "create", subject: "Start" }, { action: "create", subject: "Next" }] } : { action: "create", subject: `Task ${i}` }, result: "Created" } },
-  }));
-  harness.sdk.stub("threads.events.list", async (args: { threadId: string; afterSeq?: string; limit?: string }) => {
-    const limit = Math.min(Number(args.limit ?? 100), 100);
-    return args.threadId === "thread-a" ? events.filter(e => e.seq > Number(args.afterSeq ?? 0)).slice(0, limit) : [];
-  });
   await plugin(bb);
-  try {
-    const a = await harness.behavior.callRpc("snapshot", { threadId: "thread-a" });
-    assert.equal(a.tasks.length, 502);
-    assert.equal(a.nextId, 503);
-    assert.deepEqual((await harness.behavior.callRpc("snapshot", { threadId: "thread-b" })).tasks, []);
-    const pages = harness.inspection.sdk.callsTo("threads.events.list");
-    assert.ok(pages.length >= 6);
-    assert.ok(pages.every(([query]) => JSON.stringify(query).includes('"types":["item/completed"]')));
-    assert.equal((await snapshotForThread(bb, "thread-b")).tasks.length, 0);
-    assert.deepEqual([...harness.registrations.agentTools.keys()], []);
-  } finally { await harness.lifecycle.dispose(); }
+  const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
+  const created = await call({ action: "create", subject: "Research" });
+  assert.match(JSON.stringify(created), /Created #1/);
+  const second = await call({ action: "create", subject: "Implement", blockedBy: [1] });
+  assert.match(JSON.stringify(second), /Created #2/);
+  const listed = await call({ action: "list" });
+  assert.match(JSON.stringify(listed), /blockedBy/);
+  const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.equal(snapshot.tasks.length, 2);
+  assert.deepEqual(snapshot.tasks[1]?.blockedBy, [1]);
+  assert.equal(harness.realtimeSignals.length, 2);
+  await harness.behavior.callAgentTool("todo", { action: "update", id: 1, status: "in_progress" });
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "thread-test" }), lastAssistantText: null });
+  const settled = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.equal(settled.tasks[0]?.status, "pending");
+  assert.equal(harness.realtimeSignals.length, 4);
+  await harness.behavior.callAgentTool("todo", { action: "delete", id: 1 });
+  const afterDelete = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.equal(afterDelete.tasks[0]?.status, "deleted");
+  await harness.lifecycle.dispose();
 });
 
-test("ignores unrelated events even when a thread has more than 8,000", async () => {
+test("rejects invalid dependency references without changing persisted state", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
-  const events = Array.from({ length: 8_001 }, (_, index) => ({
-    seq: index + 1, type: "item/started", data: {},
-  }));
-  events.push({ seq: 8_002, type: "item/completed", data: {
-    item: { type: "toolCall", tool: "todo", status: "completed", arguments: {
-      action: "batch", operations: [
-        { action: "create", subject: "First", status: "in_progress" },
-        { action: "create", subject: "Second" },
-      ],
-    }, result: "Created" },
-  } });
-  harness.sdk.stub("threads.events.list", async (args: { afterSeq?: string; limit?: string; types?: string[] }) =>
-    events.filter(event => args.types?.includes(event.type) && event.seq > Number(args.afterSeq ?? 0))
-      .slice(0, Number(args.limit ?? 100)));
-  try {
-    const snapshot = await snapshotForThread(bb, "thread-long");
-    assert.deepEqual(snapshot.tasks.map(task => task.subject), ["First", "Second"]);
-    assert.equal(snapshot.nextId, 3);
-  } finally { await harness.lifecycle.dispose(); }
-});
-
-test("timeline errors propagate rather than displaying a misleading partial list", async () => {
-  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
-  harness.sdk.stub("threads.events.list", async () => { throw new Error("timeline unavailable"); });
   await plugin(bb);
-  try { await assert.rejects(harness.behavior.callRpc("snapshot", { threadId: "thread-a" }), /timeline unavailable/); }
-  finally { await harness.lifecycle.dispose(); }
+  const rejected = await harness.behavior.callAgentTool("todo", { action: "create", subject: "Blocked", blockedBy: [99] });
+  assert.equal(typeof rejected, "object");
+  assert.equal((rejected as { isError?: boolean }).isError, true);
+  const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.deepEqual(snapshot, emptySnapshot);
+  await harness.lifecycle.dispose();
 });
+
+const emptySnapshot = { tasks: [], nextId: 1 };

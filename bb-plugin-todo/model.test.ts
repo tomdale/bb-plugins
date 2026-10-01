@@ -1,46 +1,52 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { emptyState, replayCall, replayCalls } from "./model.ts";
-
-test("replays successful Pi creates, updates, tombstones and batches with monotonic IDs", () => {
-  let state = replayCalls([{ action: "batch", operations: [
-    { action: "create", subject: "One", status: "in_progress" },
-    { action: "create", subject: "Two" },
-  ] }]);
-  assert.deepEqual(state.tasks.map(t => t.status), ["in_progress", "pending"]);
-  state = replayCall(state, { action: "create", subject: "Appended milestone" });
-  assert.equal(state.tasks[2]?.subject, "Appended milestone");
-  state = replayCall(state, { action: "update", id: 1, status: "completed" });
-  state = replayCall(state, { action: "delete", id: 2 });
-  assert.deepEqual(state.tasks.map(t => t.status), ["completed", "deleted", "pending"]);
-  state = replayCall(state, { action: "batch", operations: [
-    { action: "create", subject: "Next" }, { action: "create", subject: "Later" },
-  ] });
-  assert.deepEqual(state.tasks.map(t => t.id), [1, 2, 3, 4, 5]);
-  assert.equal(state.nextId, 6);
-});
-
-test("invalid batch rolls back; queries and impossible transitions do not mutate", () => {
-  const before = replayCalls([{ action: "batch", operations: [
-    { action: "create", subject: "First" }, { action: "create", subject: "Second" },
-  ] }]);
-  assert.strictEqual(replayCall(before, { action: "batch", operations: [
-    { action: "create", subject: "Second" }, { action: "update", id: 99, status: "completed" },
-  ] }), before);
-  assert.strictEqual(replayCall(before, { action: "list" }), before);
-  const completed = replayCall(before, { action: "update", id: 1, status: "completed" });
-  assert.strictEqual(replayCall(completed, { action: "update", id: 1, status: "pending" }), completed);
-});
-
-test("retains hierarchy/dependencies only when call args emit them", () => {
-  let state = replayCalls([{ action: "batch", operations: [
-    { action: "create", subject: "Parent" }, { action: "create", subject: "Sibling" },
-  ] }]);
-  state = replayCall(state, { action: "create", subject: "Child", parentId: 1, blockedBy: [1] });
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { apply, emptyState, type State } from "./model.ts";
+const mutate = (state: State, input: Parameters<typeof apply>[1]) => apply(state, input).state;
+test("creates hierarchy and blocking dependencies, then completes in sequence", () => {
+  let state = mutate(emptyState(), { action: "create", subject: "Plan" });
+  state = mutate(state, { action: "create", subject: "Build", parentId: 1 });
+  state = mutate(state, { action: "create", subject: "Verify", parentId: 1, blockedBy: [2] });
+  assert.deepEqual(state.tasks[2]?.blockedBy, [2]);
+  assert.deepEqual(state.tasks.map(t => t.parentId), [undefined, 1, 1]);
+  assert.throws(() => mutate(state, { action: "update", id: 2, addBlockedBy: [3] }), /cycle/);
+  assert.throws(() => mutate(state, { action: "update", id: 1, parentId: 3 }), /cycle/);
+  state = mutate(state, { action: "update", id: 2, status: "in_progress" });
+  assert.throws(() => mutate(state, { action: "update", id: 3, status: "in_progress" }), /another task/);
+  state = mutate(state, { action: "update", id: 2, status: "completed" });
+  assert.equal(state.tasks[1]?.status, "completed");
+  assert.throws(() => mutate(state, { action: "update", id: 2, status: "pending" }), /illegal transition/);
+  state = mutate(state, { action: "delete", id: 1 });
+  assert.equal(state.tasks[1]?.parentId, 1);
   assert.equal(state.tasks[2]?.parentId, 1);
-  assert.deepEqual(state.tasks[2]?.blockedBy, [1]);
-  state = replayCall(state, { action: "update", id: 3, removeBlockedBy: [1], parentId: null });
-  assert.equal(state.tasks[2]?.parentId, undefined);
-  assert.deepEqual(state.tasks[2]?.blockedBy, []);
-  assert.equal(state.tasks[0]?.parentId, undefined);
+});
+test("moves a sibling with its descendants", () => {
+  let state = emptyState();
+  for (const [subject, parentId] of [["Root", undefined], ["First", 1], ["Child", 2], ["Second", 1]] as const) {
+    state = mutate(state, { action: "create", subject, parentId });
+  }
+  state = mutate(state, { action: "update", id: 4, move: "up" });
+  assert.deepEqual(state.tasks.map(task => task.id), [1, 4, 2, 3]);
+  state = mutate(state, { action: "update", id: 4, move: "down" });
+  assert.deepEqual(state.tasks.map(task => task.id), [1, 2, 3, 4]);
+});
+
+test("moves a subtree past interleaved siblings and retains tombstones", () => {
+  let state = emptyState();
+  state = mutate(state, { action: "create", subject: "Root" });
+  state = mutate(state, { action: "create", subject: "First", parentId: 1 });
+  state = mutate(state, { action: "create", subject: "Second", parentId: 1 });
+  state = mutate(state, { action: "create", subject: "Child of first", parentId: 2 });
+  state = mutate(state, { action: "create", subject: "Third", parentId: 1 });
+  state = mutate(state, { action: "create", subject: "Old" });
+  state = mutate(state, { action: "delete", id: 6 });
+  state = mutate(state, { action: "update", id: 2, move: "down" });
+  assert.deepEqual(state.tasks.map(task => task.id), [1, 3, 2, 4, 5, 6]);
+});
+
+test("metadata merges and clear resets ids", () => {
+  let state = mutate(emptyState(), { action: "create", subject: "One", metadata: { a: 1, b: 2 } });
+  state = mutate(state, { action: "update", id: 1, metadata: { a: null, b: 3 } });
+  assert.deepEqual(state.tasks[0]?.metadata, { b: 3 });
+  state = mutate(state, { action: "clear" });
+  assert.deepEqual(state, emptyState());
 });

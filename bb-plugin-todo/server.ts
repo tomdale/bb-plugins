@@ -1,33 +1,79 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { snapshotForThread } from "./snapshot.ts";
+import { apply, emptyState, type Input, type State } from "./model.ts";
 
+const id = z.number().int().positive();
+const status = z.enum(["pending", "in_progress", "completed", "deleted"]);
+const metadata = z.record(z.string(), z.unknown());
 const task = z.object({
-  id: z.number().int().positive(), subject: z.string(),
-  status: z.enum(["pending", "in_progress", "completed", "deleted"]),
-  description: z.string().optional(), activeForm: z.string().optional(),
-  parentId: z.number().int().positive().optional(), blockedBy: z.array(z.number().int().positive()).optional(),
-  owner: z.string().optional(),
+  id, subject: z.string(), status, description: z.string().optional(), activeForm: z.string().optional(),
+  parentId: id.optional(), blockedBy: z.array(id).optional(), owner: z.string().optional(), metadata: metadata.optional(),
+});
+const stateSchema = z.object({ tasks: z.array(task), nextId: id });
+const input = z.object({
+  action: z.enum(["create", "update", "get", "list", "delete", "clear"]),
+  id: id.optional(), subject: z.string().optional(), description: z.string().optional(),
+  activeForm: z.string().optional(), status: status.optional(), parentId: id.nullable().optional(),
+  blockedBy: z.array(id).optional(), addBlockedBy: z.array(id).optional(), removeBlockedBy: z.array(id).optional(),
+  owner: z.string().optional(), metadata: metadata.optional(), includeDeleted: z.boolean().optional(), move: z.enum(["up", "down"]).optional(),
 });
 export const rpcContract = defineRpcContract({
-  snapshot: {
-    input: z.object({ threadId: z.string().min(1).max(256) }).strict(),
-    output: z.object({ tasks: z.array(task), nextId: z.number().int().positive() }).strict(),
-  },
+  snapshot: { input: z.object({ threadId: z.string().min(1) }), output: stateSchema },
+  mutate: { input: z.object({ threadId: z.string().min(1), change: input }), output: stateSchema },
 });
 
 export default function plugin(bb: BbPluginApi) {
   bb.settings.define({
     completedHideDelaySeconds: {
-      type: "number",
-      label: "Hide completed Todo card after (seconds)",
-      description: "How long to show the card after every visible task is completed. Set to 0 to hide it immediately.",
-      default: 30,
-      experimental_schema: z.number().int().min(0).max(3600),
+      type: "number", label: "Hide completed Todo card after (seconds)",
+      description: "Time to show an all-complete list before hiding it. Set to 0 to hide immediately.",
+      default: 30, experimental_schema: z.number().int().min(0).max(3600),
     },
   });
-  bb.rpc.register(rpcContract, { snapshot: ({ threadId }) => snapshotForThread(bb, threadId) });
-  for (const event of ["thread.active", "thread.idle"] as const) {
-    bb.events.on(event, ({ thread }) => bb.realtime.publish("todo-timeline-changed", { threadId: thread.id }));
-  }
+  const db = bb.storage.database();
+  bb.storage.migrate(db, ["CREATE TABLE IF NOT EXISTS todos (thread_id TEXT PRIMARY KEY, state_json TEXT NOT NULL)"]);
+  const read = (threadId: string): State => {
+    const row = db.prepare("SELECT state_json FROM todos WHERE thread_id = ?").get(threadId) as { state_json: string } | undefined;
+    if (!row) return emptyState();
+    return stateSchema.parse(JSON.parse(row.state_json));
+  };
+  const save = db.prepare("INSERT INTO todos(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
+  const mutate = (threadId: string, change: Input) => {
+    const result = db.transaction(() => {
+      const next = apply(read(threadId), change);
+      if (next.changed) save.run(threadId, JSON.stringify(next.state));
+      return next;
+    })();
+    if (result.changed) bb.realtime.publish("todo-changed", { threadId });
+    return result;
+  };
+  bb.rpc.register(rpcContract, {
+    snapshot: ({ threadId }) => read(threadId),
+    mutate: ({ threadId, change }) => mutate(threadId, change).state,
+  });
+  bb.agents.registerTool({
+    name: "todo", description: "Manage a per-thread task list with parent tasks and blocking dependencies. Actions: create, update, get, list, delete, clear.",
+    instructions: "Use todo for work with three or more steps or a user-supplied task list; skip trivial requests. Create tasks promptly, set one task in_progress with an activeForm before starting it, and mark it completed immediately only after the work and its checks pass. A blocked task names prerequisites in blockedBy when created; update adds or removes edges with addBlockedBy/removeBlockedBy. Use parentId for hierarchy. Invalid references and cycles are rejected. Update {id,status} changes status; completed cannot reopen, and delete leaves a tombstone. list filters by status and hides deleted tasks unless includeDeleted is true. clear resets the list. If the user edits Todos in BB, call list to read the latest authoritative state before proceeding.",
+    parameters: input,
+    async execute(params: Input, { threadId }) {
+      try {
+        return mutate(threadId, params).message;
+      } catch (error) {
+        return { content: [{ type: "text", text: `Todo: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    },
+  });
+  bb.events.on("thread.active", ({ thread }) => bb.realtime.publish("todo-changed", { threadId: thread.id }));
+  bb.events.on("thread.idle", ({ thread }) => {
+    const changed = db.transaction(() => {
+      const current = read(thread.id);
+      if (!current.tasks.some(task => task.status === "in_progress")) return false;
+      const tasks = current.tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" as const } : task);
+      save.run(thread.id, JSON.stringify({ ...current, tasks }));
+      return true;
+    })();
+    if (changed) bb.realtime.publish("todo-changed", { threadId: thread.id });
+  });
+  bb.events.on("thread.deleted", ({ thread }) => { db.prepare("DELETE FROM todos WHERE thread_id = ?").run(thread.id); });
+  bb.agents.configure(() => ({ tools: ["todo"], skills: [] }));
 }

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { definePluginApp, experimental_Icon as Icon, useComposerView, useRealtime, useRealtimeConnectionState, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_Icon as Icon, useComposer, useRealtime, useRealtimeConnectionState, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
 import type { Task } from "./model.js";
+import { TodoEditor } from "./editor.js";
+import { TodoEditorButton } from "./editor-button.js";
 import { autoExpanded, buildCardView, currentLabel, headerIcon, rowIcon, tasksForRunState, type CardRow } from "./card.js";
 import { computeTodoSidePlacement, type TodoRect, type TodoSidePlacement } from "./layout.js";
 import "./app.css";
@@ -147,9 +149,8 @@ function TodoRow({ row, showIds, working }: { row: CardRow; showIds: boolean; wo
 }
 
 function TodoCard() {
-  const view = useComposerView();
-  const threadId = view.scope.kind === "thread" || view.scope.kind === "queued-message" ? view.scope.threadId
-    : view.scope.kind === "side-chat" ? view.scope.childThreadId : null;
+  const view = useComposer();
+  const threadId = view.scope.kind === "thread" || view.scope.kind === "queued-message" ? view.scope.threadId : null;
   const rpc = useRpc<typeof rpcContract>();
   const { values: settings } = useSettings();
   const hideDelaySeconds = typeof settings?.completedHideDelaySeconds === "number" ? settings.completedHideDelaySeconds : 30;
@@ -176,17 +177,11 @@ function TodoCard() {
   }, [rpc, threadId]);
   useEffect(() => { setTasks([]); setSnapshotLoaded(false); setOverride(null); refresh(); return () => { generation.current++; }; }, [threadId, refresh]);
   useEffect(() => { refresh(); }, [connection, refresh]);
-  useRealtime("todo-timeline-changed", payload => {
+  useRealtime("todo-changed", payload => {
     if (payload && typeof payload === "object" && "threadId" in payload && payload.threadId === threadId) refresh();
   });
-  // Lifecycle events can arrive before the final tool completion is persisted.
-  // Reconcile while running, and once more on the run-to-idle transition.
-  useEffect(() => {
-    if (!view.run.isRunning || !threadId) { refresh(); return; }
-    const timer = window.setInterval(refresh, 1500);
-    return () => window.clearInterval(timer);
-  }, [view.run.isRunning, threadId, refresh]);
-  const cardTasks = useMemo(() => tasksForRunState(tasks, view.run.isRunning), [tasks, view.run.isRunning]);
+  useEffect(() => { refresh(); }, [view.isRunning, threadId, refresh]);
+  const cardTasks = useMemo(() => tasksForRunState(tasks, view.isRunning), [tasks, view.isRunning]);
   const card = useMemo(() => buildCardView(cardTasks), [cardTasks]);
   const tasksFingerprint = JSON.stringify(tasks);
   useEffect(() => {
@@ -196,7 +191,7 @@ function TodoCard() {
     const timer = window.setTimeout(() => setHiddenAfterCompletion(true), hideDelaySeconds * 1000);
     return () => window.clearTimeout(timer);
   }, [threadId, snapshotLoaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
-  const auto = autoExpanded(card, view.run.isRunning);
+  const auto = autoExpanded(card, view.isRunning);
   const expanded = override && override.auto === auto ? override.open : auto;
   const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(
@@ -211,12 +206,12 @@ function TodoCard() {
       style={placement ? { left: placement.left, top: placement.top, width: placement.width, maxHeight: placement.maxHeight } : undefined}>
       <div className="todo-header todo-header-error" role="alert" title={error ?? undefined}>
         <Icon name="ListTodo" className="todo-header-icon" aria-hidden="true" />
-        <span className="todo-summary">Todo timeline unavailable</span>
+        <span className="todo-summary">Todos unavailable</span>
       </div>
     </div>;
     return placement && typeof document !== "undefined" ? createPortal(content, document.body) : content;
   }
-  const working = view.run.isRunning && !card.allComplete;
+  const working = view.isRunning && !card.allComplete;
   const current = currentLabel(card);
   const summary = `${card.completed}/${card.total} complete`;
   const content = <div ref={cardRef} className={`todo-card${card.allComplete ? " todo-card-done" : ""}${placement ? " todo-card-floating" : ""}`}
@@ -225,7 +220,7 @@ function TodoCard() {
     <button type="button" id={toggleId} className="todo-header" aria-expanded={expanded} aria-controls={bodyId}
       aria-label={`To-do list: ${card.completed} of ${card.total} ${card.total === 1 ? "item" : "items"} complete${current ? `; ${current}` : ""}`}
       onClick={() => setOverride({ auto, open: !expanded })}>
-      <Icon name={headerIcon(card)} className={`todo-header-icon${card.current && !card.allComplete && view.run.isRunning ? " todo-header-spinner animate-spin" : ""}`} aria-hidden="true" />
+      <Icon name={headerIcon(card)} className={`todo-header-icon${card.current && !card.allComplete && view.isRunning ? " todo-header-spinner animate-spin" : ""}`} aria-hidden="true" />
       <span className="todo-summary">{summary}</span>
       <span className="todo-current" title={current ?? undefined}>{current}</span>
       <Icon name="ChevronDown" className="todo-chevron" aria-hidden="true" />
@@ -233,7 +228,7 @@ function TodoCard() {
     <section id={bodyId} role="region" aria-labelledby={toggleId} aria-hidden={!expanded} inert={!expanded}
       className="todo-body" data-expanded={expanded || undefined}>
       <div className="todo-body-inner">
-        {error && <p role="alert" className="todo-error">Todo timeline unavailable: {error}</p>}
+        {error && <p role="alert" className="todo-error">Todos unavailable: {error}</p>}
         <ul className="todo-list">{card.rows.map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} />)}</ul>
       </div>
     </section>
@@ -241,5 +236,7 @@ function TodoCard() {
   return placement && typeof document !== "undefined" ? createPortal(content, document.body) : content;
 }
 export default definePluginApp(app => {
-  app.composer.customize({ id: "pi-todo-renderer", scopes: ["thread", "queued-message", "side-chat"], banners: [{ id: "todos", chrome: "bare", component: TodoCard }] });
+  app.slots.threadPanelAction({ id: "todos", title: "Todos", icon: "ListTodo", component: TodoEditor });
+  app.slots.experimental_threadHeaderAction({ id: "todos", title: "Todos", component: TodoEditorButton });
+  app.composer.customize({ id: "bb-todo", scopes: ["thread", "queued-message"], banners: [{ id: "todos", chrome: "bare", component: TodoCard }] });
 });
