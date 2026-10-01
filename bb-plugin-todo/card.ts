@@ -25,6 +25,15 @@ export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): re
   return tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" } : task);
 }
 
+export function selectCollapsedRows(rows: readonly CardRow[]): CardRow[] {
+  const inProgress = rows.filter(row => row.task.status === "in_progress");
+  if (inProgress.length > 0) return inProgress.map(row => ({ ...row, depth: 0 }));
+  const pending = rows.filter(row => row.task.status === "pending");
+  if (pending.length > 0) return pending.slice(0, 2).map(row => ({ ...row, depth: 0 }));
+  const completed = rows.filter(row => row.task.status === "completed");
+  return completed.slice(0, 2).map(row => ({ ...row, depth: 0 }));
+}
+
 export function buildCardView(tasks: readonly Task[]): CardView {
   const visible = tasks.filter(task => task.status !== "deleted");
   const byId = new Map(visible.map(task => [task.id, task]));
@@ -55,10 +64,7 @@ export function buildCardView(tasks: readonly Task[]): CardView {
   const completed = visible.filter(task => task.status === "completed").length;
   return {
     rows,
-    collapsedRows: (rows.some(row => row.task.status === "in_progress")
-      ? rows.filter(row => row.task.status === "in_progress")
-      : rows.filter(row => row.task.status === "pending").slice(0, 2)
-    ).map(row => ({ ...row, depth: 0 })),
+    collapsedRows: selectCollapsedRows(rows),
     total: visible.length,
     completed,
     current: visible.find(task => task.status === "in_progress"),

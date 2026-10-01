@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useBbNavigate, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { autoExpanded, buildCardView, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
+import { buildCardView, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
 import type { Task } from "./model.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
@@ -14,13 +14,14 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
   const state = rowState(row);
   const spinning = state === "active" && working;
   const waitsFor = blockers.map(id => `#${id} ${subjects.get(id) ?? ""}`.trim()).join(", ");
+  const text = (state === "active" && task.activeForm?.trim()) || task.subject;
   return <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
     style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
     <Icon name={rowIcon(row)} className={`todo-row-icon${spinning ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
-    <span className="todo-row-text" title={task.subject}>
+    <span className="todo-row-text" title={text}>
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? `, waiting for ${waitsFor}` : ""}: </span>
       {showIds && <span className="todo-row-id" aria-hidden="true">{task.id}</span>}
-      {task.subject}
+      {text}
     </span>
     {blockers.length > 0 && <span className="todo-row-meta" aria-hidden="true" title={`Waits for ${waitsFor}`}>
       after {blockers.map(id => `#${id}`).join(", ")}
@@ -30,9 +31,9 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
 
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
- * unless the agent is working a task, hides itself a configurable time after
- * every task completes, and moves into the thread's right gutter when there is
- * room beside the latest message.
+ * by default (showing intelligent compact tasks), can be toggled to show the
+ * full list, hides itself a configurable time after every task completes, and
+ * moves into the thread's right gutter when there is room beside the latest message.
  */
 export function TodoCard() {
   const composer = useComposer();
@@ -42,18 +43,17 @@ export function TodoCard() {
   const hideDelaySeconds = typeof settings?.completedHideDelaySeconds === "number" ? settings.completedHideDelaySeconds : 30;
   const { state, loaded, error, refresh } = useTodoList(threadId);
   const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
-  // A manual toggle holds only until the automatic state it overrode changes,
-  // so the next run (or its completion) takes over again.
-  const [override, setOverride] = useState<{ auto: boolean; open: boolean } | null>(null);
-  // Thread and queued-message composers can mount this card at the same time.
+  const [expanded, setExpanded] = useState(false);
   const baseId = useId();
-  const bodyId = `${baseId}-body`, listId = `${baseId}-list`, toggleId = `${baseId}-toggle`;
-  useEffect(() => { setOverride(null); }, [threadId]);
-  // The server settles in-progress tasks when a run ends; refetch on both edges.
+  const listId = `${baseId}-list`, toggleId = `${baseId}-toggle`;
+
+  useEffect(() => { setExpanded(false); }, [threadId]);
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
+
   const card = useMemo(() => buildCardView(tasksForRunState(state.tasks, composer.isRunning)), [state.tasks, composer.isRunning]);
   const subjects = useMemo(() => new Map(state.tasks.map(task => [task.id, task.subject])), [state.tasks]);
   const tasksFingerprint = JSON.stringify(state.tasks);
+
   useEffect(() => {
     setHiddenAfterCompletion(false);
     if (!threadId || !loaded || !card.allComplete || error) return;
@@ -61,11 +61,12 @@ export function TodoCard() {
     const timer = window.setTimeout(() => setHiddenAfterCompletion(true), hideDelaySeconds * 1000);
     return () => window.clearTimeout(timer);
   }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
-  const auto = autoExpanded(card, composer.isRunning) || card.allComplete;
-  const expanded = override && override.auto === auto ? override.open : auto;
+
   const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
+
   if (!visible) return null;
+
   const frame = (className: string, children: ReactNode) => {
     const content = <div ref={cardRef} className={`todo-card ${className}${placement ? " todo-card-floating" : ""}`}
       data-floating={placement ? "" : undefined}
@@ -74,6 +75,7 @@ export function TodoCard() {
     </div>;
     return placement && typeof document !== "undefined" ? createPortal(content, document.body) : content;
   };
+
   if (!card.total) {
     return frame("todo-card-error", <div className="todo-header" role="alert" title={error ?? undefined}>
       <span className="todo-toggle">
@@ -82,27 +84,52 @@ export function TodoCard() {
       </span>
     </div>);
   }
+
   const working = composer.isRunning && !card.allComplete;
-  // The queued-message editor has no thread side panel to open.
   const canEdit = composer.scope.kind === "thread";
-  return frame(card.allComplete ? "todo-card-done" : "", <>
-    <section id={bodyId} role="region" aria-label={expanded ? "All todos" : "Current todos"}
-      className="todo-body" data-expanded={expanded || undefined} data-preview={!expanded || undefined}>
-      <div className="todo-body-inner">
-        {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-        <ul id={listId} className="todo-list">{(expanded ? card.rows : card.collapsedRows).map(row => <TodoRow key={row.task.id} row={row} showIds={card.showIds} working={working} subjects={subjects} />)}</ul>
+  const displayRows = expanded ? card.rows : card.collapsedRows;
+
+  return frame(card.allComplete ? "todo-card-done" : "", (
+    <div className="todo-card-inner">
+      {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
+      <div className="todo-card-content">
+        <ul id={listId} className="todo-list" aria-label={expanded ? "All todos" : "Current todos"}>
+          {displayRows.map(row => (
+            <TodoRow
+              key={row.task.id}
+              row={row}
+              showIds={card.showIds}
+              working={working}
+              subjects={subjects}
+            />
+          ))}
+        </ul>
+        <div className="todo-actions">
+          <button
+            type="button"
+            id={toggleId}
+            className="todo-view-toggle"
+            aria-expanded={expanded}
+            aria-controls={listId}
+            aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
+            onClick={() => setExpanded(prev => !prev)}
+          >
+            <span className="todo-count" aria-hidden="true">{card.completed}/{card.total}</span>
+            <Icon name={expanded ? "ChevronUp" : "ChevronDown"} className="todo-chevron" aria-hidden="true" />
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className="todo-edit"
+              aria-label="Edit todos"
+              title="Edit todos"
+              onClick={() => { navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID }); }}
+            >
+              <Icon name="Edit" aria-hidden="true" />
+            </button>
+          )}
+        </div>
       </div>
-    </section>
-    <div className="todo-controls">
-      {!card.allComplete && <button type="button" id={toggleId} className="todo-view-toggle" aria-expanded={expanded} aria-controls={listId}
-        aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
-        onClick={() => setOverride({ auto, open: !expanded })}>
-        <Icon name={expanded ? "ChevronUp" : "ChevronDown"} aria-hidden="true" />
-      </button>}
-      {canEdit && <button type="button" className="todo-edit" aria-label="Edit todos" title="Edit todos"
-        onClick={() => { navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID }); }}>
-        <Icon name="Edit" aria-hidden="true" />
-      </button>}
     </div>
-  </>);
+  ));
 }

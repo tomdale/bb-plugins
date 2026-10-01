@@ -214,9 +214,9 @@ it("titles a running card with the active task's working label", async () => {
     composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending" }], nextId: 3 }) },
   });
-  const toggle = await slot.findByRole("button", { name: "Show compact todos" });
-  expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  expect(slot.getByText(subject)).toBeTruthy();
+  const toggle = await slot.findByRole("button", { name: "Show all 2 todos" });
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(slot.getByText("Planning the release")).toBeTruthy();
   expect(slot.container.querySelector(".todo-row-spinner")).toBeTruthy();
   slot.lifecycle.unmount();
 });
@@ -301,12 +301,16 @@ it("keeps all active todos visible when a running card is collapsed", async () =
       { id: 4, subject: "Waiting", status: "pending" },
     ], nextId: 5 }) },
   });
-  const toggle = await slot.findByRole("button", { name: "Show compact todos" });
-  fireEvent.click(toggle);
+  const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
   expect(slot.container.querySelectorAll(".todo-row-spinner")).toHaveLength(3);
   expect(slot.queryByText("Waiting")).toBeNull();
+  fireEvent.click(toggle);
+  expect(slot.getAllByRole("listitem")).toHaveLength(4);
+  expect(slot.getByText("Waiting")).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
+  expect(slot.getAllByRole("listitem")).toHaveLength(3);
   slot.lifecycle.unmount();
 });
 
@@ -318,13 +322,49 @@ it("hides a completed card after 30 seconds by default", async () => {
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
-  expect(completed.queryByRole("button", { name: "Show all 1 todos" })).toBeNull();
+  expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
   expect(completed.getByText(subject)).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(29_999); });
   expect(completed.getByText(subject)).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(1); });
   expect(completed.queryByText(subject)).toBeNull();
   completed.lifecycle.unmount();
+});
+
+it("toggles back and forth between collapsed and expanded states at any time", async () => {
+  const slot = await mount(() => ({ tasks: [
+    { id: 1, subject: "Done", status: "completed" },
+    { id: 2, subject: "Next", status: "pending" },
+    { id: 3, subject: "Upcoming", status: "pending" },
+    { id: 4, subject: "Later", status: "pending" },
+  ], nextId: 5 }));
+  // Initially collapsed: shows the next 2 pending tasks
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  expect(slot.getByText("Next")).toBeTruthy();
+  expect(slot.getByText("Upcoming")).toBeTruthy();
+  expect(slot.queryByText("Done")).toBeNull();
+  expect(slot.queryByText("Later")).toBeNull();
+  const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
+
+  // Expand
+  fireEvent.click(toggle);
+  expect(slot.getAllByRole("listitem")).toHaveLength(4);
+  expect(slot.getByText("Done")).toBeTruthy();
+  expect(slot.getByText("Later")).toBeTruthy();
+
+  // Collapse
+  fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  expect(slot.queryByText("Done")).toBeNull();
+
+  // Expand again
+  fireEvent.click(slot.getByRole("button", { name: "Show all 4 todos" }));
+  expect(slot.getAllByRole("listitem")).toHaveLength(4);
+
+  // Collapse again
+  fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
+  slot.lifecycle.unmount();
 });
 
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
