@@ -61,7 +61,7 @@ export function TodoCard() {
     const timer = window.setTimeout(() => setHiddenAfterCompletion(true), hideDelaySeconds * 1000);
     return () => window.clearTimeout(timer);
   }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
-  const auto = autoExpanded(card, composer.isRunning);
+  const auto = autoExpanded(card, composer.isRunning) || card.allComplete;
   const expanded = override && override.auto === auto ? override.open : auto;
   const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
@@ -94,11 +94,11 @@ export function TodoCard() {
       </div>
     </section>
     <div className="todo-controls">
-      <button type="button" id={toggleId} className="todo-view-toggle" aria-expanded={expanded} aria-controls={listId}
+      {!card.allComplete && <button type="button" id={toggleId} className="todo-view-toggle" aria-expanded={expanded} aria-controls={listId}
         aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
         onClick={() => setOverride({ auto, open: !expanded })}>
         <Icon name={expanded ? "ChevronUp" : "ChevronDown"} aria-hidden="true" />
-      </button>
+      </button>}
       {canEdit && <button type="button" className="todo-edit" aria-label="Edit todos" title="Edit todos"
         onClick={() => { navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID }); }}>
         <Icon name="Edit" aria-hidden="true" />

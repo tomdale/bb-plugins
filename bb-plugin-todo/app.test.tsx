@@ -318,20 +318,20 @@ it("hides a completed card after 30 seconds by default", async () => {
     rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
-  expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
-  expect(completed.queryByText("Plan the release")).toBeNull();
-  await act(async () => { vi.advanceTimersByTime(29_999); });
-  expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
-  await act(async () => { vi.advanceTimersByTime(1); });
   expect(completed.queryByRole("button", { name: "Show all 1 todos" })).toBeNull();
+  expect(completed.getByText(subject)).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(29_999); });
+  expect(completed.getByText(subject)).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(1); });
+  expect(completed.queryByText(subject)).toBeNull();
   completed.lifecycle.unmount();
 });
 
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
-  await slot.findByRole("button", { name: "Show all 1 todos" });
-  await waitFor(() => expect(slot.queryByRole("button", { name: "Show all 1 todos" })).toBeNull());
+  await slot.findByText(subject);
+  await waitFor(() => expect(slot.queryByText(subject)).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("Next task");
@@ -341,12 +341,12 @@ it("hides a completed card after the configured delay and shows it again when ta
 it("restarts the completion delay after another completed-list mutation", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.15 });
-  const toggle = await slot.findByRole("button", { name: "Show all 1 todos" });
+  await slot.findByText(subject);
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await new Promise(resolve => setTimeout(resolve, 90));
-  expect(slot.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
-  await waitFor(() => expect(slot.queryByRole("button", { name: "Show all 1 todos" })).toBeNull());
+  expect(slot.getByText("Updated completed task")).toBeTruthy();
+  await waitFor(() => expect(slot.queryByText("Updated completed task")).toBeNull());
   slot.lifecycle.unmount();
 });
