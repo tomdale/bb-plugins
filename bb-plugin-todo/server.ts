@@ -31,13 +31,13 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   const db = bb.storage.database();
-  bb.storage.migrate(db, ["CREATE TABLE IF NOT EXISTS todos (thread_id TEXT PRIMARY KEY, state_json TEXT NOT NULL)"]);
+  bb.storage.migrate(db, ["CREATE TABLE IF NOT EXISTS todo_threads (thread_id TEXT PRIMARY KEY, state_json TEXT NOT NULL)"]);
   const read = (threadId: string): State => {
-    const row = db.prepare("SELECT state_json FROM todos WHERE thread_id = ?").get(threadId) as { state_json: string } | undefined;
+    const row = db.prepare("SELECT state_json FROM todo_threads WHERE thread_id = ?").get(threadId) as { state_json: string } | undefined;
     if (!row) return emptyState();
     return stateSchema.parse(JSON.parse(row.state_json));
   };
-  const save = db.prepare("INSERT INTO todos(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
+  const save = db.prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
   const mutate = (threadId: string, change: Input) => {
     const result = db.transaction(() => {
       const next = apply(read(threadId), change);
@@ -74,6 +74,6 @@ export default function plugin(bb: BbPluginApi) {
     })();
     if (changed) bb.realtime.publish("todo-changed", { threadId: thread.id });
   });
-  bb.events.on("thread.deleted", ({ thread }) => { db.prepare("DELETE FROM todos WHERE thread_id = ?").run(thread.id); });
+  bb.events.on("thread.deleted", ({ thread }) => { db.prepare("DELETE FROM todo_threads WHERE thread_id = ?").run(thread.id); });
   bb.agents.configure(() => ({ tools: ["todo"], skills: [] }));
 }
