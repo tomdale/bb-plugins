@@ -8,6 +8,24 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Render delivered plugin tool results inline
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** show an answered question as readable Q&A in the generated
+  “Delivered AskUserQuestion result” message instead of transport JSON
+- **Limit:** `GeneratedConversationMessage` renders its body with
+  `MarkdownPreview` directly, bypassing plugin message directives. The form
+  timeline renderer covers the original form, not the detached result delivery
+- **Workaround:** an app overlay observes mounted transcript rows, validates the
+  exact question-result envelope, and portals a Q&A component beside the retained
+  host content. Scoped CSS hides only that transport body. Unmount restores the
+  original body; malformed or unrelated content is left untouched. This depends
+  on host DOM structure and can briefly show raw text during mount
+- **Possible API:** a renderer for generated system messages matched by
+  `systemMessageKind` and originating plugin/tool, with typed retained payloads
+  and a host-owned fallback
+
 ## Preserve pending user questions across plugin reloads
 
 - **Status:** not filed
