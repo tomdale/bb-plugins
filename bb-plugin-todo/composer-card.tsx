@@ -120,6 +120,13 @@ export function TodoCard() {
   const subjects = useMemo(() => new Map(state.tasks.map(task => [task.id, task.subject])), [state.tasks]);
   const ordinals = useMemo(() => new Map(card.rows.map(row => [row.task.id, row.ordinal])), [card.rows]);
   const tasksFingerprint = JSON.stringify(state.tasks);
+  const previousTasksFingerprint = useRef(tasksFingerprint);
+
+  useEffect(() => {
+    if (previousTasksFingerprint.current === tasksFingerprint) return;
+    previousTasksFingerprint.current = tasksFingerprint;
+    contentHeights.current = {};
+  }, [tasksFingerprint]);
 
   useEffect(() => {
     setHiddenAfterCompletion(false);
