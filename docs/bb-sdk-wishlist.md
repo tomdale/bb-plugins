@@ -137,19 +137,24 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   (complete or ready for review, a goal, the latest results, a review check,
   links). The recap card above the composer goes away when the conversation
   continues. The tool's timeline row is the natural place to keep the recap in
-  the thread, as a one-line summary such as "◇ Review · Porting handoffs into
-  Workstreams".
+  the thread as a compact state, goal, and results card.
 - **Limit:** `presentation.label` is static per tool, and
   `experimental_timelineRenderer({ kind: "tool" })` only covers tool items of
   providers the plugin registered. The app resolves a tool row's renderer by
   the thread's provider plugin (`{ kind: "tool", providerPluginId }` in
-  `workspace-checkout-display-*.js`), so the plugin that registered the tool is
-  never consulted.
-- **Workaround:** the row is titled "Recap" with a tint, and the tool's output is
-  the recap as Markdown, shown only when the row is expanded.
-- **Possible API:** match `kind: "tool"` renderers to the plugin that registered
-  the called tool (passing `toolName`), or let a tool result set its row's
-  title, for example `{ content, presentation: { title } }`.
+  `PluginTimelineRendererBody.tsx`), so the plugin that registered an injected
+  tool is never consulted. Workstreams injects `WorkstreamsRecap` into threads
+  owned by multiple provider plugins, so a provider-scoped renderer cannot own
+  its timeline row.
+- **Workaround:** the recap stays as Markdown in the generic tool output and is
+  readable only after expanding the row. A BB-core tool-name special case would
+  couple the host UI to a third-party plugin and is not a suitable plugin
+  workaround.
+- **Possible API:** let a timeline renderer register for a specific tool name
+  or tool owner independent of the thread's provider, passing the call's
+  arguments and output. Alternatively, let a tool result provide a validated
+  row presentation and structured renderable payload; the host should keep
+  ownership and fallback behavior explicit.
 
 ## Refresh a running session's tools
 
@@ -256,7 +261,8 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   per call, against about 1.2 s for a direct completion).
 - **Workaround:** a `bb.host` entry calls AI Gateway directly with the key Pi
   already has, for gateway models; other picks run in hidden worker threads.
-- **Possible API:** `bb.sdk.ai.complete({ prompt, model?: ProviderModelPickerValue,
-  maxTokens, signal })` that runs one tool-free completion through the chosen
-  provider without a thread, plus a picker `catalog: "all"` (or a `models`
+- **Possible API:** `bb.sdk.ai.complete({ prompt, model?:
+ProviderModelPickerValue, maxTokens, signal })` that runs one tool-free completion
+  through the chosen provider without a thread, plus a picker `catalog: "all"`
+  (or a `models`
   prop) for providers whose scoped list is a subset of what they can reach.
