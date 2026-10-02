@@ -45,6 +45,15 @@ function structuralShortcut(event: KeyboardEvent): StructuralCommand | null {
 
 const FIELD = "w-full rounded-md border border-input bg-transparent px-2 text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
+function findEditorNode(nodes: readonly EditorNode[], id: number): EditorNode | undefined {
+  for (const node of nodes) {
+    if (node.task.id === id) return node;
+    const child = findEditorNode(node.children, id);
+    if (child) return child;
+  }
+  return undefined;
+}
+
 /**
  * A text field that edits one stored value and commits on blur or Enter.
  * Escape restores the stored value. It re-seeds whenever the stored value
@@ -154,7 +163,7 @@ function TaskDetails({ node, view, mutate, id }: { node: EditorNode; view: Retur
   const byId = new Map(view.ordered.map(other => [other.id, other]));
   const update = (change: Omit<Input, "action" | "id">) => void mutate({ action: "update", id: task.id, ...change });
   const candidates = blockerCandidates(task, view.ordered);
-  return <div id={id} role="group" aria-label={`Details for #${task.id}`} className="mb-2 ml-7 mr-1 mt-1 grid gap-3 rounded-md border border-border bg-surface-raised-solid p-3">
+  return <div id={id} role="group" aria-label={`Details for #${task.id}`} className="mb-2 ml-9 mr-1 mt-1 grid gap-3 rounded-md border border-border bg-surface-raised-solid p-3">
     <Field label="Description" htmlFor={`${id}-description`}>
       <CommitField id={`${id}-description`} multiline value={task.description ?? ""} placeholder="Notes for whoever works on this"
         className={cn(FIELD, "min-h-16 resize-y py-1.5 leading-relaxed")} onCommit={description => update({ description })} />
@@ -223,7 +232,11 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
     <div className={cn("group/row flex min-h-8 items-center gap-1 rounded-md pl-1 pr-0.5 hover:bg-state-hover/60 focus-within:bg-state-hover/60",
       task.status === "in_progress" && "bg-state-hover/40")}>
       <StatusControl node={node} mutate={mutate} running={running} />
-      <span className="w-6 shrink-0 text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">{task.id}</span>
+      <span className="todo-editor-marker inline-flex w-8 shrink-0 items-center justify-end gap-0.5 text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">
+        <span className="todo-editor-number inline-grid w-6 place-items-center">{task.status === "in_progress"
+          ? <Icon name="Spinner" className={cn("size-3", running && "animate-spin")} />
+          : node.ordinal}</span>.
+      </span>
       <CommitField aria-label={`Subject for #${task.id}`} data-subject-for={task.id} aria-keyshortcuts={SHORTCUT_ARIA}
         value={task.subject} required onKeyDown={shortcuts}
         onCommit={subject => { void mutate({ action: "update", id: task.id, subject }); }}
@@ -231,8 +244,8 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
           done ? "text-muted-foreground line-through decoration-muted-foreground/60" : "text-foreground",
           task.status === "in_progress" && "font-medium")} />
       {node.waitingOn.length > 0 && <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border px-1.5 text-2xs tabular-nums text-muted-foreground"
-        title={`Waiting for ${node.waitingOn.map(id => `#${id}`).join(", ")}`}>
-        after {node.waitingOn.map(id => `#${id}`).join(", ")}
+        title={`Depends on ${node.waitingOn.map(id => `${findEditorNode(view.roots, id)?.ordinal ?? id}. ${view.ordered.find(task => task.id === id)?.subject ?? ""}`).join(", ")}`}>
+        depends on {node.waitingOn.map(id => findEditorNode(view.roots, id)?.ordinal ?? id).join(", ")}
       </span>}
       {task.owner && <span className="hidden h-5 max-w-24 shrink-0 items-center truncate rounded-full bg-muted px-1.5 text-2xs text-muted-foreground sm:inline-flex" title={`Owner: ${task.owner}`}>{task.owner}</span>}
       <button type="button" className={ICON_BUTTON} aria-expanded={open} aria-controls={open ? detailsId : undefined}
@@ -241,7 +254,7 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
       </button>
       <RowMenu node={node} mutate={mutate} />
     </div>
-    {!open && task.description && <p className="-mt-1 mb-1 truncate pl-[4.125rem] pr-16 text-xs text-muted-foreground" title={task.description}>{task.description}</p>}
+    {!open && task.description && <p className="-mt-1 mb-1 truncate pl-[4.625rem] pr-16 text-xs text-muted-foreground" title={task.description}>{task.description}</p>}
     {open && <TaskDetails node={node} view={view} mutate={mutate} id={detailsId} />}
     {node.children.length > 0 && <ul className="ml-[0.9375rem] border-l border-border pl-2" aria-label={`Subtasks of #${task.id}`}>
       {node.children.map(child => <TaskItem key={child.task.id} node={child} view={view} mutate={mutate} running={running} expanded={expanded} toggle={toggle} />)}

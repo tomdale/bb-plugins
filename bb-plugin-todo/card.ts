@@ -3,6 +3,8 @@ import type { Task } from "./model.js";
 /** One rendered list row; depth and blockers come from native task relationships. */
 export interface CardRow {
   task: Task;
+  /** One-based position in the visible display order. */
+  ordinal: number;
   depth: number;
   /** Ids of visible, unfinished tasks named in this pending task's `blockedBy`. */
   blockers: number[];
@@ -21,8 +23,6 @@ export interface CardView {
   completed: number;
   current: Task | undefined;
   allComplete: boolean;
-  /** Task ids are shown only when a blocker label needs something to refer to. */
-  showIds: boolean;
 }
 
 /** An idle thread can retain the last in-progress status until the next update. */
@@ -79,17 +79,23 @@ export function buildCardView(tasks: readonly Task[]): CardView {
     for (const task of siblings) {
       if (visited.has(task.id)) continue;
       visited.add(task.id);
+      const ordinal = rows.length + 1;
       const blockers = task.status !== "pending" ? [] : (task.blockedBy ?? []).filter(id => {
         const blocker = byId.get(id);
         return blocker !== undefined && blocker.id !== task.id && blocker.status !== "completed";
       });
-      rows.push({ task, depth, blockers });
+      rows.push({ task, ordinal, depth, blockers });
       append(task.id, depth + 1);
     }
   };
   append(undefined, 0);
   // Parent cycles have no root; surface them flat rather than dropping tasks.
-  for (const task of visible) if (!visited.has(task.id)) { rows.push({ task, depth: 0, blockers: [] }); visited.add(task.id); append(task.id, 1); }
+  for (const task of visible) if (!visited.has(task.id)) {
+    visited.add(task.id);
+    const ordinal = rows.length + 1;
+    rows.push({ task, ordinal, depth: 0, blockers: [] });
+    append(task.id, 1);
+  }
   const completed = visible.filter(task => task.status === "completed").length;
   return {
     rows,
@@ -99,7 +105,6 @@ export function buildCardView(tasks: readonly Task[]): CardView {
     completed,
     current: visible.find(task => task.status === "in_progress"),
     allComplete: visible.length > 0 && completed === visible.length,
-    showIds: rows.some(row => row.blockers.length > 0),
   };
 }
 

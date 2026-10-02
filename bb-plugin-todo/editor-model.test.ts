@@ -12,6 +12,7 @@ test("nests visible tasks, hides tombstones, and promotes orphans", () => {
   assert.deepEqual(view.roots.map(node => node.task.id), [1, 4, 5]);
   assert.deepEqual(view.roots[0]!.children.map(node => [node.task.id, node.depth]), [[2, 1]]);
   assert.deepEqual(view.ordered.map(item => item.id), [1, 2, 4, 5]);
+  assert.deepEqual(flatten(view.roots).map(node => [node.task.id, node.ordinal]), [[1, 1], [2, 2], [4, 3], [5, 4]]);
   assert.equal(view.total, 4);
   assert.equal(view.completed, 1);
 });

@@ -97,7 +97,7 @@ it("renders hierarchy and blockers in the panel and edits subjects on commit", a
   ], nextId: 4 });
   const subtasks = await slot.findByRole("list", { name: "Subtasks of #1" });
   expect(within(subtasks).getByLabelText("Subject for #2")).toBeTruthy();
-  expect(slot.getByTitle("Waiting for #3").textContent).toContain("after #3");
+  expect(slot.getByTitle("Depends on 3. Prerequisite").textContent).toContain("depends on 3");
   expect(slot.getByRole("status").textContent).toContain("0 of 3 complete");
   const subject = slot.getByLabelText("Subject for #1");
   fireEvent.change(subject, { target: { value: "Renamed parent" } });
@@ -285,6 +285,7 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Next")).toBeTruthy();
   expect(slot.getByText("Later")).toBeTruthy();
+  expect(slot.getByTitle("Depends on 2. Next").textContent).toContain("depends on 2");
   // In expanded state, toggle button collapses it back
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
@@ -306,10 +307,14 @@ it("keeps all active todos visible when a running card is collapsed", async () =
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
   expect(slot.container.querySelectorAll(".todo-row-spinner")).toHaveLength(3);
+  expect(slot.queryByText("1", { selector: ".todo-row-number" })).toBeNull();
+  expect(slot.container.querySelectorAll(".todo-row-number")).toHaveLength(3);
+  expect(slot.container.querySelectorAll(".todo-row-marker")).toHaveLength(3);
   expect(slot.queryByText("Waiting")).toBeNull();
   fireEvent.click(toggle);
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Waiting")).toBeTruthy();
+  expect(slot.getByText("4", { selector: ".todo-row-number" })).toBeTruthy();
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
   slot.lifecycle.unmount();

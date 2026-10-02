@@ -7,10 +7,9 @@ const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Ta
 
 test("flat task lists preserve explicit order without ids", () => {
   const view = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "in_progress"), task(4, "deleted"), task(5, "pending")]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 0], [3, 0], [5, 0]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 0], [3, 3, 0], [5, 4, 0]]);
   assert.equal(view.total, 4);
   assert.equal(view.completed, 1);
-  assert.equal(view.showIds, false);
   assert.equal(currentLabel(view), "Task 3");
 });
 
@@ -26,23 +25,21 @@ test("nests parent tasks and promotes orphans without inventing structure", () =
     task(1, "pending"), task(2, "completed", { parentId: 1 }), task(3, "in_progress", { parentId: 1 }),
     task(4, "pending", { parentId: 3 }), task(5, "pending", { parentId: 9 }), task(6, "pending", { parentId: 7 }), task(7, "deleted"),
   ]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 1], [3, 1], [4, 2], [5, 0], [6, 0]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 1], [3, 3, 1], [4, 4, 2], [5, 5, 0], [6, 6, 0]]);
 });
 
 test("keeps parent cycles visible", () => {
   const view = buildCardView([task(1, "pending", { parentId: 2 }), task(2, "pending", { parentId: 1 })]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 1]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 1]]);
 });
 
-test("labels only unfinished, visible blockers on pending tasks and shows ids for them", () => {
+test("labels only unfinished, visible blockers on pending tasks", () => {
   const view = buildCardView([
     task(1, "completed"), task(2, "in_progress"), task(3, "deleted"),
     task(4, "pending", { blockedBy: [1, 2, 3, 99, 4] }), task(5, "in_progress", { blockedBy: [2] }),
   ]);
   assert.deepEqual(view.rows.find(row => row.task.id === 4)?.blockers, [2]);
   assert.deepEqual(view.rows.find(row => row.task.id === 5)?.blockers, []);
-  assert.equal(view.showIds, true);
-  assert.equal(buildCardView([task(1, "completed"), task(2, "pending", { blockedBy: [1] })]).showIds, false);
 });
 
 test("maps row state to the circle-family status icons", () => {

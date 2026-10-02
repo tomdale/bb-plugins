@@ -3,6 +3,8 @@ import type { Input, Status, Task } from "./model.js";
 /** One task in the editor tree, with the structural moves the reducer accepts from here. */
 export interface EditorNode {
   task: Task;
+  /** One-based position in the visible display order. */
+  ordinal: number;
   depth: number;
   children: EditorNode[];
   /** Unfinished visible tasks this task waits on. */
@@ -50,13 +52,14 @@ export function buildEditorView(tasks: readonly Task[]): EditorView {
     const pending = siblings.filter(task => !visited.has(task.id));
     return pending.map((task, index) => {
       visited.add(task.id);
+      const ordinal = ordered.length + 1;
       ordered.push(task);
       const waitingOn = task.status === "completed" ? [] : (task.blockedBy ?? []).filter(id => {
         const blocker = byId.get(id);
         return blocker !== undefined && blocker.id !== task.id && blocker.status !== "completed";
       });
       const node: EditorNode = {
-        task, depth, children: [], waitingOn, blocks: blocks.get(task.id) ?? [],
+        task, ordinal, depth, children: [], waitingOn, blocks: blocks.get(task.id) ?? [],
         canMoveUp: index > 0, canMoveDown: index < pending.length - 1,
         indentParentId: index > 0 ? pending[index - 1]!.id : undefined,
         outdentParentId: parent === undefined ? undefined : outdentTarget(task, parent),

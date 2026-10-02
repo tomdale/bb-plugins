@@ -11,37 +11,41 @@ import type { rpcContract } from "./server.js";
 
 const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };
 
-function TodoRowContent({ row, showIds, working, subjects }: { row: CardRow; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
-  const { task, depth, blockers } = row;
+function TodoRowContent({ row, working, subjects, ordinals }: { row: CardRow; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
+  const { task, blockers, ordinal } = row;
   const state = rowState(row);
   const spinning = state === "active" && working;
-  const waitsFor = blockers.map(id => `#${id} ${subjects.get(id) ?? ""}`.trim()).join(", ");
+  const waitsFor = blockers.map(id => `${ordinals.get(id) ?? id}. ${subjects.get(id) ?? ""}`.trim()).join(", ");
   const text = (state === "active" && task.activeForm?.trim()) || task.subject;
   return <>
-    <Icon name={rowIcon(row)} className={`todo-row-icon${spinning ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
+    <span className="todo-row-marker" aria-hidden="true">
+      <span className="todo-row-number">{spinning
+        ? <Icon name="Spinner" className="todo-row-spinner animate-spin" />
+        : ordinal}</span>.
+    </span>
+    {state !== "active" && <Icon name={rowIcon(row)} className="todo-row-icon" aria-hidden="true" />}
     <span className="todo-row-text" title={text}>
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? `, waiting for ${waitsFor}` : ""}: </span>
-      {showIds && <span className="todo-row-id" aria-hidden="true">{task.id}</span>}
       {text}
     </span>
-    {blockers.length > 0 && <span className="todo-row-meta" aria-hidden="true" title={`Waits for ${waitsFor}`}>
-      after {blockers.map(id => `#${id}`).join(", ")}
+    {blockers.length > 0 && <span className="todo-row-meta" aria-hidden="true" title={`Depends on ${waitsFor}`}>
+      depends on {blockers.map(id => ordinals.get(id) ?? id).join(", ")}
     </span>}
   </>;
 }
 
-function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
+function TodoRow({ row, working, subjects, ordinals }: { row: CardRow; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
   const { depth } = row;
   const state = rowState(row);
   return (
     <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
       style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-      <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+      <TodoRowContent row={row} working={working} subjects={subjects} ordinals={ordinals} />
     </li>
   );
 }
 
-function TodoTreeItem({ node, showIds, working, subjects }: { node: CardTreeNode; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
+function TodoTreeItem({ node, working, subjects, ordinals }: { node: CardTreeNode; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
   const { row, children } = node;
   const state = rowState(row);
   const depth = row.depth;
@@ -49,7 +53,7 @@ function TodoTreeItem({ node, showIds, working, subjects }: { node: CardTreeNode
     return (
       <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
         style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-        <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+        <TodoRowContent row={row} working={working} subjects={subjects} ordinals={ordinals} />
       </li>
     );
   }
@@ -57,11 +61,11 @@ function TodoTreeItem({ node, showIds, working, subjects }: { node: CardTreeNode
     <li className="todo-item-group" data-task-id={row.task.id}>
       <div className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
         style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-        <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+        <TodoRowContent row={row} working={working} subjects={subjects} ordinals={ordinals} />
       </div>
       <ul className="todo-subtasks" aria-label={`Subtasks of #${row.task.id}`}>
         {children.map(child => (
-          <TodoTreeItem key={child.row.task.id} node={child} showIds={showIds} working={working} subjects={subjects} />
+          <TodoTreeItem key={child.row.task.id} node={child} working={working} subjects={subjects} ordinals={ordinals} />
         ))}
       </ul>
     </li>
@@ -97,6 +101,7 @@ export function TodoCard() {
 
   const card = useMemo(() => buildCardView(tasksForRunState(state.tasks, composer.isRunning)), [state.tasks, composer.isRunning]);
   const subjects = useMemo(() => new Map(state.tasks.map(task => [task.id, task.subject])), [state.tasks]);
+  const ordinals = useMemo(() => new Map(card.rows.map(row => [row.task.id, row.ordinal])), [card.rows]);
   const tasksFingerprint = JSON.stringify(state.tasks);
 
   useEffect(() => {
@@ -204,9 +209,9 @@ export function TodoCard() {
                 <TodoTreeItem
                   key={node.row.task.id}
                   node={node}
-                  showIds={card.showIds}
                   working={working}
                   subjects={subjects}
+                  ordinals={ordinals}
                 />
               ))}
             </ul>
@@ -220,9 +225,9 @@ export function TodoCard() {
                 <TodoRow
                   key={row.task.id}
                   row={row}
-                  showIds={card.showIds}
                   working={working}
                   subjects={subjects}
+                  ordinals={ordinals}
                 />
               ))}
             </ul>
