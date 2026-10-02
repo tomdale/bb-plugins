@@ -252,7 +252,7 @@
 }
 .todo-row-marker {
   display: inline-flex;
-  width: 28px;
+  width: 18px;
   flex: none;
   align-items: center;
   justify-content: flex-end;
@@ -261,7 +261,7 @@
 }
 .todo-row-marker-ordered { gap: 0; }
 .todo-row-marker-unordered { width: 14px; justify-content: center; }
-.todo-row-number { display: inline-flex; width: 28px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.todo-row-number { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
 .todo-row-number-active { justify-content: center; }
 .todo-row-number-value { flex: none; }
 .todo-row-spinner,

@@ -300,6 +300,7 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   expect(slot.container.querySelector(".todo-row-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelectorAll(".todo-row-marker-ordered")).toHaveLength(4);
   expect(slot.container.querySelectorAll(".todo-row-icon")).toHaveLength(0);
+  expect(slot.container.querySelector(".todo-row-marker-ordered")?.classList.contains("todo-row-marker-ordered")).toBe(true);
   const completedMarker = slot.container.querySelector(".todo-row-completed .todo-row-marker")!;
   expect(completedMarker.classList.contains("todo-row-marker-ordered")).toBe(true);
   expect(getComputedStyle(completedMarker).textDecorationLine).not.toContain("line-through");
