@@ -447,6 +447,8 @@ it("uses two columns only after the expanded list reaches its max height", async
   Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
   fireEvent.scroll(list);
   await waitFor(() => expect(list.classList.contains("todo-list-two-columns")).toBe(true));
+  expect(list.style.gridAutoFlow).toBe("column");
+  expect(list.style.gridTemplateRows).toBe("repeat(5, auto)");
 
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   fireEvent.click(slot.getByRole("button", { name: "Show all 10 todos" }));

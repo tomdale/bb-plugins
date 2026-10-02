@@ -151,6 +151,12 @@ export function TodoCard() {
   const showCountInActions = expanded || hasInProgress;
   const displayRows = expanded ? card.rows : card.collapsedRows;
   const listClassName = `todo-list${expanded && useTwoColumns ? " todo-list-two-columns" : ""}`;
+  const listStyle = expanded && useTwoColumns
+    ? {
+      gridAutoFlow: "column",
+      gridTemplateRows: `repeat(${Math.ceil(card.roots.length / 2)}, auto)`,
+    } as CSSProperties
+    : undefined;
 
   useLayoutEffect(() => {
     setUseTwoColumns(false);
@@ -205,7 +211,7 @@ export function TodoCard() {
         {expanded ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
-            <ul ref={listRef} id={listId} className={listClassName} onScroll={updateListLayout} aria-label="All todos">
+            <ul ref={listRef} id={listId} className={listClassName} style={listStyle} onScroll={updateListLayout} aria-label="All todos">
               {card.roots.map(node => (
                 <TodoTreeItem
                   key={node.row.task.id}
