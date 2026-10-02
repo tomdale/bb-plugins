@@ -111,9 +111,9 @@
 }
 .todo-card-floating .todo-list { max-height: none; }
 
-/* When card is wide enough, render lists in 2 columns */
+/* Wide expanded lists switch to 2 columns after filling their max height. */
 @container todo-card (min-width: 520px) {
-  .todo-list {
+  .todo-list-two-columns {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 8px;

@@ -33,9 +33,10 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
  * by default (showing intelligent compact tasks or progress), can be toggled
- * or clicked to show the full list, renders in 2 columns when wide, adds scroll
- * fade gradients when overflowing, and moves into the thread's right gutter
- * when there is room beside the latest message.
+ * or clicked to show the full list, renders wide lists in 2 columns after they
+ * reach their max height, adds scroll fade gradients when overflowing, and
+ * moves into the thread's right gutter when there is room beside the latest
+ * message.
  */
 export function TodoCard() {
   const composer = useComposer();
@@ -46,6 +47,7 @@ export function TodoCard() {
   const { state, loaded, error, refresh } = useTodoList(threadId);
   const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [useTwoColumns, setUseTwoColumns] = useState(false);
   const [scrollFade, setScrollFade] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
   const listRef = useRef<HTMLUListElement>(null);
   const baseId = useId();
@@ -66,13 +68,16 @@ export function TodoCard() {
     return () => window.clearTimeout(timer);
   }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
 
-  const updateScrollFade = useCallback(() => {
+  const updateListLayout = useCallback(() => {
     const el = listRef.current;
     if (!el) {
       setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
       return;
     }
     const canScroll = el.scrollHeight > el.clientHeight + 1;
+    const maxHeight = Number.parseFloat(getComputedStyle(el).maxHeight);
+    const reachedMaxHeight = Number.isFinite(maxHeight) ? el.scrollHeight >= maxHeight - 1 : canScroll;
+    if (expanded && !useTwoColumns && reachedMaxHeight) setUseTwoColumns(true);
     if (!canScroll) {
       setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
       return;
@@ -83,7 +88,7 @@ export function TodoCard() {
       const next = { top: !isTop, bottom: !isBottom };
       return prev.top === next.top && prev.bottom === next.bottom ? prev : next;
     });
-  }, []);
+  }, [expanded, useTwoColumns]);
 
   const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
@@ -93,18 +98,24 @@ export function TodoCard() {
   const hasInProgress = card.collapsedRows.length > 0;
   const showCountInActions = expanded || hasInProgress;
   const displayRows = expanded ? card.rows : card.collapsedRows;
+  const listClassName = `todo-list${expanded && useTwoColumns ? " todo-list-two-columns" : ""}`;
+
+  // Grid mode halves the measured height, so row-count changes start over in one column.
+  useLayoutEffect(() => {
+    setUseTwoColumns(false);
+  }, [displayRows.length, expanded]);
 
   useLayoutEffect(() => {
-    updateScrollFade();
-  }, [displayRows.length, expanded, updateScrollFade]);
+    updateListLayout();
+  }, [displayRows.length, expanded, updateListLayout]);
 
   useEffect(() => {
     const el = listRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => updateScrollFade());
+    const observer = new ResizeObserver(() => updateListLayout());
     observer.observe(el);
     return () => observer.disconnect();
-  }, [updateScrollFade]);
+  }, [updateListLayout]);
 
   if (!visible) return null;
 
@@ -143,7 +154,7 @@ export function TodoCard() {
         {expanded ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
-            <ul ref={listRef} id={listId} className="todo-list" onScroll={updateScrollFade} aria-label="All todos">
+            <ul ref={listRef} id={listId} className={listClassName} onScroll={updateListLayout} aria-label="All todos">
               {card.rows.map(row => (
                 <TodoRow
                   key={row.task.id}
@@ -159,7 +170,7 @@ export function TodoCard() {
         ) : hasInProgress ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
-            <ul ref={listRef} id={listId} className="todo-list" onScroll={updateScrollFade} aria-label="Active todos">
+            <ul ref={listRef} id={listId} className={listClassName} onScroll={updateListLayout} aria-label="Active todos">
               {card.collapsedRows.map(row => (
                 <TodoRow
                   key={row.task.id}

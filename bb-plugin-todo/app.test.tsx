@@ -398,6 +398,24 @@ it("collapses the card when clicking anywhere non-interactive while expanded", a
   slot.lifecycle.unmount();
 });
 
+it("uses two columns only after the expanded list reaches its max height", async () => {
+  const slot = await mount(() => ({ tasks: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, status: "pending" as const })), nextId: 11 }));
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  const list = slot.container.querySelector<HTMLUListElement>(".todo-list")!;
+  expect(list.classList.contains("todo-list-two-columns")).toBe(false);
+
+  list.style.maxHeight = "100px";
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+  Object.defineProperty(list, "scrollHeight", { configurable: true, value: 100 });
+  fireEvent.scroll(list);
+  await waitFor(() => expect(list.classList.contains("todo-list-two-columns")).toBe(true));
+
+  fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
+  fireEvent.click(slot.getByRole("button", { name: "Show all 10 todos" }));
+  expect(slot.container.querySelector(".todo-list")?.classList.contains("todo-list-two-columns")).toBe(false);
+  slot.lifecycle.unmount();
+});
+
 it("renders top and bottom scroll fade gradients based on scroll state when scrolling is needed", async () => {
   const slot = await mount(() => ({ tasks: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, subject: `Task ${i + 1}`, status: "pending" as const })), nextId: 11 }));
   // Expand so the list with 10 items mounts
