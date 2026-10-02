@@ -122,7 +122,7 @@ export function TodoCard() {
     }
     const canScroll = el.scrollHeight > el.clientHeight + 1;
     const maxHeight = Number.parseFloat(getComputedStyle(el).maxHeight);
-    const reachedMaxHeight = Number.isFinite(maxHeight) ? el.scrollHeight >= maxHeight - 1 : canScroll;
+    const reachedMaxHeight = Number.isFinite(maxHeight) ? el.clientHeight >= maxHeight - 1 : canScroll;
     if (expanded && !useTwoColumns && reachedMaxHeight) setUseTwoColumns(true);
     if (!canScroll) {
       setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
