@@ -405,8 +405,12 @@ it("uses two columns only after the expanded list reaches its max height", async
   expect(list.classList.contains("todo-list-two-columns")).toBe(false);
 
   list.style.maxHeight = "100px";
-  Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 50 });
   Object.defineProperty(list, "scrollHeight", { configurable: true, value: 100 });
+  fireEvent.scroll(list);
+  expect(list.classList.contains("todo-list-two-columns")).toBe(false);
+
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
   fireEvent.scroll(list);
   await waitFor(() => expect(list.classList.contains("todo-list-two-columns")).toBe(true));
 
