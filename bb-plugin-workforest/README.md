@@ -8,8 +8,11 @@ Open **+ → Use Workforest checkout…** and choose a workspace root to start a
 workspace coordinator. It receives workspace context and delegates bounded
 implementation tasks into repository-scoped child threads. Expand **Open a
 repository…** to select a member directly; its project is registered
-automatically. Workspace roots provide cross-repository coordination, while
-repository threads retain BB's native Git and PR integration.
+automatically. Workspace roots select the Workforest workspace environment
+provider, whose controls automatically match the project's root on the selected
+machine and show the coordinator role and repository count without a root Git
+branch selector. Repository selections use Project checkout and retain BB's
+native Git and PR integration.
 
 Coordinators receive `workforest_workspace_context` and
 `workforest_delegate_to_repo`; workers receive the context tool. Delegation

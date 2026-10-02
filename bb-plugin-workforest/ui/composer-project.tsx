@@ -11,6 +11,7 @@ import {
 import { Icon } from "../components/ui/icon.js";
 import { Input } from "../components/ui/input.js";
 import type { Bootstrap, rpcContract } from "../contracts.js";
+import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "../provider-id.js";
 import { useResource } from "../hooks/use-resource.js";
 import { Empty, ErrorMessage, selectClass } from "./shared.js";
 
@@ -69,7 +70,7 @@ function ProjectPicker({
     hosts.find((host) => host.id === preferredHost)?.id ??
     hosts[0]?.id;
 
-  async function select(selector: string, path?: string) {
+  async function select(selector: string, path?: string, coordinator = false) {
     if (!hostId || pending || composer.isSubmitting) return;
     setPending(true);
     setError(undefined);
@@ -82,11 +83,18 @@ function ProjectPicker({
       // Select the checkout explicitly rather than retaining the previous project's worktree choice.
       const settled = await composer.setSelection({
         projectId: project.projectId,
-        environment: {
-          type: "host",
-          hostId,
-          workspace: { type: "unmanaged", path: project.path },
-        },
+        environment: coordinator
+          ? {
+              type: "provider",
+              environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
+              machine: { type: "existing", hostId },
+              inputs: null,
+            }
+          : {
+              type: "host",
+              hostId,
+              workspace: { type: "unmanaged", path: project.path },
+            },
       });
       if (settled.projectId !== project.projectId)
         throw new Error(
@@ -181,7 +189,11 @@ function CheckoutList({
   hostId: string;
   projects: Bootstrap["projects"];
   disabled: boolean;
-  select: (selector: string, path?: string) => Promise<void>;
+  select: (
+    selector: string,
+    path?: string,
+    coordinator?: boolean,
+  ) => Promise<void>;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const inventory = useResource(
@@ -249,7 +261,13 @@ function CheckoutList({
                   type="button"
                   disabled={disabled || Boolean(inventory.error)}
                   aria-label={`${existing ? "Use project for" : "Create project for"} ${entry.selector}`}
-                  onClick={() => void select(entry.selector)}
+                  onClick={() =>
+                    void select(
+                      entry.selector,
+                      undefined,
+                      entry.type !== "worktree",
+                    )
+                  }
                   className="flex w-full items-center justify-between gap-3 rounded-md p-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 >
                   <span className="min-w-0">

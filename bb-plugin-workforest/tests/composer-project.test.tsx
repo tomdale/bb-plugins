@@ -72,6 +72,30 @@ function mount(
   };
 }
 describe("Composer Workforest project picker", () => {
+  it("selects the Workforest provider for a workspace coordinator", async () => {
+    const { slot, state, open } = mount({
+      ...handlers,
+      inventory: () => ({
+        workspaces: [{ ...entry, type: "template-workspace", repos: ["api"] }],
+        repositories: [],
+      }),
+    });
+    await open();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Use project for app/fix-auth",
+      }),
+    );
+    await waitFor(() => expect(state.selections).toHaveLength(1));
+    expect(state.selection.environment).toEqual({
+      type: "provider",
+      environmentProviderId: "workforest-workspace",
+      machine: { type: "existing", hostId: "h1" },
+      inputs: null,
+    });
+    expect(state.text).toBe("Fix auth safely");
+    slot.lifecycle.unmount();
+  });
   it("opens workspace members lazily and selects a repo scope without losing the draft", async () => {
     const memberPath = `${entry.path}/api`;
     const { slot, state, open } = mount({
