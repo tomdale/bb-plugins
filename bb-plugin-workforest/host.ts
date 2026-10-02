@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { experimental_defineHostEntry } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { hostContract, type Job } from "./contracts.js";
+import { hostContract, type Job, type WorkforestSource } from "./contracts.js";
 import {
   buildOperation,
   createWorkforest,
@@ -13,9 +15,66 @@ const jobs = new Map<string, Job>();
 let running: Promise<void> | null = null;
 let controller: AbortController | null = null;
 let taskRunning = false;
+let sourceCatalog: { expires: number; items: WorkforestSource[] } | undefined;
+async function sources(signal: AbortSignal): Promise<WorkforestSource[]> {
+  if (sourceCatalog && sourceCatalog.expires > Date.now())
+    return sourceCatalog.items;
+  const [configText, templates, cacheText] = await Promise.all([
+    runCommand(["config", "show", "--json"], { signal }),
+    createWorkforest(signal).templates(),
+    runCommand(["cache", "list", "--json"], { signal }),
+  ]);
+  const config = parseEnvelope(
+    configText,
+    z.object({
+      resolvedDirectories: z.object({
+        repos: z.string().startsWith("/"),
+        workspaces: z.string().startsWith("/"),
+      }),
+    }),
+  );
+  const cache = parseEnvelope(
+    cacheText,
+    z.array(
+      z.object({
+        name: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/),
+        slug: z.string().min(1),
+      }),
+    ),
+  );
+  const items = [
+    ...templates.map((template) => ({
+      id: `template:${template.id}`,
+      kind: "template" as const,
+      name: template.id,
+      source: `@${template.id}`,
+      path: join(config.resolvedDirectories.workspaces, template.id),
+      description: template.config.description,
+    })),
+    ...cache.map((repo) => ({
+      id: `repository:${repo.slug}`,
+      kind: "repository" as const,
+      name: repo.name,
+      source: repo.slug,
+      path: join(config.resolvedDirectories.repos, repo.name),
+    })),
+  ];
+  sourceCatalog = { expires: Date.now() + 30000, items };
+  return items;
+}
 export default experimental_defineHostEntry({
   contract: hostContract,
   handlers: {
+    sources: (_, context) => sources(context.signal),
+    ensureSource: async ({ sourceId }, context) => {
+      const source = (await sources(context.signal)).find(
+        (source) => source.id === sourceId,
+      );
+      if (!source)
+        throw new Error("Workforest source no longer exists. Refresh sources.");
+      await mkdir(source.path, { recursive: true });
+      return source;
+    },
     inventory: (_, context) => createWorkforest(context.signal).inventory(),
     createEnvironment: async ({ name, source }, context) => {
       const output = await runCommand(["new", name, source, "--json"], {

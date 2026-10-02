@@ -59,7 +59,7 @@ export const detailSchema = z.object({
   tasks: z.array(taskSchema),
 });
 export const templateSchema = z.object({
-  id: z.string(),
+  id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_+.-]*$/),
   repositories: z.array(z.string()),
   config: z.object({ description: z.string().optional() }),
 });
@@ -110,7 +110,18 @@ export const previewSchema = z.object({
   ),
   notes: z.array(z.string()),
 });
+export const sourceSchema = z.object({
+  id,
+  kind: z.enum(["template", "repository"]),
+  name: id,
+  source: id,
+  path: absolutePath,
+  description: z.string().optional(),
+});
+export type WorkforestSource = z.infer<typeof sourceSchema>;
 export const hostContract = defineRpcContract({
+  sources: { input: z.null(), output: z.array(sourceSchema) },
+  ensureSource: { input: z.object({ sourceId: id }), output: sourceSchema },
   inventory: { input: z.null(), output: inventorySchema },
   createEnvironment: {
     input: z
@@ -148,6 +159,15 @@ export const bootstrapSchema = z.object({
   ),
 });
 export const rpcContract = defineRpcContract({
+  sources: { input: z.object({ hostId: id }), output: z.array(sourceSchema) },
+  sourceProject: {
+    input: z.object({ hostId: id, sourceId: id }),
+    output: z.object({ projectId: id }),
+  },
+  projectSource: {
+    input: z.object({ hostId: id, projectId: id }),
+    output: sourceSchema.nullable(),
+  },
   bootstrap: { input: z.null(), output: bootstrapSchema },
   project: {
     input: targetSchema.extend({ path: absolutePath.optional() }),

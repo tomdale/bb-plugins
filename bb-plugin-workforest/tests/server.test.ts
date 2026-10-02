@@ -65,6 +65,14 @@ async function setup(environmentPath = entry.path) {
       },
     },
     experimental_callHostRpc: async ({ method }) => {
+      if (method === "ensureSource")
+        return {
+          id: "template:app",
+          kind: "template",
+          name: "app",
+          source: "@app",
+          path: "/work/workspaces/app",
+        };
       if (method === "detail") return detail;
       if (method === "inventory")
         return { workspaces: [], repositories: [entry] };
@@ -77,6 +85,54 @@ async function setup(environmentPath = entry.path) {
 }
 const target = { hostId: "h1", selector: entry.selector, path: entry.path };
 describe("BB integration", () => {
+  it("registers one group-root project and persists its source identity", async () => {
+    const h = await setup();
+    h.sdk.stub("projects.list", async () => []);
+    const results = await Promise.all([
+      h.behavior.callRpc("sourceProject", {
+        hostId: "h1",
+        sourceId: "template:app",
+      }),
+      h.behavior.callRpc("sourceProject", {
+        hostId: "h1",
+        sourceId: "template:app",
+      }),
+    ]);
+    expect(results).toEqual([{ projectId: "p2" }, { projectId: "p2" }]);
+    expect(h.inspection.sdk.callsTo("projects.create")).toHaveLength(1);
+    expect(h.inspection.sdk.callsTo("projects.create")[0]).toEqual([
+      {
+        name: "app",
+        source: {
+          type: "local_path",
+          hostId: "h1",
+          path: "/work/workspaces/app",
+        },
+      },
+    ]);
+    h.sdk.stub("projects.get", async () => ({
+      id: "p2",
+      sources: [{ hostId: "h1", path: "/work/workspaces/app" }],
+    }));
+    expect(
+      await h.behavior.callRpc("projectSource", {
+        hostId: "h1",
+        projectId: "p2",
+      }),
+    ).toEqual({
+      id: "template:app",
+      kind: "template",
+      name: "app",
+      source: "@app",
+      path: "/work/workspaces/app",
+    });
+    expect(
+      await h.behavior.callRpc("projectSource", {
+        hostId: "other",
+        projectId: "p2",
+      }),
+    ).toBeNull();
+  });
   it("reuses a project only for an exact machine and checkout path", async () => {
     const h = await setup();
     expect(

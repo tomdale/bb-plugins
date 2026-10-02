@@ -8,9 +8,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog.js";
-import { Icon } from "../components/ui/icon.js";
 import { Input } from "../components/ui/input.js";
-import type { Bootstrap, rpcContract } from "../contracts.js";
+import type { rpcContract } from "../contracts.js";
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "../provider-id.js";
 import { selectRegisteredProject } from "./select-project.js";
 import { useResource } from "../hooks/use-resource.js";
@@ -26,17 +25,16 @@ function setPickerComposer(next: PickerComposer | null) {
   pickerComposer = next;
   listeners.forEach((listener) => listener());
 }
-
-/** Opens one app-level picker for the composer whose `+` menu item was chosen. */
 export function openWorkforestProjectPicker(composer: PickerComposer) {
   setPickerComposer(composer);
 }
-
 export function WorkforestProjectOverlay() {
   const composer = useSyncExternalStore(
     (listener) => {
       listeners.add(listener);
-      return () => listeners.delete(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     () => pickerComposer,
   );
@@ -44,7 +42,6 @@ export function WorkforestProjectOverlay() {
     <ProjectPicker composer={composer} close={() => setPickerComposer(null)} />
   ) : null;
 }
-
 function ProjectPicker({
   composer,
   close,
@@ -54,91 +51,80 @@ function ProjectPicker({
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const bootstrap = useResource(
-    "composer-projects",
+    "composer-source-machines",
     () => rpc.call("bootstrap", null),
     0,
   );
   const [chosenHost, setChosenHost] = useState<string>();
-  const [pending, setPending] = useState(false);
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState<string>();
-  const environment = composer.selection?.environment;
-  const preferredHost =
-    environment?.type === "host" ? environment.hostId : undefined;
   const hosts =
     bootstrap.data?.hosts.filter((host) => host.status === "connected") ?? [];
+  const environment = composer.selection?.environment;
+  const preferred =
+    environment?.type === "host"
+      ? environment.hostId
+      : environment?.type === "provider" &&
+          environment.machine?.type === "existing"
+        ? environment.machine.hostId
+        : undefined;
   const hostId =
     chosenHost ??
-    hosts.find((host) => host.id === preferredHost)?.id ??
+    hosts.find((host) => host.id === preferred)?.id ??
     hosts[0]?.id;
-
-  async function select(selector: string, path?: string, coordinator = false) {
-    if (!hostId || pending || composer.isSubmitting) return;
-    setPending(true);
+  async function select(sourceId: string) {
+    if (!hostId || progress || composer.isSubmitting) return;
+    setProgress("Registering source project…");
     setError(undefined);
     try {
-      const project = await rpc.call("project", {
-        hostId,
-        selector,
-        ...(path ? { path } : {}),
-      });
-      // Select the checkout explicitly rather than retaining the previous project's worktree choice.
+      const project = await rpc.call("sourceProject", { hostId, sourceId });
+      setProgress("Selecting project and loading environment choices…");
       await selectRegisteredProject(
         (selection) => composer.setSelection(selection),
         {
           projectId: project.projectId,
-          environment: coordinator
-            ? {
-                type: "provider",
-                environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
-                machine: { type: "existing", hostId },
-                inputs: null,
-              }
-            : {
-                type: "host",
-                hostId,
-                workspace: { type: "unmanaged", path: project.path },
-              },
+          environment: {
+            type: "provider",
+            environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
+            machine: { type: "existing", hostId },
+            inputs: null,
+          },
         },
       );
       close();
       composer.focus();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      bootstrap.refresh();
     } finally {
-      setPending(false);
+      setProgress("");
     }
   }
-
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !pending) close();
+        if (!open && !progress) close();
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Use Workforest checkout</DialogTitle>
+          <DialogTitle>Use Workforest source</DialogTitle>
           <DialogDescription>
-            Open a workspace coordinator for cross-repository work, or a
-            repository checkout for native Git integration. Projects are
-            registered automatically; your draft stays here and no thread is
-            started.
+            Select a template or repository. Then choose or create its workspace
+            or worktree in the environment control. Your draft stays here;
+            selecting a source creates no checkout or thread.
           </DialogDescription>
         </DialogHeader>
         <ErrorMessage message={bootstrap.error || error} />
-        {bootstrap.error && (
-          <Button type="button" variant="outline" onClick={bootstrap.refresh}>
-            Retry loading machines
-          </Button>
+        {progress && (
+          <p role="status" aria-live="polite">
+            {progress}
+          </p>
         )}
         {!bootstrap.data ? (
           <Empty>Loading machines…</Empty>
         ) : !hosts.length ? (
-          <Empty>
-            No connected machines. Connect a machine with Workforest installed.
-          </Empty>
+          <Empty>No connected machines.</Empty>
         ) : (
           <>
             <label className="grid gap-2 text-sm">
@@ -146,7 +132,7 @@ function ProjectPicker({
               <select
                 className={selectClass}
                 value={hostId}
-                disabled={pending}
+                disabled={Boolean(progress)}
                 onChange={(event) => {
                   setChosenHost(event.target.value);
                   setError(undefined);
@@ -160,220 +146,83 @@ function ProjectPicker({
               </select>
             </label>
             {hostId && (
-              <CheckoutList
+              <SourceList
                 key={hostId}
                 hostId={hostId}
-                projects={bootstrap.data.projects}
-                disabled={pending || composer.isSubmitting}
+                disabled={Boolean(progress) || composer.isSubmitting}
                 select={select}
               />
             )}
           </>
         )}
-        {pending && (
-          <p role="status" className="text-sm text-muted-foreground">
-            Registering and selecting project…
-          </p>
-        )}
       </DialogContent>
     </Dialog>
   );
 }
-
-function CheckoutList({
+function SourceList({
   hostId,
-  projects,
   disabled,
   select,
 }: {
   hostId: string;
-  projects: Bootstrap["projects"];
   disabled: boolean;
-  select: (
-    selector: string,
-    path?: string,
-    coordinator?: boolean,
-  ) => Promise<void>;
+  select: (sourceId: string) => Promise<void>;
 }) {
   const rpc = useRpc<typeof rpcContract>();
-  const inventory = useResource(
-    `composer-inventory:${hostId}`,
-    () => rpc.call("inventory", { hostId }),
+  const sources = useResource(
+    `sources:${hostId}`,
+    () => rpc.call("sources", { hostId }),
     0,
   );
   const [query, setQuery] = useState("");
-  const entries = [
-    ...(inventory.data?.workspaces ?? []),
-    ...(inventory.data?.repositories ?? []),
-  ]
-    .filter((entry) =>
-      [entry.selector, entry.path, ...(entry.repos ?? [])]
-        .join(" ")
+  const entries = sources.data
+    ?.filter((source) =>
+      `${source.name} ${source.source} ${source.description ?? ""}`
         .toLowerCase()
-        .includes(query.trim().toLowerCase()),
+        .includes(query.toLowerCase()),
     )
-    .sort((a, b) => a.selector.localeCompare(b.selector));
+    .sort(
+      (a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name),
+    );
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <Input
-          aria-label="Search Workforest checkouts"
-          placeholder="Search workspaces, worktrees, or paths…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Refresh checkouts"
-          disabled={disabled}
-          onClick={inventory.refresh}
-        >
-          <Icon name="RotateCcw" className="size-4" />
+    <div className="space-y-3" aria-busy={disabled}>
+      <Input
+        aria-label="Search Workforest sources"
+        placeholder="Search templates or repositories…"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <ErrorMessage message={sources.error} />
+      {sources.error && (
+        <Button type="button" variant="outline" onClick={sources.refresh}>
+          Retry loading sources
         </Button>
-      </div>
-      <ErrorMessage message={inventory.error} />
-      {!inventory.data ? (
-        <Empty>
-          {inventory.error
-            ? "Refresh after resolving the machine error."
-            : "Loading Workforest checkouts…"}
-        </Empty>
-      ) : !entries.length ? (
-        <Empty>
-          {query
-            ? "No matching checkouts."
-            : "No Workforest checkouts on this machine."}
-        </Empty>
+      )}
+      {!sources.data && !sources.error ? (
+        <p role="status">Loading templates and repositories…</p>
+      ) : entries?.length === 0 ? (
+        <Empty>No matching sources.</Empty>
       ) : (
         <ul className="max-h-80 space-y-1 overflow-y-auto">
-          {entries.map((entry) => {
-            const existing = projects.find((project) =>
-              project.sources.some(
-                (source) =>
-                  source.hostId === hostId && source.path === entry.path,
-              ),
-            );
-            return (
-              <li key={entry.selector}>
-                <button
-                  type="button"
-                  disabled={disabled || Boolean(inventory.error)}
-                  aria-label={`${existing ? "Use project for" : "Create project for"} ${entry.selector}`}
-                  onClick={() =>
-                    void select(
-                      entry.selector,
-                      undefined,
-                      entry.type !== "worktree",
-                    )
-                  }
-                  className="flex w-full items-center justify-between gap-3 rounded-md p-3 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">
-                      {entry.selector}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {entry.type === "worktree"
-                        ? "Repository · native Git"
-                        : "Workspace coordinator · delegates repo work"}
-                      {existing ? ` · ${existing.name}` : ""}
-                    </span>
-                    <span className="block truncate font-mono text-xs text-muted-foreground">
-                      {entry.path}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {existing ? "Use project" : "Create & select"}
-                  </span>
-                </button>
-                {entry.type !== "worktree" && (
-                  <WorkspaceRepositories
-                    hostId={hostId}
-                    selector={entry.selector}
-                    disabled={disabled}
-                    select={select}
-                  />
-                )}
-              </li>
-            );
-          })}
+          {entries?.map((source) => (
+            <li key={source.id}>
+              <button
+                type="button"
+                disabled={disabled || Boolean(sources.error)}
+                aria-label={`Use ${source.kind} ${source.name}`}
+                onClick={() => void select(source.id)}
+                className="w-full rounded-md p-3 text-left hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              >
+                <span className="block text-sm font-medium">{source.name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {source.kind === "template" ? "Template" : "Repository"} ·{" "}
+                  {source.description ?? source.source}
+                </span>
+              </button>
+            </li>
+          ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-function WorkspaceRepositories({
-  hostId,
-  selector,
-  disabled,
-  select,
-}: {
-  hostId: string;
-  selector: string;
-  disabled: boolean;
-  select: (selector: string, path?: string) => Promise<void>;
-}) {
-  const rpc = useRpc<typeof rpcContract>();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="px-3 pb-2">
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        disabled={disabled}
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
-        {open ? "Hide repositories" : "Open a repository…"}
-      </Button>
-      {open && (
-        <RepositoryChoices
-          hostId={hostId}
-          selector={selector}
-          disabled={disabled}
-          select={select}
-        />
-      )}
-    </div>
-  );
-}
-function RepositoryChoices({
-  hostId,
-  selector,
-  disabled,
-  select,
-}: {
-  hostId: string;
-  selector: string;
-  disabled: boolean;
-  select: (selector: string, path?: string) => Promise<void>;
-}) {
-  const rpc = useRpc<typeof rpcContract>();
-  const detail = useResource(
-    `picker-detail:${hostId}:${selector}`,
-    () => rpc.call("detail", { hostId, selector }),
-    0,
-  );
-  return (
-    <div className="space-y-1">
-      <ErrorMessage message={detail.error} />
-      {!detail.data && !detail.error && <Empty>Loading repositories…</Empty>}
-      {detail.data?.repositories.map((repo) => (
-        <Button
-          key={repo.path}
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={disabled || Boolean(detail.error)}
-          onClick={() => void select(selector, repo.path)}
-        >
-          {repo.name} · native Git
-        </Button>
-      ))}
     </div>
   );
 }

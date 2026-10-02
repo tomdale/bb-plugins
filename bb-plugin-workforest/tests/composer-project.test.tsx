@@ -8,8 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { bootstrap, detail, entry } from "./fixtures.js";
-
+import { bootstrap } from "./fixtures.js";
 let app: Awaited<ReturnType<typeof loadPluginApp>>;
 beforeAll(async () => {
   window.matchMedia = (query) => ({
@@ -25,204 +24,131 @@ beforeAll(async () => {
   app = await loadPluginApp(() => import("../app.js"));
 });
 afterEach(cleanup);
-const handlers = {
-  bootstrap: () => bootstrap,
-  inventory: () => ({ workspaces: [], repositories: [entry] }),
-  project: () => ({ projectId: "p1", path: entry.path }),
+const source = {
+  id: "template:app",
+  name: "app",
+  kind: "template",
+  source: "@app",
+  path: "/work/workspaces/app",
 };
-function mount(
-  rpc: NonNullable<Parameters<typeof renderSlot>[2]>["rpc"] = handlers,
-) {
-  const customization = app.composerCustomizations.find(
-    (item) => item.id === "workforest-project",
-  )!;
-  expect(customization.scopes).toEqual(["new-thread"]);
-  expect(customization.banners).toBeUndefined();
-  expect(customization.actions).toBeUndefined();
-  const item = customization.plusMenu![0]!;
-  expect(item.label).toBe("Use Workforest checkout…");
-  const state = {
-    text: "Fix auth safely",
-    selection: { projectId: "old", model: "current-model" } as Record<
-      string,
-      unknown
-    >,
-    selections: [] as unknown[],
-  };
+function mount(overrides: Record<string, (...args: any[]) => any> = {}) {
+  const item = app.composerCustomizations[0]!.plusMenu![0]!;
+  expect(item.label).toBe("Use Workforest source…");
+  const state = { text: "Keep my draft", selections: [] as any[] };
   const composer = {
     isSubmitting: false,
-    get selection() {
-      return state.selection;
-    },
-    async setSelection(next: Record<string, unknown>) {
-      state.selection = { ...state.selection, ...next };
+    selection: { projectId: "old" },
+    async setSelection(next: any) {
       state.selections.push(next);
-      return state.selection;
+      return next;
     },
     focus() {},
   };
-  const overlay = app.appOverlays.find(
-    (entry) => entry.id === "workforest-project-picker",
-  )!;
-  const slot = renderSlot(overlay, {}, { rpc });
+  const slot = renderSlot(
+    app.appOverlays.find((entry) => entry.id === "workforest-project-picker")!,
+    {},
+    {
+      rpc: {
+        bootstrap: () => bootstrap,
+        sources: () => [source],
+        sourceProject: () => ({ projectId: "source-project" }),
+        ...overrides,
+      },
+    },
+  );
   return {
     slot,
     state,
     open: () => act(() => item.run({ composer, view: {} } as never)),
   };
 }
-describe("Composer Workforest project picker", () => {
-  it("selects the Workforest provider for a workspace coordinator", async () => {
-    const { slot, state, open } = mount({
-      ...handlers,
-      inventory: () => ({
-        workspaces: [{ ...entry, type: "template-workspace", repos: ["api"] }],
-        repositories: [],
-      }),
-    });
-    await open();
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Use project for app/fix-auth",
-      }),
-    );
-    await waitFor(() => expect(state.selections).toHaveLength(1));
-    expect(state.selection.environment).toEqual({
-      type: "provider",
-      environmentProviderId: "workforest-workspace",
-      machine: { type: "existing", hostId: "h1" },
-      inputs: null,
-    });
-    expect(state.text).toBe("Fix auth safely");
-    slot.lifecycle.unmount();
-  });
-  it("opens workspace members lazily and selects a repo scope without losing the draft", async () => {
-    const memberPath = `${entry.path}/api`;
-    const { slot, state, open } = mount({
-      ...handlers,
-      inventory: () => ({
-        workspaces: [{ ...entry, type: "template-workspace", repos: ["api"] }],
-        repositories: [],
-      }),
-      detail: () => ({
-        ...detail,
-        repositories: [
-          { ...detail.repositories[0], name: "api", path: memberPath },
-        ],
-      }),
-      project: () => ({ projectId: "api-project", path: memberPath }),
-    });
-    await open();
-    await screen.findByText(
-      "Workspace coordinator · delegates repo work · App",
-    );
-    expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "detail"),
-    ).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Open a repository…" }));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "api · native Git" }),
-    );
-    await waitFor(() => expect(state.selection.projectId).toBe("api-project"));
-    expect(
-      slot.inspection.rpcCalls.find((call) => call.method === "project")?.input,
-    ).toEqual({ hostId: "h1", selector: entry.selector, path: memberPath });
-    expect(state.text).toBe("Fix auth safely");
-    slot.lifecycle.unmount();
-  });
-  it("loads only on opening and selects an existing project without losing the draft", async () => {
+describe("Workforest source picker", () => {
+  it("loads sources only on opening and selects a source without choosing an instance", async () => {
     const { slot, state, open } = mount();
     expect(slot.inspection.rpcCalls).toHaveLength(0);
     await open();
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Use project for app/fix-auth",
-      }),
+      await screen.findByRole("button", { name: "Use template app" }),
     );
     await waitFor(() => expect(state.selections).toHaveLength(1));
-    expect(state.selection).toEqual({
-      projectId: "p1",
-      model: "current-model",
+    expect(state.selections[0]).toEqual({
+      projectId: "source-project",
       environment: {
-        type: "host",
-        hostId: "h1",
-        workspace: { type: "unmanaged", path: entry.path },
+        type: "provider",
+        environmentProviderId: "workforest-workspace",
+        machine: { type: "existing", hostId: "h1" },
+        inputs: null,
       },
     });
-    expect(state.text).toBe("Fix auth safely");
-    expect(slot.inspection.navigateCalls).toHaveLength(0);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    slot.lifecycle.unmount();
-  });
-  it("filters checkouts and creates only when a row is selected", async () => {
-    const { slot, state, open } = mount({
-      ...handlers,
-      bootstrap: () => ({ ...bootstrap, projects: [] }),
-    });
-    await open();
-    await screen.findByRole("button", {
-      name: "Create project for app/fix-auth",
-    });
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Search Workforest checkouts" }),
-      { target: { value: "missing" } },
-    );
-    await screen.findByText("No matching checkouts.");
     expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "project"),
+      slot.inspection.rpcCalls.find((call) => call.method === "sourceProject")
+        ?.input,
+    ).toEqual({ hostId: "h1", sourceId: "template:app" });
+    expect(state.text).toBe("Keep my draft");
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "inventory"),
     ).toBe(false);
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Search Workforest checkouts" }),
-      { target: { value: "/work/app" } },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create project for app/fix-auth" }),
-    );
-    await waitFor(() => expect(state.selection?.projectId).toBe("p1"));
-    expect(
-      slot.inspection.rpcCalls.find((call) => call.method === "project")?.input,
-    ).toEqual({ hostId: "h1", selector: entry.selector });
-    slot.lifecycle.unmount();
   });
-  it("keeps the popup, draft, and selection on registration failure and allows retry", async () => {
-    let fails = true;
-    const { slot, state, open } = mount({
-      ...handlers,
-      project: () => {
-        if (fails) throw new Error("Checkout disappeared");
-        return handlers.project();
+  it("shows progress and disables duplicate selection while registration is pending", async () => {
+    let finish!: (result: any) => void;
+    const { open } = mount({
+      sourceProject: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    });
+    await open();
+    const button = await screen.findByRole("button", {
+      name: "Use template app",
+    });
+    fireEvent.click(button);
+    await screen.findByText("Registering source project…");
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      finish({ projectId: "source-project" });
+    });
+  });
+  it("retains the draft on registration error and permits retry", async () => {
+    let fail = true;
+    const { state, open } = mount({
+      sourceProject: () => {
+        if (fail) throw new Error("offline");
+        return { projectId: "source-project" };
       },
     });
     await open();
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Use project for app/fix-auth",
-      }),
+      await screen.findByRole("button", { name: "Use template app" }),
     );
-    await screen.findByText("Checkout disappeared");
-    expect(state.selection?.projectId).toBe("old");
-    expect(state.text).toBe("Fix auth safely");
-    fails = false;
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Use project for app/fix-auth",
-      }),
-    );
-    await waitFor(() => expect(state.selection?.projectId).toBe("p1"));
-    slot.lifecycle.unmount();
+    await screen.findByText("offline");
+    expect(state.selections).toHaveLength(0);
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Use template app" }));
+    await waitFor(() => expect(state.selections).toHaveLength(1));
   });
-  it("shows machine inventory errors without creating a project", async () => {
-    const { slot, state, open } = mount({
-      ...handlers,
-      inventory: () => {
-        throw new Error("Install wf on this machine");
-      },
+  it("searches repositories and templates without registering on search", async () => {
+    const { slot, open } = mount({
+      sources: () => [
+        source,
+        {
+          ...source,
+          id: "repository:o/repo",
+          name: "repo",
+          kind: "repository",
+          source: "o/repo",
+        },
+      ],
     });
     await open();
-    await screen.findByText("Install wf on this machine");
+    await screen.findByRole("button", { name: "Use repository repo" });
+    fireEvent.change(screen.getByLabelText("Search Workforest sources"), {
+      target: { value: "repo" },
+    });
     expect(
-      slot.inspection.rpcCalls.some((call) => call.method === "project"),
+      screen.queryByRole("button", { name: "Use template app" }),
+    ).toBeNull();
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "sourceProject"),
     ).toBe(false);
-    slot.lifecycle.unmount();
   });
 });

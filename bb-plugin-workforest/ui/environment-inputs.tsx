@@ -7,7 +7,12 @@ import {
   useRpc,
   type PluginEnvironmentProviderInputsProps,
 } from "@get-bb/plugin-sdk/app";
-import type { Entry, Template, rpcContract } from "../contracts.js";
+import type {
+  Entry,
+  Template,
+  WorkforestSource,
+  rpcContract,
+} from "../contracts.js";
 import { ErrorMessage, selectClass } from "./shared.js";
 
 type Choice =
@@ -27,6 +32,7 @@ export function WorkforestInputs({
     entries: Entry[];
     templates: Template[];
     choice: Choice;
+    source: WorkforestSource | null;
   }>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -46,10 +52,22 @@ export function WorkforestInputs({
       rpc.call("bootstrap", null),
       rpc.call("inventory", { hostId }),
       rpc.call("templates", { hostId }),
+      projectId
+        ? rpc.call("projectSource", { hostId, projectId })
+        : Promise.resolve(null),
     ])
-      .then(([bootstrap, inventory, templates]) => {
+      .then(([bootstrap, inventory, templates, source]) => {
         if (cancelled) return;
-        const entries = [...inventory.workspaces, ...inventory.repositories];
+        const allEntries = [...inventory.workspaces, ...inventory.repositories];
+        const entries = source
+          ? allEntries.filter(
+              (entry) =>
+                entry.groupName === source.name &&
+                (source.kind === "template"
+                  ? entry.type === "template-workspace"
+                  : entry.type === "worktree"),
+            )
+          : allEntries;
         const project = bootstrap.projects.find(
           (project) => project.id === projectId,
         );
@@ -62,8 +80,10 @@ export function WorkforestInputs({
           value && typeof value === "object" && !Array.isArray(value)
             ? value
             : null;
-        let choice: Choice = { mode: "new", source: "", name: "" };
-        if (matches.length === 1)
+        let choice: Choice = source
+          ? { mode: "existing", selector: "" }
+          : { mode: "new", source: "", name: "" };
+        if (!source && matches.length === 1)
           choice = { mode: "existing", selector: matches[0]!.selector };
         else if (
           saved?.mode === "existing" &&
@@ -79,8 +99,12 @@ export function WorkforestInputs({
           typeof saved.source === "string" &&
           typeof saved.name === "string"
         )
-          choice = { mode: "new", source: saved.source, name: saved.name };
-        setLoaded({ key, entries, templates, choice });
+          choice = {
+            mode: "new",
+            source: source?.source ?? saved.source,
+            name: saved.name,
+          };
+        setLoaded({ key, entries, templates, choice, source });
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -191,7 +215,11 @@ export function WorkforestInputs({
                 choose(
                   event.target.value === "existing"
                     ? { mode: "existing", selector: "" }
-                    : { mode: "new", source: "", name: "" },
+                    : {
+                        mode: "new",
+                        source: current.source?.source ?? "",
+                        name: "",
+                      },
                 )
               }
             >
@@ -229,6 +257,7 @@ export function WorkforestInputs({
                   Source
                   <Input
                     aria-label="Workforest source"
+                    readOnly={Boolean(current.source)}
                     list="workforest-sources"
                     value={choice.source}
                     placeholder="@template or owner/repository"

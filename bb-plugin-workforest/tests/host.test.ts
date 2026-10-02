@@ -7,7 +7,12 @@ vi.mock("../workforest.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../workforest.js")>();
   return {
     ...original,
-    createWorkforest: () => ({ detail: async () => detail }),
+    createWorkforest: () => ({
+      detail: async () => detail,
+      templates: async () => [
+        { id: "example+variant", repositories: ["o/r"], config: {} },
+      ],
+    }),
     runCommand: commands.run,
   };
 });
@@ -23,6 +28,43 @@ async function setup() {
   return harness;
 }
 describe("host operation lifecycle", () => {
+  it("maps templates and cached repositories to configured group roots and caches discovery", async () => {
+    commands.run.mockImplementation(async (args) =>
+      JSON.stringify({
+        ok: true,
+        data:
+          args[0] === "config"
+            ? {
+                resolvedDirectories: {
+                  repos: "/configured/repos",
+                  workspaces: "/configured/workspaces",
+                },
+              }
+            : [{ name: "repo", slug: "owner/repo" }],
+      }),
+    );
+    const host = await setup();
+    const catalog = await host.experimental_call("sources", null);
+    expect(catalog).toEqual([
+      {
+        id: "template:example+variant",
+        kind: "template",
+        name: "example+variant",
+        source: "@example+variant",
+        path: "/configured/workspaces/example+variant",
+      },
+      {
+        id: "repository:owner/repo",
+        kind: "repository",
+        name: "repo",
+        source: "owner/repo",
+        path: "/configured/repos/repo",
+      },
+    ]);
+    const count = commands.run.mock.calls.length;
+    await host.experimental_call("sources", null);
+    expect(commands.run.mock.calls.length).toBe(count);
+  });
   it("creates a task from the resolved repository and returns fresh metadata", async () => {
     commands.run.mockResolvedValue("created");
     const host = await setup();

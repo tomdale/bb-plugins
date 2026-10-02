@@ -33,6 +33,7 @@ function mount(
         bootstrap: () => bootstrap,
         inventory: () => ({ workspaces: [workspace], repositories: [] }),
         templates: () => [],
+        projectSource: () => null,
         ...overrides,
       },
     },
@@ -40,6 +41,43 @@ function mount(
   return { slot, changes };
 }
 describe("Workforest environment inputs", () => {
+  it("filters environments by source and requires explicit instance selection", async () => {
+    const source = {
+      id: "template:app",
+      kind: "template",
+      name: "app",
+      source: "@app",
+      path: "/work/workspaces/app",
+    };
+    const { slot, changes } = mount({
+      projectSource: () => source,
+      inventory: () => ({
+        workspaces: [
+          workspace,
+          { ...workspace, groupName: "other", selector: "other/main" },
+        ],
+        repositories: [],
+      }),
+    });
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Workforest checkout settings" }),
+    );
+    expect(screen.queryByRole("option", { name: "other/main" })).toBeNull();
+    expect(changes.at(-1).status).toBe("blocked");
+    fireEvent.change(screen.getByLabelText("Workforest checkout"), {
+      target: { value: entry.selector },
+    });
+    await waitFor(() => expect(changes.at(-1).status).toBe("ready"));
+    fireEvent.change(screen.getByLabelText("Workforest mode"), {
+      target: { value: "new" },
+    });
+    expect(
+      (screen.getByLabelText("Workforest source") as HTMLInputElement).value,
+    ).toBe("@app");
+    expect(
+      (screen.getByLabelText("Workforest source") as HTMLInputElement).readOnly,
+    ).toBe(true);
+  });
   it("automatically resolves the selected project's workspace root and reports ready inputs", async () => {
     const { slot, changes } = mount();
     await slot.findByText("Coordinator · 2 repos");

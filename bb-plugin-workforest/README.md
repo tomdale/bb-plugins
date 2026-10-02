@@ -4,16 +4,20 @@ Workforest checkouts and BB agents, connected without duplicating worktrees.
 
 ## Workspace coordination
 
-Open **+ → Use Workforest checkout…** and choose a workspace root to start a
-workspace coordinator. It receives workspace context and delegates bounded
-implementation tasks into repository-scoped child threads. Expand **Open a
-repository…** to select a member directly; its project is registered
-automatically. Workspace roots select the Workforest workspace environment
-provider, whose controls automatically match the project's root on the selected
-machine and show a compact coordinator/repository-count control without a root
-Git branch selector. Open the control to change checkouts or create a workspace
-in its settings popover. Repository selections use Project checkout and retain BB's
-native Git and PR integration.
+Open **+ → Use Workforest source…** and choose a template or repository. Each
+source has one BB project rooted at its normal Workforest group directory, such
+as `Code/Workspaces/<template>` or `Code/Repos/<repository>`. Selecting a source
+creates no checkout or thread. The picker shows loading, registration, and
+selection progress; source catalogs are cached for 30 seconds on the machine.
+
+The compact Workforest environment control lists existing instances for the
+selected source or creates a named instance from it. Choose an instance
+explicitly; source selection does not silently pick a workspace. Template
+workspace threads receive coordinator context and delegate implementation to
+repository-scoped children. Repository environments and delegated children
+retain native Git and PR integration. Group directories are identity anchors,
+not thread working directories. Existing checkout-specific projects remain
+available; they are not renamed or deleted.
 
 Coordinators receive `workforest_workspace_context` and
 `workforest_delegate_to_repo`; workers receive the context tool. Delegation
@@ -41,11 +45,12 @@ before acquiring the role.
 ## UI
 
 - **Composer project shortcut:** in a new-thread composer, open **+** and choose
-  **Use Workforest checkout…** to search existing worktrees and workspace roots
-  on a connected machine. Selecting a checkout creates or reuses its BB project
-  by exact machine and path, then selects that project and checkout in the
-  composer. The draft is preserved; no checkout or thread is created. Workforest
-  still owns checkout deletion.
+  **Use Workforest source…** to search configured templates and cached
+  repositories on a connected machine. Selecting a source creates or reuses its
+  group-root BB project and selects the Workforest environment provider. Choose
+  or create an instance in the environment control. The draft is preserved;
+  source selection creates no checkout or thread. Workforest owns checkout
+  deletion.
 - **Workforest sidebar page:** compact repository/workspace groups with
   five-change previews, expand/collapse, search across member repositories and
   paths, type and needs-attention filters, and recency/name sorting. The

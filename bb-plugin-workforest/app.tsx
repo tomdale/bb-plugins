@@ -15,10 +15,10 @@ export default definePluginApp((app) => {
     plusMenu: [
       {
         id: "workforest-project",
-        label: "Use Workforest checkout…",
+        label: "Use Workforest source…",
         icon: "GitBranch",
         description:
-          "Select an existing worktree or workspace as this thread's project.",
+          "Select a template or repository, then choose its environment.",
         disabled: (composer) => composer.isSubmitting,
         run: ({ composer }) => openWorkforestProjectPicker(composer),
       },

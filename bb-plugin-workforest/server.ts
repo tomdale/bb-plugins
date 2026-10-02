@@ -6,6 +6,7 @@ import {
   rpcContract,
   targetSchema,
   type Detail,
+  type WorkforestSource,
 } from "./contracts.js";
 import { isWithin, resolveCheckout } from "./workforest.js";
 import { registerCoordination } from "./coordination.js";
@@ -40,6 +41,45 @@ export { rpcContract } from "./contracts.js";
 export default function plugin(bb: BbPluginApi) {
   const host = bb.hosts.experimental_client({ contract: hostContract });
   const coordination = registerCoordination(bb);
+  const sourceProjects = new Map<string, Promise<{ projectId: string }>>();
+  async function sourceProject(hostId: string, sourceId: string) {
+    const key = JSON.stringify([hostId, sourceId]);
+    const pending = sourceProjects.get(key);
+    if (pending) return pending;
+    const result = (async () => {
+      const source = await host.call("ensureSource", { sourceId }, { hostId });
+      const projects = await bb.sdk.projects.list();
+      const project =
+        projects.find((project) =>
+          project.sources.some(
+            (item) => item.hostId === hostId && item.path === source.path,
+          ),
+        ) ??
+        (await bb.sdk.projects.create({
+          name: source.name,
+          source: { type: "local_path", hostId, path: source.path },
+        }));
+      await bb.storage.kv.set(
+        `source:${JSON.stringify([project.id, hostId])}`,
+        source,
+      );
+      return { projectId: project.id };
+    })().finally(() => sourceProjects.delete(key));
+    sourceProjects.set(key, result);
+    return result;
+  }
+  async function projectSource(hostId: string, projectId: string) {
+    const source = await bb.storage.kv.get<WorkforestSource>(
+      `source:${JSON.stringify([projectId, hostId])}`,
+    );
+    if (!source) return null;
+    const project = await bb.sdk.projects.get({ projectId });
+    return project.sources.some(
+      (item) => item.hostId === hostId && item.path === source.path,
+    )
+      ? source
+      : null;
+  }
 
   bb.experimental_environments.register({
     id: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
@@ -61,8 +101,39 @@ export default function plugin(bb: BbPluginApi) {
     experimental_existingPath: (inputs) =>
       inputs.mode === "existing" ? inputs.path : null,
     async validate(context) {
-      if (context.inputs.mode === "existing") return { action: "accept" };
-      if (!context.inputs.source.startsWith("@")) return { action: "accept" };
+      const source = await projectSource(context.host.id, context.project.id);
+      if (source) {
+        if (
+          context.inputs.mode === "new" &&
+          context.inputs.source !== source.source
+        )
+          return {
+            action: "refuse",
+            message: "Workspace source does not match the selected project.",
+          };
+        if (context.inputs.mode === "existing") {
+          const inputs = context.inputs;
+          const inventory = await host.call("inventory", null, {
+            hostId: context.host.id,
+          });
+          if (
+            ![...inventory.workspaces, ...inventory.repositories].some(
+              (entry) =>
+                entry.selector === inputs.selector &&
+                entry.path === inputs.path &&
+                entry.groupName === source.name &&
+                (source.kind === "template"
+                  ? entry.type === "template-workspace"
+                  : entry.type === "worktree"),
+            )
+          )
+            return {
+              action: "refuse",
+              message:
+                "Checkout does not belong to the selected Workforest source.",
+            };
+        }
+      }
       return { action: "accept" };
     },
     async create(context) {
@@ -169,6 +240,9 @@ export default function plugin(bb: BbPluginApi) {
     return result;
   }
   bb.rpc.register(rpcContract, {
+    sources: ({ hostId }) => host.call("sources", null, { hostId }),
+    sourceProject: ({ hostId, sourceId }) => sourceProject(hostId, sourceId),
+    projectSource: ({ hostId, projectId }) => projectSource(hostId, projectId),
     bootstrap: async () => {
       const [hosts, projects] = await Promise.all([
         bb.sdk.hosts.list(),
