@@ -43,6 +43,13 @@
   align-items: flex-start;
   gap: 2px;
   padding: 4px;
+  overflow: hidden;
+}
+.todo-card-content[data-transitioning] {
+  transition: height 220ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .todo-card-content[data-transitioning] { transition-duration: 1ms; }
 }
 
 .todo-list-wrapper {
@@ -110,6 +117,9 @@
   overflow-y: auto;
 }
 .todo-card-floating .todo-list { max-height: none; }
+@media (prefers-reduced-motion: reduce) {
+  .todo-list[data-transitioning] { transition-duration: 1ms; }
+}
 
 .todo-item-group {
   display: flex;
@@ -260,7 +270,7 @@
   font-variant-numeric: tabular-nums;
 }
 .todo-row-marker-ordered { gap: 0; }
-.todo-row-marker-unordered { width: 14px; justify-content: center; }
+.todo-row-marker-unordered { width: 18px; justify-content: center; }
 .todo-row-number { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
 .todo-row-number-active { justify-content: center; }
 .todo-row-number-value { flex: none; }

@@ -95,13 +95,20 @@ export function TodoCard() {
   const { state, loaded, error, refresh } = useTodoList(threadId);
   const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [contentTransitioning, setContentTransitioning] = useState(false);
+  const [contentHeight, setContentHeight] = useState<number | undefined>();
   const [useTwoColumns, setUseTwoColumns] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [scrollFade, setScrollFade] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
   const listRef = useRef<HTMLUListElement>(null);
   const baseId = useId();
   const listId = `${baseId}-list`, toggleId = `${baseId}-toggle`;
 
-  useEffect(() => { setExpanded(false); }, [threadId]);
+  useEffect(() => {
+    setExpanded(false);
+    setContentTransitioning(false);
+    setContentHeight(undefined);
+  }, [threadId]);
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
 
   const card = useMemo(() => buildCardView(tasksForRunState(state.tasks, composer.isRunning)), [state.tasks, composer.isRunning]);
@@ -155,6 +162,15 @@ export function TodoCard() {
   const showCountInActions = expanded || hasInProgress;
   const displayRows = expanded ? card.rows : card.collapsedRows;
   const listClassName = `todo-list${expanded && useTwoColumns ? " todo-list-two-columns" : ""}`;
+  const toggleExpanded = () => {
+    const content = contentRef.current;
+    if (!content) { setExpanded(value => !value); return; }
+    const startHeight = content.getBoundingClientRect().height;
+    setContentHeight(startHeight);
+    setContentTransitioning(true);
+    setExpanded(value => !value);
+    requestAnimationFrame(() => setContentHeight(content.scrollHeight));
+  };
   const listStyle = expanded && useTwoColumns
     ? {
       gridAutoFlow: "column",
@@ -184,7 +200,7 @@ export function TodoCard() {
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, [role="button"]')) return;
     if (typeof window !== "undefined" && window.getSelection()?.toString().trim()) return;
-    setExpanded(prev => !prev);
+    toggleExpanded();
   };
 
   const frame = (className: string, children: ReactNode) => {
@@ -211,7 +227,13 @@ export function TodoCard() {
   return frame(card.allComplete ? "todo-card-done" : "", (
     <div className="todo-card-inner">
       {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-      <div className="todo-card-content">
+      <div ref={contentRef} className="todo-card-content" data-transitioning={contentTransitioning ? "" : undefined}
+        style={contentHeight === undefined ? undefined : { height: contentHeight }}
+        onTransitionEnd={event => {
+          if (event.target !== event.currentTarget || event.propertyName !== "height") return;
+          setContentHeight(undefined);
+          setContentTransitioning(false);
+        }}>
         {expanded ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
@@ -267,7 +289,7 @@ export function TodoCard() {
             aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
             onClick={(e) => {
               e.stopPropagation();
-              setExpanded(prev => !prev);
+              toggleExpanded();
             }}
           >
             {showCountInActions && (

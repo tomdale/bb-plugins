@@ -328,6 +328,7 @@ it("keeps all active todos visible when a running card is collapsed", async () =
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
   expect(slot.container.querySelectorAll(".todo-row-marker-unordered")).toHaveLength(3);
   expect(slot.container.querySelectorAll(".todo-row-status-icon")).toHaveLength(3);
+  expect(slot.container.querySelector(".todo-row-marker-unordered")?.classList.contains("todo-row-marker-unordered")).toBe(true);
   expect(slot.container.querySelector(".todo-row-number")).toBeNull();
   expect(slot.container.querySelectorAll(".todo-row-icon")).toHaveLength(0);
   expect(slot.container.querySelectorAll(".todo-row-marker")).toHaveLength(3);
@@ -378,8 +379,9 @@ it("toggles back and forth between collapsed and expanded states at any time", a
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
   const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
 
-  // Expand
+  // Expansion changes list content while the shared content frame animates height.
   fireEvent.click(toggle);
+  expect(slot.container.querySelector(".todo-card-content[data-transitioning]")).toBeTruthy();
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Done")).toBeTruthy();
   expect(slot.getByText("Later")).toBeTruthy();
