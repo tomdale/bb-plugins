@@ -252,17 +252,20 @@
 }
 .todo-row-marker {
   display: inline-flex;
-  width: 3ch;
+  width: 28px;
   flex: none;
   align-items: center;
   justify-content: flex-end;
-  gap: 1px;
   color: var(--subtle-foreground);
   font-variant-numeric: tabular-nums;
-  text-align: end;
 }
-.todo-row-number { display: inline-grid; width: 2ch; place-items: center; }
-.todo-row-spinner { width: 12px; height: 12px; }
+.todo-row-marker-ordered { gap: 0; }
+.todo-row-marker-unordered { width: 14px; justify-content: center; }
+.todo-row-number { display: inline-flex; width: 28px; flex: none; align-items: center; justify-content: flex-end; }
+.todo-row-number-value { display: inline-grid; width: 24px; flex: none; place-items: center; }
+.todo-row-period { width: 4px; flex: none; text-align: center; }
+.todo-row-spinner,
+.todo-row-status-icon { width: 14px; height: 14px; flex: none; }
 .todo-row-icon { flex: none; width: 14px; height: 14px; }
 .todo-row-text {
   flex: 1;
@@ -279,8 +282,16 @@
 }
 
 .todo-row-active { background: var(--state-hover); color: var(--foreground); }
-.todo-row-active .todo-row-spinner { color: var(--foreground); }
-.todo-editor-number .animate-spin { width: 12px; height: 12px; }
+.todo-row-active .todo-row-number,
+.todo-row-active .todo-row-marker { color: var(--subtle-foreground); }
+.todo-row-completed .todo-row-marker,
+.todo-row-blocked .todo-row-marker,
+.todo-row-pending .todo-row-marker { color: var(--subtle-foreground); }
+.todo-row-completed .todo-row-marker-ordered { text-decoration: line-through; }
+.todo-editor-number { white-space: nowrap; }
+.todo-editor-number-value { display: inline-grid; width: 20px; flex: none; place-items: center; }
+.todo-editor-period { width: 4px; flex: none; text-align: center; }
+.todo-editor-marker-unordered { color: var(--subtle-foreground); }
 .todo-editor-marker .animate-spin { color: currentColor; }
 .todo-row-active .todo-row-text { font-weight: 500; }
 .todo-card[data-collapsed] .todo-row-active { background: transparent; }

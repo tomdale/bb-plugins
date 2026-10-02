@@ -23,6 +23,8 @@ export interface CardView {
   completed: number;
   current: Task | undefined;
   allComplete: boolean;
+  /** Lists with any prerequisite relationships use numbered markers. */
+  isOrdered: boolean;
 }
 
 /** An idle thread can retain the last in-progress status until the next update. */
@@ -105,6 +107,7 @@ export function buildCardView(tasks: readonly Task[]): CardView {
     completed,
     current: visible.find(task => task.status === "in_progress"),
     allComplete: visible.length > 0 && completed === visible.length,
+    isOrdered: visible.some(task => task.blockedBy?.length),
   };
 }
 

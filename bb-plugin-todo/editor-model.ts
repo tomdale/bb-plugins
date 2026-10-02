@@ -26,6 +26,8 @@ export interface EditorView {
   total: number;
   completed: number;
   current: Task | undefined;
+  /** Lists with any prerequisite relationships use numbered markers. */
+  isOrdered: boolean;
 }
 
 /**
@@ -71,7 +73,10 @@ export function buildEditorView(tasks: readonly Task[]): EditorView {
   const roots = build(groups.get(undefined) ?? [], 0, undefined);
   for (const task of visible) if (!visited.has(task.id)) roots.push(...build([task], 0, undefined));
   const completed = visible.filter(task => task.status === "completed").length;
-  return { roots, ordered, total: visible.length, completed, current: visible.find(task => task.status === "in_progress") };
+  return {
+    roots, ordered, total: visible.length, completed, current: visible.find(task => task.status === "in_progress"),
+    isOrdered: visible.some(task => task.blockedBy?.length),
+  };
 }
 
 export interface StatusOption {

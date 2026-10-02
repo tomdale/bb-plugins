@@ -232,11 +232,13 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
     <div className={cn("group/row flex min-h-8 items-center gap-1 rounded-md pl-1 pr-0.5 hover:bg-state-hover/60 focus-within:bg-state-hover/60",
       task.status === "in_progress" && "bg-state-hover/40")}>
       <StatusControl node={node} mutate={mutate} running={running} />
-      <span className="todo-editor-marker inline-flex w-8 shrink-0 items-center justify-end gap-0.5 text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">
-        <span className="todo-editor-number inline-grid w-6 place-items-center">{task.status === "in_progress"
+      {view.isOrdered ? <span className="todo-editor-marker inline-flex w-6 shrink-0 items-center justify-end text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">
+        <span className="todo-editor-number inline-flex items-center justify-end"><span className="todo-editor-number-value">{task.status === "in_progress"
           ? <Icon name="Spinner" className={cn("size-3", running && "animate-spin")} />
-          : node.ordinal}</span>.
-      </span>
+          : node.ordinal}</span><span className="todo-editor-period">.</span></span>
+      </span> : <span className="todo-editor-marker todo-editor-marker-unordered inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground" aria-hidden="true">
+        <Icon name={statusIcon(node)} className={cn("size-3.5", task.status === "in_progress" && running && "animate-spin")} />
+      </span>}
       <CommitField aria-label={`Subject for #${task.id}`} data-subject-for={task.id} aria-keyshortcuts={SHORTCUT_ARIA}
         value={task.subject} required onKeyDown={shortcuts}
         onCommit={subject => { void mutate({ action: "update", id: task.id, subject }); }}
@@ -254,7 +256,7 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
       </button>
       <RowMenu node={node} mutate={mutate} />
     </div>
-    {!open && task.description && <p className="-mt-1 mb-1 truncate pl-[4.625rem] pr-16 text-xs text-muted-foreground" title={task.description}>{task.description}</p>}
+    {!open && task.description && <p className="-mt-1 mb-1 truncate pl-[4.125rem] pr-16 text-xs text-muted-foreground" title={task.description}>{task.description}</p>}
     {open && <TaskDetails node={node} view={view} mutate={mutate} id={detailsId} />}
     {node.children.length > 0 && <ul className="ml-[0.9375rem] border-l border-border pl-2" aria-label={`Subtasks of #${task.id}`}>
       {node.children.map(child => <TaskItem key={child.task.id} node={child} view={view} mutate={mutate} running={running} expanded={expanded} toggle={toggle} />)}
