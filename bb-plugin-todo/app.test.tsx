@@ -431,7 +431,11 @@ it("collapses the card when clicking anywhere non-interactive while expanded", a
   fireEvent.click(slot.container.querySelector(".todo-card")!);
   expect(slot.getAllByRole("listitem")).toHaveLength(2);
 
-  // Click on a todo row to collapse
+  // Click on a todo row to collapse, then immediately reopen and close again.
+  fireEvent.click(slot.getByText("First task"));
+  expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  expect(slot.getAllByRole("listitem")).toHaveLength(2);
   fireEvent.click(slot.getByText("First task"));
   expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
 

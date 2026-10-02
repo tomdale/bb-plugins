@@ -178,7 +178,10 @@ export function TodoCard() {
     setContentTransitioning(true);
     requestAnimationFrame(() => {
       if (transitionGeneration.current !== generation) return;
-      const targetHeight = content.scrollHeight;
+      const fixedHeight = content.style.height;
+      content.style.height = "auto";
+      const targetHeight = content.getBoundingClientRect().height;
+      content.style.height = fixedHeight;
       if (typeof content.animate !== "function") {
         content.style.height = "";
         setContentTransitioning(false);
