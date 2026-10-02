@@ -99,6 +99,7 @@ it("renders hierarchy and blockers in the panel and edits subjects on commit", a
   expect(within(subtasks).getByLabelText("Subject for #2")).toBeTruthy();
   expect(slot.container.querySelectorAll(".todo-editor-marker:not(.todo-editor-marker-unordered)")).toHaveLength(3);
   expect(slot.container.querySelector(".todo-editor-number")?.textContent).toBe("1.");
+  expect(slot.container.querySelector(".todo-editor-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelector(".todo-editor-marker-unordered")).toBeNull();
   expect(slot.getByTitle("Depends on 3. Prerequisite").textContent).toContain("depends on 3");
   expect(slot.getByRole("status").textContent).toContain("0 of 3 complete");
@@ -292,8 +293,14 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   expect(slot.getByText("Later")).toBeTruthy();
   expect(slot.getByTitle("Depends on 2. Next").textContent).toContain("depends on 2");
   expect(slot.container.querySelector(".todo-row-number")?.textContent).toBe("1.");
+  expect(slot.container.querySelector(".todo-row-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelectorAll(".todo-row-marker-ordered")).toHaveLength(4);
   expect(slot.container.querySelectorAll(".todo-row-icon")).toHaveLength(0);
+  const completedMarker = slot.container.querySelector(".todo-row-completed .todo-row-marker")!;
+  expect(completedMarker.classList.contains("todo-row-marker-ordered")).toBe(true);
+  expect(getComputedStyle(completedMarker).textDecorationLine).not.toContain("line-through");
+  expect(slot.container.querySelector(".todo-row-completed .todo-row-text")?.textContent).toContain("Done");
+  expect(slot.container.querySelector(".todo-row-completed .todo-row-text")?.classList.contains("todo-row-text")).toBe(true);
   // In expanded state, toggle button collapses it back
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();

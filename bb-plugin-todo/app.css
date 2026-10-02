@@ -261,9 +261,8 @@
 }
 .todo-row-marker-ordered { gap: 0; }
 .todo-row-marker-unordered { width: 14px; justify-content: center; }
-.todo-row-number { display: inline-flex; width: 28px; flex: none; align-items: center; justify-content: flex-end; }
-.todo-row-number-value { display: inline-grid; width: 24px; flex: none; place-items: center; }
-.todo-row-period { width: 4px; flex: none; text-align: center; }
+.todo-row-number { display: inline-flex; width: 28px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.todo-row-number-value { flex: none; }
 .todo-row-spinner,
 .todo-row-status-icon { width: 14px; height: 14px; flex: none; }
 .todo-row-icon { flex: none; width: 14px; height: 14px; }
@@ -287,10 +286,9 @@
 .todo-row-completed .todo-row-marker,
 .todo-row-blocked .todo-row-marker,
 .todo-row-pending .todo-row-marker { color: var(--subtle-foreground); }
-.todo-row-completed .todo-row-marker-ordered { text-decoration: line-through; }
 .todo-editor-number { white-space: nowrap; }
-.todo-editor-number-value { display: inline-grid; width: 20px; flex: none; place-items: center; }
-.todo-editor-period { width: 4px; flex: none; text-align: center; }
+.todo-editor-number-value { flex: none; }
+.todo-editor-period { flex: none; }
 .todo-editor-marker-unordered { color: var(--subtle-foreground); }
 .todo-editor-marker .animate-spin { color: currentColor; }
 .todo-row-active .todo-row-text { font-weight: 500; }
@@ -300,6 +298,7 @@
 .todo-row-blocked .todo-row-icon,
 .todo-row-completed .todo-row-icon { color: var(--subtle-foreground); }
 .todo-row-completed .todo-row-text {
+  color: var(--subtle-foreground);
   text-decoration: line-through;
   text-decoration-color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
 }
