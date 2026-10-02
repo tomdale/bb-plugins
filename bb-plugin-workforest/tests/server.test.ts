@@ -7,12 +7,16 @@ import {
 import { fileURLToPath } from "node:url";
 import plugin from "../server.js";
 import { bootstrap, detail, entry } from "./fixtures.js";
+import type { WorkforestSource } from "../contracts.js";
 
 const disposers: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(disposers.splice(0).map((dispose) => dispose()));
 });
-async function setup(environmentPath = entry.path) {
+async function setup(
+  environmentPath = entry.path,
+  sources: WorkforestSource[] = [],
+) {
   const project = {
     ...bootstrap.projects[0]!,
     kind: "standard" as const,
@@ -73,6 +77,7 @@ async function setup(environmentPath = entry.path) {
           source: "@app",
           path: "/work/workspaces/app",
         };
+      if (method === "sources") return sources;
       if (method === "detail") return detail;
       if (method === "inventory")
         return { workspaces: [], repositories: [entry] };
@@ -130,6 +135,63 @@ describe("BB integration", () => {
       await h.behavior.callRpc("projectSource", {
         hostId: "other",
         projectId: "p2",
+      }),
+    ).toBeNull();
+  });
+  it("resolves an existing repository project without a stored picker mapping", async () => {
+    const source: WorkforestSource = {
+      id: "repository:example/toolbelt",
+      kind: "repository",
+      name: "toolbelt",
+      source: "example/toolbelt",
+      path: "/work/repos/toolbelt",
+    };
+    const h = await setup(entry.path, [source]);
+    h.sdk.stub("projects.get", async () => ({
+      id: "p1",
+      sources: [{ hostId: "h1", path: source.path }],
+    }));
+    expect(
+      await h.behavior.callRpc("projectSource", {
+        hostId: "h1",
+        projectId: "p1",
+      }),
+    ).toEqual(source);
+    for (const item of [
+      { hostId: "h2", path: source.path },
+      { hostId: "h1", path: `${source.path}/main` },
+      { hostId: "h1", path: "/work/repos" },
+    ]) {
+      h.sdk.stub("projects.get", async () => ({ id: "p1", sources: [item] }));
+      expect(
+        await h.behavior.callRpc("projectSource", {
+          hostId: "h1",
+          projectId: "p1",
+        }),
+      ).toBeNull();
+    }
+  });
+  it("does not guess between distinct sources sharing a project path", async () => {
+    const h = await setup(entry.path, [
+      {
+        id: "repository:a/app",
+        kind: "repository",
+        name: "app",
+        source: "a/app",
+        path: entry.path,
+      },
+      {
+        id: "repository:b/app",
+        kind: "repository",
+        name: "app",
+        source: "b/app",
+        path: entry.path,
+      },
+    ]);
+    expect(
+      await h.behavior.callRpc("projectSource", {
+        hostId: "h1",
+        projectId: "p1",
       }),
     ).toBeNull();
   });

@@ -72,13 +72,16 @@ export default function plugin(bb: BbPluginApi) {
     const source = await bb.storage.kv.get<WorkforestSource>(
       `source:${JSON.stringify([projectId, hostId])}`,
     );
-    if (!source) return null;
     const project = await bb.sdk.projects.get({ projectId });
-    return project.sources.some(
-      (item) => item.hostId === hostId && item.path === source.path,
-    )
-      ? source
-      : null;
+    const matchesPath = (candidate: WorkforestSource) =>
+      project.sources.some(
+        (item) => item.hostId === hostId && item.path === candidate.path,
+      );
+    if (source && matchesPath(source)) return source;
+    const catalog = await host.call("sources", null, { hostId });
+    const matches = catalog.filter(matchesPath);
+    const identities = new Set(matches.map((candidate) => candidate.id));
+    return identities.size === 1 ? matches[0]! : null;
   }
 
   bb.experimental_environments.register({

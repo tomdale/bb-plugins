@@ -71,12 +71,44 @@ describe("Workforest environment inputs", () => {
     fireEvent.change(screen.getByLabelText("Workforest mode"), {
       target: { value: "new" },
     });
-    expect(
-      (screen.getByLabelText("Workforest source") as HTMLInputElement).value,
-    ).toBe("@app");
-    expect(
-      (screen.getByLabelText("Workforest source") as HTMLInputElement).readOnly,
-    ).toBe(true);
+    expect(screen.getByText("Source: @app")).toBeTruthy();
+    expect(screen.queryByLabelText("Workforest source")).toBeNull();
+  });
+  it("carries the selected repository into new checkout creation without a source prompt", async () => {
+    const { slot, changes } = mount({
+      projectSource: () => ({
+        id: "repository:example/toolbelt",
+        kind: "repository",
+        name: "toolbelt",
+        source: "example/toolbelt",
+        path: "/work/repos/toolbelt",
+      }),
+      inventory: () => ({
+        workspaces: [workspace],
+        repositories: [
+          { ...entry, groupName: "toolbelt", selector: "toolbelt/main" },
+        ],
+      }),
+    });
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Workforest checkout settings" }),
+    );
+    expect(screen.queryByRole("option", { name: entry.selector })).toBeNull();
+    expect(screen.getByRole("option", { name: "toolbelt/main" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Workforest mode"), {
+      target: { value: "new" },
+    });
+    expect(screen.queryByLabelText("Workforest source")).toBeNull();
+    expect(screen.getByText("Source: example/toolbelt")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
+      target: { value: "fix-auth" },
+    });
+    await waitFor(() =>
+      expect(changes.at(-1)).toEqual({
+        status: "ready",
+        value: { mode: "new", source: "example/toolbelt", name: "fix-auth" },
+      }),
+    );
   });
   it("automatically resolves the selected project's workspace root and reports ready inputs", async () => {
     const { slot, changes } = mount();

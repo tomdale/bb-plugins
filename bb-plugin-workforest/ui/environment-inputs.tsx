@@ -253,24 +253,31 @@ export function WorkforestInputs({
               </>
             ) : (
               <>
-                <label>
-                  Source
-                  <Input
-                    aria-label="Workforest source"
-                    readOnly={Boolean(current.source)}
-                    list="workforest-sources"
-                    value={choice.source}
-                    placeholder="@template or owner/repository"
-                    onChange={(event) =>
-                      choose({ ...choice, source: event.target.value })
-                    }
-                  />
-                </label>
-                <datalist id="workforest-sources">
-                  {current.templates.map((template) => (
-                    <option key={template.id} value={`@${template.id}`} />
-                  ))}
-                </datalist>
+                {current.source ? (
+                  <p className="text-xs text-muted-foreground">
+                    Source: {current.source.source}
+                  </p>
+                ) : (
+                  <>
+                    <label>
+                      Source
+                      <Input
+                        aria-label="Workforest source"
+                        list="workforest-sources"
+                        value={choice.source}
+                        placeholder="@template or owner/repository"
+                        onChange={(event) =>
+                          choose({ ...choice, source: event.target.value })
+                        }
+                      />
+                    </label>
+                    <datalist id="workforest-sources">
+                      {current.templates.map((template) => (
+                        <option key={template.id} value={`@${template.id}`} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
                 <Input
                   aria-label="Workspace name"
                   value={choice.name}
