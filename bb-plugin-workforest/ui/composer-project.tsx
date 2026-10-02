@@ -12,6 +12,7 @@ import { Icon } from "../components/ui/icon.js";
 import { Input } from "../components/ui/input.js";
 import type { Bootstrap, rpcContract } from "../contracts.js";
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "../provider-id.js";
+import { selectRegisteredProject } from "./select-project.js";
 import { useResource } from "../hooks/use-resource.js";
 import { Empty, ErrorMessage, selectClass } from "./shared.js";
 
@@ -81,25 +82,24 @@ function ProjectPicker({
         ...(path ? { path } : {}),
       });
       // Select the checkout explicitly rather than retaining the previous project's worktree choice.
-      const settled = await composer.setSelection({
-        projectId: project.projectId,
-        environment: coordinator
-          ? {
-              type: "provider",
-              environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
-              machine: { type: "existing", hostId },
-              inputs: null,
-            }
-          : {
-              type: "host",
-              hostId,
-              workspace: { type: "unmanaged", path: project.path },
-            },
-      });
-      if (settled.projectId !== project.projectId)
-        throw new Error(
-          "Project was registered but could not be selected. Choose it in the project selector.",
-        );
+      await selectRegisteredProject(
+        (selection) => composer.setSelection(selection),
+        {
+          projectId: project.projectId,
+          environment: coordinator
+            ? {
+                type: "provider",
+                environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
+                machine: { type: "existing", hostId },
+                inputs: null,
+              }
+            : {
+                type: "host",
+                hostId,
+                workspace: { type: "unmanaged", path: project.path },
+              },
+        },
+      );
       close();
       composer.focus();
     } catch (cause) {

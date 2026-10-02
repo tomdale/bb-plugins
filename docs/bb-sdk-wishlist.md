@@ -8,6 +8,21 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Select newly registered projects after catalog propagation
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** register a Workforest checkout and select it in the composer
+  without asking the user to repeat the selection.
+- **Limit:** the composer reconciles project IDs against its sidebar navigation
+  catalog; a successful `projects.create` can precede that catalog's realtime
+  update, so `composer.setSelection` can return the previous or personal project.
+- **Workaround:** retry a returned project mismatch up to six times with 400 ms
+  pauses, preserving the complete requested selection. Thrown host errors remain
+  immediate failures; exhausted retries keep the picker open.
+- **Possible API:** a project-catalog synchronization barrier, or selection that
+  resolves a requested project from the server before catalog reconciliation.
+
 ## Repository scopes within multi-repository environments
 
 - **Status:** not filed
