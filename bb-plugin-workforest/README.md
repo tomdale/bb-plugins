@@ -2,6 +2,38 @@
 
 Workforest checkouts and BB agents, connected without duplicating worktrees.
 
+## Workspace coordination
+
+Open **+ → Use Workforest checkout…** and choose a workspace root to start a
+workspace coordinator. It receives workspace context and delegates bounded
+implementation tasks into repository-scoped child threads. Expand **Open a
+repository…** to select a member directly; its project is registered
+automatically. Workspace roots provide cross-repository coordination, while
+repository threads retain BB's native Git and PR integration.
+
+Coordinators receive `workforest_workspace_context` and
+`workforest_delegate_to_repo`; workers receive the context tool. Delegation
+requires a repository, task name, task brief, and done criteria. It defaults to
+a Workforest task worktree branched from the member's clean, committed HEAD. Set
+`setup: true` to run Workforest setup. Distinct task names isolate concurrent
+work; repeating an identical recorded assignment returns its child rather than
+spawning another. `checkout: "shared"` attaches the member checkout only when no
+live BB thread is attached to it. Children inherit the coordinator's resolved
+execution settings, with accept-edits as the permission fallback.
+
+Workers report results and blockers to the parent using `bb thread tell`.
+Coordinators inspect child output and coordinate explicit branch integration
+before cross-repository verification. Task worktrees are retained after failures
+and thread archival; Workforest owns deletion. Role instructions guide behavior,
+not filesystem permissions. Checkout conflict checks cover current BB threads;
+external tools can still access the same files.
+
+Workspace selection records directory identity locally so coordinator tools can
+be selected synchronously before runtime startup. Environment-provider creation
+also seeds coordinator metadata. Plugin tools and instructions take effect when
+a provider session is constructed; an already-running session needs a restart
+before acquiring the role.
+
 ## UI
 
 - **Composer project shortcut:** in a new-thread composer, open **+** and choose

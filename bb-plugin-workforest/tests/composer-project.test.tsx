@@ -8,7 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { bootstrap, entry } from "./fixtures.js";
+import { bootstrap, detail, entry } from "./fixtures.js";
 
 let app: Awaited<ReturnType<typeof loadPluginApp>>;
 beforeAll(async () => {
@@ -30,7 +30,9 @@ const handlers = {
   inventory: () => ({ workspaces: [], repositories: [entry] }),
   project: () => ({ projectId: "p1", path: entry.path }),
 };
-function mount(rpc = handlers) {
+function mount(
+  rpc: NonNullable<Parameters<typeof renderSlot>[2]>["rpc"] = handlers,
+) {
   const customization = app.composerCustomizations.find(
     (item) => item.id === "workforest-project",
   )!;
@@ -70,6 +72,40 @@ function mount(rpc = handlers) {
   };
 }
 describe("Composer Workforest project picker", () => {
+  it("opens workspace members lazily and selects a repo scope without losing the draft", async () => {
+    const memberPath = `${entry.path}/api`;
+    const { slot, state, open } = mount({
+      ...handlers,
+      inventory: () => ({
+        workspaces: [{ ...entry, type: "template-workspace", repos: ["api"] }],
+        repositories: [],
+      }),
+      detail: () => ({
+        ...detail,
+        repositories: [
+          { ...detail.repositories[0], name: "api", path: memberPath },
+        ],
+      }),
+      project: () => ({ projectId: "api-project", path: memberPath }),
+    });
+    await open();
+    await screen.findByText(
+      "Workspace coordinator · delegates repo work · App",
+    );
+    expect(
+      slot.inspection.rpcCalls.some((call) => call.method === "detail"),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open a repository…" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "api · native Git" }),
+    );
+    await waitFor(() => expect(state.selection.projectId).toBe("api-project"));
+    expect(
+      slot.inspection.rpcCalls.find((call) => call.method === "project")?.input,
+    ).toEqual({ hostId: "h1", selector: entry.selector, path: memberPath });
+    expect(state.text).toBe("Fix auth safely");
+    slot.lifecycle.unmount();
+  });
   it("loads only on opening and selects an existing project without losing the draft", async () => {
     const { slot, state, open } = mount();
     expect(slot.inspection.rpcCalls).toHaveLength(0);

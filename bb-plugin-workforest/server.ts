@@ -8,6 +8,7 @@ import {
   type Detail,
 } from "./contracts.js";
 import { isWithin, resolveCheckout } from "./workforest.js";
+import { registerCoordination } from "./coordination.js";
 
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
 export { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
@@ -38,6 +39,7 @@ export { rpcContract } from "./contracts.js";
 
 export default function plugin(bb: BbPluginApi) {
   const host = bb.hosts.experimental_client({ contract: hostContract });
+  const coordination = registerCoordination(bb);
 
   bb.experimental_environments.register({
     id: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
@@ -71,6 +73,17 @@ export default function plugin(bb: BbPluginApi) {
             message: "That Workforest checkout is already in use.",
           };
         }
+        const detail = await host.call(
+          "detail",
+          { selector: context.inputs.selector },
+          { hostId: context.host.id, signal: context.signal },
+        );
+        resolveCheckout(detail, context.inputs.path);
+        const role = await coordination.identify(
+          context.host.id,
+          context.inputs.path,
+        );
+        if (role) await coordination.seed(context.thread.id, role);
         return {
           status: "created",
           path: context.inputs.path,
@@ -84,6 +97,8 @@ export default function plugin(bb: BbPluginApi) {
           { name: context.inputs.name, source: context.inputs.source },
           { hostId: context.host.id, signal: context.signal },
         );
+        const role = await coordination.identify(context.host.id, created.path);
+        if (role) await coordination.seed(context.thread.id, role);
         return { status: "created", path: created.path, ownsPath: true };
       } catch (error) {
         if (context.signal.aborted) throw error;
@@ -123,26 +138,32 @@ export default function plugin(bb: BbPluginApi) {
     string,
     Promise<{ projectId: string; path: string }>
   >();
-  function ensureProject(hostId: string, selector: string) {
-    const key = JSON.stringify([hostId, selector]);
+  function ensureProject(
+    hostId: string,
+    selector: string,
+    requestedPath?: string,
+  ) {
+    const key = JSON.stringify([hostId, selector, requestedPath]);
     const pending = pendingProjects.get(key);
     if (pending) return pending;
     const result = (async () => {
       // Resolve on the machine again: a stale browser inventory must not register a removed checkout.
       const detail = await host.call("detail", { selector }, { hostId });
+      const path = resolveCheckout(detail, requestedPath ?? detail.path);
+      await coordination.identify(hostId, path);
       const projects = await bb.sdk.projects.list();
       const existing = projects.find((project) =>
         project.sources.some(
-          (source) => source.hostId === hostId && source.path === detail.path,
+          (source) => source.hostId === hostId && source.path === path,
         ),
       );
       const project =
         existing ??
         (await bb.sdk.projects.create({
           name: selector.replace("/", " / "),
-          source: { type: "local_path", hostId, path: detail.path },
+          source: { type: "local_path", hostId, path },
         }));
-      return { projectId: project.id, path: detail.path };
+      return { projectId: project.id, path };
     })().finally(() => pendingProjects.delete(key));
     pendingProjects.set(key, result);
     return result;
@@ -155,7 +176,8 @@ export default function plugin(bb: BbPluginApi) {
       ]);
       return { hosts, projects };
     },
-    project: ({ hostId, selector }) => ensureProject(hostId, selector),
+    project: ({ hostId, selector, path }) =>
+      ensureProject(hostId, selector, path),
     inventory: ({ hostId }) => inventory(hostId),
     templates: ({ hostId }) => host.call("templates", null, { hostId }),
     detail: ({ hostId, selector }) =>

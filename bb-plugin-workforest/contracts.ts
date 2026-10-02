@@ -121,6 +121,12 @@ export const hostContract = defineRpcContract({
       .strict(),
     output: z.object({ path: absolutePath, selector }),
   },
+  createTask: {
+    input: z
+      .object({ selector, repository: id, name: slug, setup: z.boolean() })
+      .strict(),
+    output: z.object({ path: absolutePath, branch: z.string() }),
+  },
   templates: { input: z.null(), output: z.array(templateSchema) },
   detail: { input: z.object({ selector }), output: detailSchema },
   logs: {
@@ -144,7 +150,7 @@ export const bootstrapSchema = z.object({
 export const rpcContract = defineRpcContract({
   bootstrap: { input: z.null(), output: bootstrapSchema },
   project: {
-    input: targetSchema,
+    input: targetSchema.extend({ path: absolutePath.optional() }),
     output: z.object({ projectId: id, path: absolutePath }),
   },
   inventory: { input: z.object({ hostId: id }), output: inventorySchema },

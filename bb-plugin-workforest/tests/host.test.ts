@@ -23,6 +23,66 @@ async function setup() {
   return harness;
 }
 describe("host operation lifecycle", () => {
+  it("creates a task from the resolved repository and returns fresh metadata", async () => {
+    commands.run.mockResolvedValue("created");
+    const host = await setup();
+    expect(
+      await host.experimental_call("createTask", {
+        selector: detail.selector,
+        repository: "app",
+        name: "tests",
+        setup: true,
+      }),
+    ).toEqual({ path: detail.tasks[0]!.path, branch: detail.tasks[0]!.branch });
+    expect(commands.run).toHaveBeenLastCalledWith(
+      ["task", "new", "tests", "--setup", "--json"],
+      expect.objectContaining({ cwd: detail.repositories[0]!.path }),
+    );
+  });
+  it("serializes task creation with other machine mutations and releases failed tasks", async () => {
+    let finish!: () => void;
+    commands.run.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = () => resolve("created");
+        }),
+    );
+    const host = await setup();
+    const creating = host.experimental_call("createTask", {
+      selector: detail.selector,
+      repository: "app",
+      name: "tests",
+      setup: false,
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    await expect(
+      host.experimental_call("start", {
+        kind: "create",
+        name: "other",
+        sources: ["o/r"],
+      }),
+    ).rejects.toThrow("Another");
+    finish();
+    await creating;
+    commands.run.mockRejectedValue(new Error("failed"));
+    await expect(
+      host.experimental_call("createTask", {
+        selector: detail.selector,
+        repository: "app",
+        name: "tests",
+        setup: false,
+      }),
+    ).rejects.toThrow("failed");
+    commands.run.mockResolvedValue("created");
+    await expect(
+      host.experimental_call("createTask", {
+        selector: detail.selector,
+        repository: "app",
+        name: "tests",
+        setup: false,
+      }),
+    ).resolves.toBeDefined();
+  });
   it("returns immediately, prevents concurrent mutations, and records completion", async () => {
     let finish!: (value: string) => void;
     commands.run.mockImplementation(

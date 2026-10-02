@@ -8,6 +8,24 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Repository scopes within multi-repository environments
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** coordinate a Workforest workspace while inspecting Git changes
+  and PRs in its member repositories.
+- **Limit:** environment metadata exposes one branch and Git-repository identity;
+  the SDK provides no repository-context selector for native Git surfaces.
+  `ComposerSelection.environment` also ignores provider inputs, so a checkout
+  shortcut cannot directly seed the provider's input form.
+- **Workaround:** workspace-root coordinator threads delegate to ordinary
+  repository-scoped child threads, using Workforest task worktrees for isolation.
+  A plugin-owned composer picker selects existing roots or member checkouts and
+  registers projects automatically. Workspace roots retain filesystem context;
+  native Git integration remains in repository threads.
+- **Possible API:** environment repository inventory with explicit Git operation
+  targets, and a composer selection contract that can seed provider inputs.
+
 ## Render delivered plugin tool results inline
 
 - **Status:** not filed

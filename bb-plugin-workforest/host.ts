@@ -12,6 +12,7 @@ import {
 const jobs = new Map<string, Job>();
 let running: Promise<void> | null = null;
 let controller: AbortController | null = null;
+let taskRunning = false;
 export default experimental_defineHostEntry({
   contract: hostContract,
   handlers: {
@@ -31,6 +32,37 @@ export default experimental_defineHostEntry({
       );
       return { path: result.targetPath, selector: result.selector };
     },
+    createTask: async ({ selector, repository, name, setup }, context) => {
+      if (running || taskRunning)
+        throw new Error(
+          "Another Workforest operation is running on this machine.",
+        );
+      taskRunning = true;
+      try {
+        const workforest = createWorkforest(context.signal);
+        const detail = await workforest.detail(selector);
+        const command = buildOperation(
+          { kind: "task", selector, repository, name, setup },
+          detail,
+        );
+        await runCommand([...command.args, "--json"], {
+          cwd: command.cwd,
+          signal: context.signal,
+          timeoutMs: 15 * 60 * 1000,
+        });
+        const fresh = await workforest.detail(selector);
+        const task = fresh.tasks.find(
+          (task) => task.parentRepo === repository && task.slug === name,
+        );
+        if (!task)
+          throw new Error(
+            "Task was created but could not be resolved. Refresh Workforest status before retrying.",
+          );
+        return { path: task.path, branch: task.branch };
+      } finally {
+        taskRunning = false;
+      }
+    },
     templates: (_, context) => createWorkforest(context.signal).templates(),
     detail: ({ selector }, context) =>
       createWorkforest(context.signal).detail(selector),
@@ -40,7 +72,7 @@ export default experimental_defineHostEntry({
       createWorkforest(context.signal).preview(selector),
     jobs: () => [...jobs.values()].reverse(),
     start: (operation, context) => {
-      if (running)
+      if (running || taskRunning)
         throw new Error(
           "Another Workforest operation is running on this machine. Wait for it to finish.",
         );

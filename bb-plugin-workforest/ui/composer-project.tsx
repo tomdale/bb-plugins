@@ -69,12 +69,16 @@ function ProjectPicker({
     hosts.find((host) => host.id === preferredHost)?.id ??
     hosts[0]?.id;
 
-  async function select(selector: string) {
+  async function select(selector: string, path?: string) {
     if (!hostId || pending || composer.isSubmitting) return;
     setPending(true);
     setError(undefined);
     try {
-      const project = await rpc.call("project", { hostId, selector });
+      const project = await rpc.call("project", {
+        hostId,
+        selector,
+        ...(path ? { path } : {}),
+      });
       // Select the checkout explicitly rather than retaining the previous project's worktree choice.
       const settled = await composer.setSelection({
         projectId: project.projectId,
@@ -107,11 +111,12 @@ function ProjectPicker({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Workforest → BB project</DialogTitle>
+          <DialogTitle>Use Workforest checkout</DialogTitle>
           <DialogDescription>
-            Select an existing checkout to create or reuse its BB project and
-            select it in this composer. Your draft stays here; no checkout or
-            thread is created.
+            Open a workspace coordinator for cross-repository work, or a
+            repository checkout for native Git integration. Projects are
+            registered automatically; your draft stays here and no thread is
+            started.
           </DialogDescription>
         </DialogHeader>
         <ErrorMessage message={bootstrap.error || error} />
@@ -176,7 +181,7 @@ function CheckoutList({
   hostId: string;
   projects: Bootstrap["projects"];
   disabled: boolean;
-  select: (selector: string) => Promise<void>;
+  select: (selector: string, path?: string) => Promise<void>;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const inventory = useResource(
@@ -252,7 +257,9 @@ function CheckoutList({
                       {entry.selector}
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      {entry.type === "worktree" ? "Worktree" : "Workspace"}
+                      {entry.type === "worktree"
+                        ? "Repository · native Git"
+                        : "Workspace coordinator · delegates repo work"}
                       {existing ? ` · ${existing.name}` : ""}
                     </span>
                     <span className="block truncate font-mono text-xs text-muted-foreground">
@@ -263,11 +270,92 @@ function CheckoutList({
                     {existing ? "Use project" : "Create & select"}
                   </span>
                 </button>
+                {entry.type !== "worktree" && (
+                  <WorkspaceRepositories
+                    hostId={hostId}
+                    selector={entry.selector}
+                    disabled={disabled}
+                    select={select}
+                  />
+                )}
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+function WorkspaceRepositories({
+  hostId,
+  selector,
+  disabled,
+  select,
+}: {
+  hostId: string;
+  selector: string;
+  disabled: boolean;
+  select: (selector: string, path?: string) => Promise<void>;
+}) {
+  const rpc = useRpc<typeof rpcContract>();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="px-3 pb-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        disabled={disabled}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? "Hide repositories" : "Open a repository…"}
+      </Button>
+      {open && (
+        <RepositoryChoices
+          hostId={hostId}
+          selector={selector}
+          disabled={disabled}
+          select={select}
+        />
+      )}
+    </div>
+  );
+}
+function RepositoryChoices({
+  hostId,
+  selector,
+  disabled,
+  select,
+}: {
+  hostId: string;
+  selector: string;
+  disabled: boolean;
+  select: (selector: string, path?: string) => Promise<void>;
+}) {
+  const rpc = useRpc<typeof rpcContract>();
+  const detail = useResource(
+    `picker-detail:${hostId}:${selector}`,
+    () => rpc.call("detail", { hostId, selector }),
+    0,
+  );
+  return (
+    <div className="space-y-1">
+      <ErrorMessage message={detail.error} />
+      {!detail.data && !detail.error && <Empty>Loading repositories…</Empty>}
+      {detail.data?.repositories.map((repo) => (
+        <Button
+          key={repo.path}
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={disabled || Boolean(detail.error)}
+          onClick={() => void select(selector, repo.path)}
+        >
+          {repo.name} · native Git
+        </Button>
+      ))}
     </div>
   );
 }
