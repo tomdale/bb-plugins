@@ -400,6 +400,44 @@ it("toggles back and forth between collapsed and expanded states at any time", a
   slot.lifecycle.unmount();
 });
 
+it("animates collapse to the cached compact height after expansion", async () => {
+  const slot = await mount(() => ({ tasks: [
+    { id: 1, subject: "First task", status: "pending" },
+    { id: 2, subject: "Second task", status: "pending" },
+  ], nextId: 3 }));
+  const originalAnimate = Element.prototype.animate;
+  const frames: Keyframe[][] = [];
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    value(keyframes: Keyframe[]) {
+      frames.push(keyframes);
+      return { finished: Promise.resolve(), cancel() {} } as unknown as Animation;
+    },
+  });
+  const content = slot.container.querySelector<HTMLElement>(".todo-card-content")!;
+  content.getBoundingClientRect = () => ({
+    x: 0, y: 0, left: 0, right: 300, width: 300,
+    top: 0, bottom: slot.container.querySelector(".todo-card")?.getAttribute("data-state") === "expanded" ? 82 : 32,
+    height: slot.container.querySelector(".todo-card")?.getAttribute("data-state") === "expanded" ? 82 : 32,
+    toJSON: () => ({}),
+  } as DOMRect);
+  try {
+    fireEvent.click(slot.getByRole("button", { name: "Show all 2 todos" }));
+    await waitFor(() => expect(frames).toHaveLength(1));
+    expect(frames[0]?.[0]?.height).toBe("32px");
+    expect(frames[0]?.[1]?.height).toBe("82px");
+
+    fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
+    await waitFor(() => expect(frames).toHaveLength(2));
+    expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
+    expect(frames[1]?.[0]?.height).toBe("82px");
+    expect(frames[1]?.[1]?.height).toBe("32px");
+  } finally {
+    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: originalAnimate });
+    slot.lifecycle.unmount();
+  }
+});
+
 it("groups subtasks with their parent task in expanded mode", async () => {
   const slot = await mount(() => ({ tasks: [
     { id: 1, subject: "First root", status: "completed" },
