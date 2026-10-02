@@ -100,13 +100,13 @@ describe("Workforest environment inputs", () => {
     });
     expect(screen.queryByLabelText("Workforest source")).toBeNull();
     expect(screen.getByText("Source: example/toolbelt")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Workspace name"), {
-      target: { value: "fix-auth" },
-    });
+    expect(
+      screen.getByText("Checkout name comes from this thread’s title."),
+    ).toBeTruthy();
     await waitFor(() =>
       expect(changes.at(-1)).toEqual({
         status: "ready",
-        value: { mode: "new", source: "example/toolbelt", name: "fix-auth" },
+        value: { mode: "new", source: "example/toolbelt" },
       }),
     );
   });
@@ -165,7 +165,7 @@ describe("Workforest environment inputs", () => {
     fireEvent.click(
       await slot.findByRole("button", { name: "Workforest checkout settings" }),
     );
-    await screen.findByLabelText("Workspace name");
+    await screen.findByLabelText("Workforest source");
     expect(changes.at(-1).status).toBe("blocked");
   });
   it("does not treat a member project as a workspace-root match", async () => {
@@ -183,7 +183,7 @@ describe("Workforest environment inputs", () => {
     fireEvent.click(
       await slot.findByRole("button", { name: "Workforest checkout settings" }),
     );
-    await screen.findByLabelText("Workspace name");
+    await screen.findByLabelText("Workforest source");
   });
   it("retains valid saved input when no workspace project matches", async () => {
     const { slot, changes } = mount(
@@ -208,19 +208,12 @@ describe("Workforest environment inputs", () => {
     fireEvent.change(screen.getByLabelText("Workforest source"), {
       target: { value: "@example" },
     });
-    fireEvent.change(screen.getByLabelText("Workspace name"), {
-      target: { value: "fix-auth" },
-    });
     await waitFor(() =>
       expect(changes.at(-1)).toEqual({
         status: "ready",
-        value: { mode: "new", source: "@example", name: "fix-auth" },
+        value: { mode: "new", source: "@example" },
       }),
     );
-    fireEvent.change(screen.getByLabelText("Workspace name"), {
-      target: { value: "BAD NAME" },
-    });
-    await waitFor(() => expect(changes.at(-1).status).toBe("blocked"));
   });
   it("blocks new-machine selection rather than using stale inventory", async () => {
     const { slot, changes } = mount({}, { target: { kind: "new-host" } });

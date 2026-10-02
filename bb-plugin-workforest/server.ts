@@ -20,10 +20,6 @@ export const workforestEnvironmentInputs = z.discriminatedUnion("mode", [
     .object({
       mode: z.literal("new"),
       source: z.string().min(1).max(200),
-      name: z
-        .string()
-        .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-        .max(80),
     })
     .strict(),
   z
@@ -37,6 +33,18 @@ export const workforestEnvironmentInputs = z.discriminatedUnion("mode", [
 type WorkforestEnvironmentInputs = z.infer<typeof workforestEnvironmentInputs>;
 
 export { rpcContract } from "./contracts.js";
+
+export function workforestNameFromTitle(title: string | null | undefined) {
+  const name = (title ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80)
+    .replace(/-+$/g, "");
+  return name || "work";
+}
 
 export default function plugin(bb: BbPluginApi) {
   const host = bb.hosts.experimental_client({ contract: hostContract });
@@ -164,11 +172,16 @@ export default function plugin(bb: BbPluginApi) {
           ownsPath: false,
         };
       }
-      context.report.step(`Creating Workforest ${context.inputs.source}…`);
+      const name = workforestNameFromTitle(
+        context.thread.title ?? context.thread.titleFallback,
+      );
+      context.report.step(
+        `Creating Workforest ${context.inputs.source} as ${name}…`,
+      );
       try {
         const created = await host.call(
           "createEnvironment",
-          { name: context.inputs.name, source: context.inputs.source },
+          { name, source: context.inputs.source },
           { hostId: context.host.id, signal: context.signal },
         );
         const role = await coordination.identify(context.host.id, created.path);

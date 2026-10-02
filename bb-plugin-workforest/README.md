@@ -11,10 +11,10 @@ creates no checkout or thread. The picker shows loading, registration, and
 selection progress; source catalogs are cached for 30 seconds on the machine.
 
 The compact Workforest environment control lists existing instances for the
-selected source or creates a named instance from it. Choose an instance
-explicitly; source selection does not silently pick a workspace. Template
-workspace threads receive coordinator context and delegate implementation to
-repository-scoped children. Repository environments and delegated children
+selected source or creates an instance named from the new thread's title. Choose
+an instance explicitly; source selection does not silently pick a workspace.
+Template workspace threads receive coordinator context and delegate
+implementation to repository-scoped children. Repository environments and delegated children
 retain native Git and PR integration. Group directories are identity anchors,
 not thread working directories. Existing checkout-specific projects remain
 available; they are not renamed or deleted.
@@ -58,8 +58,8 @@ before acquiring the role.
   with branch divergence, dirty file counts, integration and setup status.
   Update times reflect Workforest metadata, not Git commits or agent activity.
 - **Create checkout:** one or more `owner/repository` names, or a Workforest
-  template (including variants). Uses the machine's configured branch naming and
-  setup hooks.
+  template (including variants). The new thread's title supplies the checkout
+  name; Workforest uses the machine's configured branch naming and setup hooks.
 - **Task lanes:** create an isolated lane from a clean parent's committed HEAD,
   optionally running setup.
 - **BB threads:** start a thread in a workspace root, repository, or task lane.

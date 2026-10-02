@@ -16,8 +16,7 @@ import type {
 import { ErrorMessage, selectClass } from "./shared.js";
 
 type Choice =
-  | { mode: "new"; source: string; name: string }
-  | { mode: "existing"; selector: string };
+  { mode: "new"; source: string } | { mode: "existing"; selector: string };
 export function WorkforestInputs({
   projectId,
   target,
@@ -82,7 +81,7 @@ export function WorkforestInputs({
             : null;
         let choice: Choice = source
           ? { mode: "existing", selector: "" }
-          : { mode: "new", source: "", name: "" };
+          : { mode: "new", source: "" };
         if (!source && matches.length === 1)
           choice = { mode: "existing", selector: matches[0]!.selector };
         else if (
@@ -94,15 +93,10 @@ export function WorkforestInputs({
           )
         )
           choice = { mode: "existing", selector: saved.selector };
-        else if (
-          saved?.mode === "new" &&
-          typeof saved.source === "string" &&
-          typeof saved.name === "string"
-        )
+        else if (saved?.mode === "new" && typeof saved.source === "string")
           choice = {
             mode: "new",
             source: source?.source ?? saved.source,
-            name: saved.name,
           };
         setLoaded({ key, entries, templates, choice, source });
       })
@@ -143,16 +137,13 @@ export function WorkforestInputs({
       const valid =
         /^(?:@[a-zA-Z0-9][a-zA-Z0-9_+.-]*|[a-zA-Z0-9][a-zA-Z0-9_.-]*\/[a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.test(
           choice.source,
-        ) &&
-        /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(choice.name) &&
-        choice.name.length <= 80;
+        );
       onChange(
         valid
           ? { status: "ready", value: choice }
           : {
               status: "blocked",
-              reason:
-                "Choose a source and a lowercase, hyphenated workspace name.",
+              reason: "Choose a Workforest source.",
             },
       );
     }
@@ -192,7 +183,7 @@ export function WorkforestInputs({
                 ? "Repository checkout"
                 : `Coordinator · ${entry.repos?.length ?? 0} repos`
               : choice.mode === "new"
-                ? choice.name || "Create workspace…"
+                ? "Create workspace…"
                 : "Choose checkout…"}
           </span>
           <Icon name="ChevronDown" className="size-3.5 shrink-0" />
@@ -215,11 +206,7 @@ export function WorkforestInputs({
                 choose(
                   event.target.value === "existing"
                     ? { mode: "existing", selector: "" }
-                    : {
-                        mode: "new",
-                        source: current.source?.source ?? "",
-                        name: "",
-                      },
+                    : { mode: "new", source: current.source?.source ?? "" },
                 )
               }
             >
@@ -278,15 +265,9 @@ export function WorkforestInputs({
                     </datalist>
                   </>
                 )}
-                <Input
-                  aria-label="Workspace name"
-                  value={choice.name}
-                  placeholder="workspace name"
-                  maxLength={80}
-                  onChange={(event) =>
-                    choose({ ...choice, name: event.target.value })
-                  }
-                />
+                <p className="text-xs text-muted-foreground">
+                  Checkout name comes from this thread’s title.
+                </p>
               </>
             )}
             <Popover.Close asChild>

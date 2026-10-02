@@ -5,7 +5,7 @@ import {
   makeThreadResponse,
 } from "@get-bb/plugin-sdk/testing";
 import { fileURLToPath } from "node:url";
-import plugin from "../server.js";
+import plugin, { workforestNameFromTitle } from "../server.js";
 import { bootstrap, detail, entry } from "./fixtures.js";
 import type { WorkforestSource } from "../contracts.js";
 
@@ -89,6 +89,16 @@ async function setup(
   return fake.harness;
 }
 const target = { hostId: "h1", selector: entry.selector, path: entry.path };
+
+describe("Workforest checkout names", () => {
+  it("converts thread titles to safe, bounded slugs", () => {
+    expect(workforestNameFromTitle("Fix résumé / Auth!")).toBe(
+      "fix-resume-auth",
+    );
+    expect(workforestNameFromTitle("🎉")).toBe("work");
+    expect(workforestNameFromTitle("A".repeat(100))).toBe("a".repeat(80));
+  });
+});
 describe("BB integration", () => {
   it("registers one group-root project and persists its source identity", async () => {
     const h = await setup();
