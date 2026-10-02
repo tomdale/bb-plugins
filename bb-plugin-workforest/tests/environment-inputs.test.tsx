@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { bootstrap, entry } from "./fixtures.js";
 
@@ -42,7 +42,12 @@ function mount(
 describe("Workforest environment inputs", () => {
   it("automatically resolves the selected project's workspace root and reports ready inputs", async () => {
     const { slot, changes } = mount();
-    await slot.findByText(
+    await slot.findByText("Coordinator · 2 repos");
+    expect(slot.queryByLabelText("Workforest mode")).toBeNull();
+    fireEvent.click(
+      slot.getByRole("button", { name: "Workforest checkout settings" }),
+    );
+    await screen.findByText(
       "Workspace coordinator · 2 repositories · no root Git branch",
     );
     await waitFor(() =>
@@ -52,9 +57,18 @@ describe("Workforest environment inputs", () => {
       }),
     );
     expect(
-      (slot.getByLabelText("Workforest mode") as HTMLSelectElement).value,
+      (screen.getByLabelText("Workforest mode") as HTMLSelectElement).value,
     ).toBe("existing");
     expect(slot.queryByText("Unknown checkout")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Workforest mode")).toBeNull(),
+    );
+    expect(
+      slot
+        .getByRole("button", { name: "Workforest checkout settings" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
   });
   it("blocks loading errors and permits retry", async () => {
     let fail = true;
@@ -70,7 +84,7 @@ describe("Workforest environment inputs", () => {
     fireEvent.click(
       slot.getByRole("button", { name: "Retry Workforest loading" }),
     );
-    await slot.findByText(/Workspace coordinator/);
+    await slot.findByText("Coordinator · 2 repos");
     await waitFor(() => expect(changes.at(-1).status).toBe("ready"));
   });
   it("does not auto-select another machine's matching path", async () => {
@@ -78,7 +92,10 @@ describe("Workforest environment inputs", () => {
       {},
       { target: { kind: "existing-host", hostId: "h2" } },
     );
-    await slot.findByLabelText("Workspace name");
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Workforest checkout settings" }),
+    );
+    await screen.findByLabelText("Workspace name");
     expect(changes.at(-1).status).toBe("blocked");
   });
   it("does not treat a member project as a workspace-root match", async () => {
@@ -93,7 +110,10 @@ describe("Workforest environment inputs", () => {
         ],
       }),
     });
-    await slot.findByLabelText("Workspace name");
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Workforest checkout settings" }),
+    );
+    await screen.findByLabelText("Workspace name");
   });
   it("retains valid saved input when no workspace project matches", async () => {
     const { slot, changes } = mount(
@@ -103,19 +123,22 @@ describe("Workforest environment inputs", () => {
         value: { mode: "existing", selector: entry.selector, path: entry.path },
       },
     );
-    await slot.findByText(/Workspace coordinator/);
+    await slot.findByText("Coordinator · 2 repos");
     await waitFor(() => expect(changes.at(-1).status).toBe("ready"));
   });
   it("allows switching from an auto-selected root to new-workspace creation", async () => {
     const { slot, changes } = mount();
-    await slot.findByText(/Workspace coordinator/);
-    fireEvent.change(slot.getByLabelText("Workforest mode"), {
+    await slot.findByText("Coordinator · 2 repos");
+    fireEvent.click(
+      slot.getByRole("button", { name: "Workforest checkout settings" }),
+    );
+    fireEvent.change(screen.getByLabelText("Workforest mode"), {
       target: { value: "new" },
     });
-    fireEvent.change(slot.getByLabelText("Workforest source"), {
+    fireEvent.change(screen.getByLabelText("Workforest source"), {
       target: { value: "@example" },
     });
-    fireEvent.change(slot.getByLabelText("Workspace name"), {
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
       target: { value: "fix-auth" },
     });
     await waitFor(() =>
@@ -124,7 +147,7 @@ describe("Workforest environment inputs", () => {
         value: { mode: "new", source: "@example", name: "fix-auth" },
       }),
     );
-    fireEvent.change(slot.getByLabelText("Workspace name"), {
+    fireEvent.change(screen.getByLabelText("Workspace name"), {
       target: { value: "BAD NAME" },
     });
     await waitFor(() => expect(changes.at(-1).status).toBe("blocked"));

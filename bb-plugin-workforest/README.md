@@ -10,8 +10,9 @@ implementation tasks into repository-scoped child threads. Expand **Open a
 repository…** to select a member directly; its project is registered
 automatically. Workspace roots select the Workforest workspace environment
 provider, whose controls automatically match the project's root on the selected
-machine and show the coordinator role and repository count without a root Git
-branch selector. Repository selections use Project checkout and retain BB's
+machine and show a compact coordinator/repository-count control without a root
+Git branch selector. Open the control to change checkouts or create a workspace
+in its settings popover. Repository selections use Project checkout and retain BB's
 native Git and PR integration.
 
 Coordinators receive `workforest_workspace_context` and

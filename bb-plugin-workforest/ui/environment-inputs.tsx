@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
+import { Button } from "../components/ui/button.js";
+import { Input } from "../components/ui/input.js";
+import { Icon } from "../components/ui/icon.js";
 import {
   useRpc,
   type PluginEnvironmentProviderInputsProps,
 } from "@get-bb/plugin-sdk/app";
 import type { Entry, Template, rpcContract } from "../contracts.js";
-import { ErrorMessage } from "./shared.js";
+import { ErrorMessage, selectClass } from "./shared.js";
 
 type Choice =
   | { mode: "new"; source: string; name: string }
@@ -149,75 +153,114 @@ export function WorkforestInputs({
       ? current.entries.find((entry) => entry.selector === choice.selector)
       : undefined;
   return (
-    <div className="space-y-2">
-      <select
-        aria-label="Workforest mode"
-        value={choice.mode}
-        onChange={(event) =>
-          choose(
-            event.target.value === "existing"
-              ? { mode: "existing", selector: "" }
-              : { mode: "new", source: "", name: "" },
-          )
-        }
-      >
-        <option value="existing">Use existing checkout</option>
-        <option value="new">Create new workspace</option>
-      </select>
-      {choice.mode === "existing" ? (
-        <>
-          <select
-            aria-label="Workforest checkout"
-            value={choice.selector}
-            onChange={(event) =>
-              choose({ mode: "existing", selector: event.target.value })
-            }
-          >
-            <option value="">Select checkout…</option>
-            {current.entries.map((entry) => (
-              <option key={entry.selector} value={entry.selector}>
-                {entry.selector}
-              </option>
-            ))}
-          </select>
-          {entry && (
-            <p className="text-xs text-muted-foreground">
-              {entry.type === "worktree"
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 max-w-64 gap-1.5 text-sm text-muted-foreground"
+          aria-label="Workforest checkout settings"
+        >
+          <span className="truncate">
+            {entry
+              ? entry.type === "worktree"
                 ? "Repository checkout"
-                : `Workspace coordinator · ${entry.repos?.length ?? 0} repositories · no root Git branch`}
-            </p>
-          )}
-        </>
-      ) : (
-        <>
-          <label>
-            Source
-            <input
-              aria-label="Workforest source"
-              list="workforest-sources"
-              value={choice.source}
-              placeholder="@template or owner/repository"
+                : `Coordinator · ${entry.repos?.length ?? 0} repos`
+              : choice.mode === "new"
+                ? choice.name || "Create workspace…"
+                : "Choose checkout…"}
+          </span>
+          <Icon name="ChevronDown" className="size-3.5 shrink-0" />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="end"
+          sideOffset={8}
+          aria-label="Workforest checkout settings"
+          className="z-50 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-4 text-sm text-popover-foreground shadow-md"
+        >
+          <div className="grid gap-3">
+            <h3 className="font-medium">Workforest checkout</h3>
+            <select
+              className={selectClass}
+              aria-label="Workforest mode"
+              value={choice.mode}
               onChange={(event) =>
-                choose({ ...choice, source: event.target.value })
+                choose(
+                  event.target.value === "existing"
+                    ? { mode: "existing", selector: "" }
+                    : { mode: "new", source: "", name: "" },
+                )
               }
-            />
-          </label>
-          <datalist id="workforest-sources">
-            {current.templates.map((template) => (
-              <option key={template.id} value={`@${template.id}`} />
-            ))}
-          </datalist>
-          <input
-            aria-label="Workspace name"
-            value={choice.name}
-            placeholder="workspace name"
-            maxLength={80}
-            onChange={(event) =>
-              choose({ ...choice, name: event.target.value })
-            }
-          />
-        </>
-      )}
-    </div>
+            >
+              <option value="existing">Use existing checkout</option>
+              <option value="new">Create new workspace</option>
+            </select>
+            {choice.mode === "existing" ? (
+              <>
+                <select
+                  className={`${selectClass} w-full min-w-0`}
+                  aria-label="Workforest checkout"
+                  value={choice.selector}
+                  onChange={(event) =>
+                    choose({ mode: "existing", selector: event.target.value })
+                  }
+                >
+                  <option value="">Select checkout…</option>
+                  {current.entries.map((entry) => (
+                    <option key={entry.selector} value={entry.selector}>
+                      {entry.selector}
+                    </option>
+                  ))}
+                </select>
+                {entry && (
+                  <p className="text-xs text-muted-foreground">
+                    {entry.type === "worktree"
+                      ? "Repository checkout"
+                      : `Workspace coordinator · ${entry.repos?.length ?? 0} repositories · no root Git branch`}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <label>
+                  Source
+                  <Input
+                    aria-label="Workforest source"
+                    list="workforest-sources"
+                    value={choice.source}
+                    placeholder="@template or owner/repository"
+                    onChange={(event) =>
+                      choose({ ...choice, source: event.target.value })
+                    }
+                  />
+                </label>
+                <datalist id="workforest-sources">
+                  {current.templates.map((template) => (
+                    <option key={template.id} value={`@${template.id}`} />
+                  ))}
+                </datalist>
+                <Input
+                  aria-label="Workspace name"
+                  value={choice.name}
+                  placeholder="workspace name"
+                  maxLength={80}
+                  onChange={(event) =>
+                    choose({ ...choice, name: event.target.value })
+                  }
+                />
+              </>
+            )}
+            <Popover.Close asChild>
+              <Button type="button" variant="outline" size="sm">
+                Done
+              </Button>
+            </Popover.Close>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
