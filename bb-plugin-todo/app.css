@@ -262,9 +262,45 @@
 .todo-row-marker-ordered { gap: 0; }
 .todo-row-marker-unordered { width: 14px; justify-content: center; }
 .todo-row-number { display: inline-flex; width: 28px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.todo-row-number-active { justify-content: center; }
 .todo-row-number-value { flex: none; }
 .todo-row-spinner,
 .todo-row-status-icon { width: 14px; height: 14px; flex: none; }
+.todo-spokes,
+.todo-editor-spokes {
+  position: relative;
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  animation: todo-spokes-rotate 1.1s steps(8, end) infinite;
+}
+.todo-spokes i,
+.todo-editor-spokes i {
+  position: absolute;
+  inset: 0;
+  opacity: calc(0.2 + (var(--spoke) / 10));
+}
+.todo-spokes i::before,
+.todo-editor-spokes i::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 6px;
+  width: 2px;
+  height: 4px;
+  border-radius: 1px;
+  background: currentColor;
+}
+.todo-spokes i { transform: rotate(calc(var(--spoke) * 45deg)); }
+.todo-editor-spokes { transform: scale(0.85); }
+.todo-editor-spokes i { transform: rotate(calc(var(--spoke) * 45deg)); }
+.todo-editor-spokes.is-animating { animation-name: todo-spokes-rotate; }
+@keyframes todo-spokes-rotate { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .todo-spokes,
+  .todo-editor-spokes.is-animating { animation-duration: 2.5s; }
+}
 .todo-row-icon { flex: none; width: 14px; height: 14px; }
 .todo-row-text {
   flex: 1;
@@ -287,6 +323,7 @@
 .todo-row-blocked .todo-row-marker,
 .todo-row-pending .todo-row-marker { color: var(--subtle-foreground); }
 .todo-editor-number { white-space: nowrap; }
+.todo-editor-number-active { width: 24px; justify-content: center; }
 .todo-editor-number-value { flex: none; }
 .todo-editor-period { flex: none; }
 .todo-editor-marker-unordered { color: var(--subtle-foreground); }

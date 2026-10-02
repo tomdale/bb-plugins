@@ -98,7 +98,8 @@ it("renders hierarchy and blockers in the panel and edits subjects on commit", a
   const subtasks = await slot.findByRole("list", { name: "Subtasks of #1" });
   expect(within(subtasks).getByLabelText("Subject for #2")).toBeTruthy();
   expect(slot.container.querySelectorAll(".todo-editor-marker:not(.todo-editor-marker-unordered)")).toHaveLength(3);
-  expect(slot.container.querySelector(".todo-editor-number")?.textContent).toBe("1.");
+  expect(slot.container.querySelector(".todo-editor-number:not(.todo-editor-number-active)")?.textContent).toBe("1.");
+  expect(slot.container.querySelectorAll(".todo-editor-number-active .todo-editor-spokes i")).toHaveLength(8);
   expect(slot.container.querySelector(".todo-editor-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelector(".todo-editor-marker-unordered")).toBeNull();
   expect(slot.getByTitle("Depends on 3. Prerequisite").textContent).toContain("depends on 3");
@@ -218,12 +219,15 @@ it("titles a running card with the active task's working label", async () => {
   const banner = app.composerCustomizations[0]!.banners![0]!;
   const slot = renderSlot(banner, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
-    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending" }], nextId: 3 }) },
+    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending", blockedBy: [1] }], nextId: 3 }) },
   });
   const toggle = await slot.findByRole("button", { name: "Show all 2 todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getByText("Planning the release")).toBeTruthy();
-  expect(slot.container.querySelector(".todo-row-status-icon.animate-spin")).toBeTruthy();
+  expect(slot.container.querySelectorAll(".todo-row-marker-ordered .todo-row-number-active .todo-spokes i")).toHaveLength(8);
+  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active .todo-spokes")).toBeTruthy();
+  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-period")).toBeNull();
+  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active")).toBeTruthy();
   slot.lifecycle.unmount();
 });
 

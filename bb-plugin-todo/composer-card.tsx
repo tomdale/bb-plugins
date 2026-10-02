@@ -19,9 +19,13 @@ function TodoRowContent({ row, ordered, working, subjects, ordinals }: { row: Ca
   const text = (state === "active" && task.activeForm?.trim()) || task.subject;
   return <>
     {ordered ? <span className="todo-row-marker todo-row-marker-ordered" aria-hidden="true">
-      <span className="todo-row-number"><span className="todo-row-number-value">{spinning
-        ? <Icon name="Spinner" className="todo-row-spinner animate-spin" />
-        : ordinal}</span><span className="todo-row-period">.</span></span>
+      <span className={`todo-row-number${spinning ? " todo-row-number-active" : ""}`}>
+        {spinning
+          ? <span className="todo-row-spinner todo-spokes" aria-hidden="true">
+            {Array.from({ length: 8 }, (_, spoke) => <i key={spoke} style={{ "--spoke": spoke } as CSSProperties} />)}
+          </span>
+          : <><span className="todo-row-number-value">{ordinal}</span><span className="todo-row-period">.</span></>}
+      </span>
     </span> : <span className="todo-row-marker todo-row-marker-unordered" aria-hidden="true">
       <Icon name={rowIcon(row)} className={`todo-row-status-icon${spinning ? " animate-spin" : ""}`} />
     </span>}

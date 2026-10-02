@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { experimental_Icon as Icon, useComposer, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { cn } from "./lib/utils.js";
 import { Button } from "./components/ui/button.js";
@@ -233,9 +233,13 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
       task.status === "in_progress" && "bg-state-hover/40")}>
       <StatusControl node={node} mutate={mutate} running={running} />
       {view.isOrdered ? <span className="todo-editor-marker inline-flex w-6 shrink-0 items-center justify-end text-right text-2xs tabular-nums text-muted-foreground" aria-hidden="true">
-        <span className="todo-editor-number inline-flex items-center justify-end"><span className="todo-editor-number-value">{task.status === "in_progress"
-          ? <Icon name="Spinner" className={cn("size-3", running && "animate-spin")} />
-          : node.ordinal}</span><span className="todo-editor-period">.</span></span>
+        <span className={cn("todo-editor-number inline-flex items-center justify-end", task.status === "in_progress" && "todo-editor-number-active")}>
+          {task.status === "in_progress"
+            ? <span className={cn("todo-editor-spokes", running && "is-animating")} aria-hidden="true">
+              {Array.from({ length: 8 }, (_, spoke) => <i key={spoke} style={{ "--spoke": spoke } as CSSProperties} />)}
+            </span>
+            : <><span className="todo-editor-number-value">{node.ordinal}</span><span className="todo-editor-period">.</span></>}
+        </span>
       </span> : <span className="todo-editor-marker todo-editor-marker-unordered inline-flex size-6 shrink-0 items-center justify-center text-muted-foreground" aria-hidden="true">
         <Icon name={statusIcon(node)} className={cn("size-3.5", task.status === "in_progress" && running && "animate-spin")} />
       </span>}
