@@ -21,8 +21,10 @@ function TodoRowContent({ row, ordered, working, subjects, ordinals }: { row: Ca
     {ordered ? <span className="todo-row-marker todo-row-marker-ordered" aria-hidden="true">
       <span className={`todo-row-number${spinning ? " todo-row-number-active" : ""}`}>
         {spinning
-          ? <span className="todo-row-spinner todo-spokes" aria-hidden="true">
-            {Array.from({ length: 8 }, (_, spoke) => <i key={spoke} style={{ "--spoke": spoke } as CSSProperties} />)}
+          ? <span className="todo-row-spinner" aria-hidden="true">
+            <span className="todo-spokes">
+              {Array.from({ length: 8 }, (_, spoke) => <i key={spoke} style={{ "--spoke": spoke } as CSSProperties} />)}
+            </span>
           </span>
           : <><span className="todo-row-number-value">{ordinal}</span><span className="todo-row-period">.</span></>}
       </span>

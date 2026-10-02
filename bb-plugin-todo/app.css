@@ -277,6 +277,8 @@
 .todo-row-number-value { flex: none; }
 .todo-row-spinner,
 .todo-row-status-icon { width: 14px; height: 14px; flex: none; }
+.todo-row-spinner { overflow: hidden; }
+.todo-row-spinner .todo-spokes { animation: todo-spokes-rotate 1.1s steps(8, end) infinite; }
 .todo-spokes,
 .todo-editor-spokes {
   position: relative;
@@ -284,7 +286,6 @@
   width: 14px;
   height: 14px;
   flex: none;
-  animation: todo-spokes-rotate 1.1s steps(8, end) infinite;
 }
 .todo-spokes i,
 .todo-editor-spokes i {
@@ -309,7 +310,7 @@
 .todo-editor-spokes.is-animating { animation-name: todo-spokes-rotate; }
 @keyframes todo-spokes-rotate { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .todo-spokes,
+  .todo-row-spinner .todo-spokes,
   .todo-editor-spokes.is-animating { animation-duration: 2.5s; }
 }
 .todo-row-icon { flex: none; width: 14px; height: 14px; }

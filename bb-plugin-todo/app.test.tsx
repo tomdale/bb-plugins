@@ -225,7 +225,9 @@ it("titles a running card with the active task's working label", async () => {
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getByText("Planning the release")).toBeTruthy();
   expect(slot.container.querySelectorAll(".todo-row-marker-ordered .todo-row-number-active .todo-spokes i")).toHaveLength(8);
-  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active .todo-spokes")).toBeTruthy();
+  const spinner = slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active .todo-row-spinner");
+  expect(spinner?.classList.contains("todo-row-spinner")).toBe(true);
+  expect(spinner?.querySelector(".todo-spokes")).toBeTruthy();
   expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-period")).toBeNull();
   expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active")).toBeTruthy();
   slot.lifecycle.unmount();
