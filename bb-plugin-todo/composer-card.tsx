@@ -96,9 +96,10 @@ export function TodoCard() {
   const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [contentTransitioning, setContentTransitioning] = useState(false);
-  const [contentHeight, setContentHeight] = useState<number | undefined>();
   const [useTwoColumns, setUseTwoColumns] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const transitionGeneration = useRef(0);
+  const heightAnimation = useRef<Animation | undefined>(undefined);
   const [scrollFade, setScrollFade] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
   const listRef = useRef<HTMLUListElement>(null);
   const baseId = useId();
@@ -107,7 +108,9 @@ export function TodoCard() {
   useEffect(() => {
     setExpanded(false);
     setContentTransitioning(false);
-    setContentHeight(undefined);
+    heightAnimation.current?.cancel();
+    heightAnimation.current = undefined;
+    transitionGeneration.current += 1;
   }, [threadId]);
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
 
@@ -166,10 +169,34 @@ export function TodoCard() {
     const content = contentRef.current;
     if (!content) { setExpanded(value => !value); return; }
     const startHeight = content.getBoundingClientRect().height;
-    setContentHeight(startHeight);
+    const nextExpanded = !expanded;
+    const generation = ++transitionGeneration.current;
+    heightAnimation.current?.cancel();
+    heightAnimation.current = undefined;
+    content.style.height = `${startHeight}px`;
+    setExpanded(nextExpanded);
     setContentTransitioning(true);
-    setExpanded(value => !value);
-    requestAnimationFrame(() => setContentHeight(content.scrollHeight));
+    requestAnimationFrame(() => {
+      if (transitionGeneration.current !== generation) return;
+      const targetHeight = content.scrollHeight;
+      if (typeof content.animate !== "function") {
+        content.style.height = "";
+        setContentTransitioning(false);
+        return;
+      }
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+      const animation = content.animate(
+        [{ height: `${startHeight}px` }, { height: `${targetHeight}px` }],
+        { duration: reduceMotion ? 1 : 220, easing: "ease", fill: "forwards" },
+      );
+      heightAnimation.current = animation;
+      void animation.finished.then(() => {
+        if (transitionGeneration.current !== generation) return;
+        content.style.height = "";
+        heightAnimation.current = undefined;
+        setContentTransitioning(false);
+      }).catch(() => {});
+    });
   };
   const listStyle = expanded && useTwoColumns
     ? {
@@ -227,13 +254,7 @@ export function TodoCard() {
   return frame(card.allComplete ? "todo-card-done" : "", (
     <div className="todo-card-inner">
       {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-      <div ref={contentRef} className="todo-card-content" data-transitioning={contentTransitioning ? "" : undefined}
-        style={contentHeight === undefined ? undefined : { height: contentHeight }}
-        onTransitionEnd={event => {
-          if (event.target !== event.currentTarget || event.propertyName !== "height") return;
-          setContentHeight(undefined);
-          setContentTransitioning(false);
-        }}>
+      <div ref={contentRef} className="todo-card-content" data-transitioning={contentTransitioning ? "" : undefined}>
         {expanded ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}

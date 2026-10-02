@@ -381,14 +381,14 @@ it("toggles back and forth between collapsed and expanded states at any time", a
 
   // Expansion changes list content while the shared content frame animates height.
   fireEvent.click(toggle);
-  expect(slot.container.querySelector(".todo-card-content[data-transitioning]")).toBeTruthy();
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Done")).toBeTruthy();
   expect(slot.getByText("Later")).toBeTruthy();
 
-  // Collapse
+  // Collapse immediately, while expansion is still transitioning.
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
+  expect(slot.container.querySelector(".todo-card-content[data-transitioning]")).toBeTruthy();
 
   // Expand again by clicking the card
   fireEvent.click(slot.container.querySelector(".todo-card")!);

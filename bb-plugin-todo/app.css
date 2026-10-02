@@ -271,7 +271,8 @@
 }
 .todo-row-marker-ordered { gap: 0; }
 .todo-row-marker-unordered { width: 18px; justify-content: center; }
-.todo-row-number { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: flex-end; white-space: nowrap; }
+.todo-row-number { display: inline-flex; width: 18px; flex: none; align-items: center; justify-content: center; white-space: nowrap; }
+.todo-row-number-value { text-align: center; }
 .todo-row-number-active { justify-content: center; }
 .todo-row-number-value { flex: none; }
 .todo-row-spinner,
@@ -332,7 +333,8 @@
 .todo-row-completed .todo-row-marker,
 .todo-row-blocked .todo-row-marker,
 .todo-row-pending .todo-row-marker { color: var(--subtle-foreground); }
-.todo-editor-number { white-space: nowrap; }
+.todo-editor-number { justify-content: center; white-space: nowrap; }
+.todo-editor-number-value { text-align: center; }
 .todo-editor-number-active { width: 24px; justify-content: center; }
 .todo-editor-number-value { flex: none; }
 .todo-editor-period { flex: none; }
