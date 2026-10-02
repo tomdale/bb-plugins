@@ -44,6 +44,55 @@ test("moves a subtree past interleaved siblings and retains tombstones", () => {
   assert.deepEqual(state.tasks.map(task => task.id), [1, 3, 2, 4, 5, 6]);
 });
 
+test("set declaratively defines and replaces plan with local IDs and dependencies", () => {
+  let state = mutate(emptyState(), {
+    action: "set",
+    tasks: [
+      { id: 10, subject: "Plan", status: "completed" },
+      { id: 20, subject: "Build", status: "in_progress", activeForm: "Building", parentId: 10 },
+      { id: 30, subject: "Verify", blockedBy: [20], parentId: 10 },
+    ],
+  });
+  assert.deepEqual(state.tasks.map(t => ({ id: t.id, subject: t.subject, status: t.status, parentId: t.parentId, blockedBy: t.blockedBy })), [
+    { id: 1, subject: "Plan", status: "completed", parentId: undefined, blockedBy: undefined },
+    { id: 2, subject: "Build", status: "in_progress", parentId: 1, blockedBy: undefined },
+    { id: 3, subject: "Verify", status: "pending", parentId: 1, blockedBy: [2] },
+  ]);
+  assert.equal(state.nextId, 4);
+
+  // Replaces entire plan cleanly with new local IDs
+  state = mutate(state, {
+    action: "set",
+    tasks: [
+      { subject: "Fresh goal A" },
+      { subject: "Fresh goal B" },
+    ],
+  });
+  assert.deepEqual(state.tasks.map(t => t.id), [1, 2]);
+  assert.equal(state.tasks[0]?.subject, "Fresh goal A");
+  assert.equal(state.nextId, 3);
+
+  // Validates cycles in set
+  assert.throws(() => mutate(state, {
+    action: "set",
+    tasks: [
+      { id: 1, subject: "A", blockedBy: [2] },
+      { id: 2, subject: "B", blockedBy: [1] },
+    ],
+  }), /cycle/);
+  assert.throws(() => mutate(state, {
+    action: "set",
+    tasks: [
+      { id: 1, subject: "A", parentId: 2 },
+      { id: 2, subject: "B", parentId: 1 },
+    ],
+  }), /cycle/);
+
+  // Empty set clears
+  state = mutate(state, { action: "set", tasks: [] });
+  assert.deepEqual(state, emptyState());
+});
+
 test("metadata merges and clear resets ids", () => {
   let state = mutate(emptyState(), { action: "create", subject: "One", metadata: { a: 1, b: 2 } });
   state = mutate(state, { action: "update", id: 1, metadata: { a: null, b: 3 } });

@@ -21,7 +21,7 @@ async function mount(
   const banner = app.composerCustomizations[0]!.banners![0]!;
   const slot = renderSlot(banner, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot },
+    rpc: { snapshot, archiveCompleted: () => ({ archived: true }) },
     settings,
   });
   const footer = document.createElement("div");
@@ -320,7 +320,7 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
   const app = await loadPluginApp(() => import("./app.js"));
   const completed = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
+    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }), archiveCompleted: () => ({ archived: true }) },
   });
   await act(async () => {});
   expect(completed.getByText("All todos complete")).toBeTruthy();
@@ -368,6 +368,25 @@ it("toggles back and forth between collapsed and expanded states at any time", a
   // Collapse again
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
+  slot.lifecycle.unmount();
+});
+
+it("groups subtasks with their parent task in expanded mode", async () => {
+  const slot = await mount(() => ({ tasks: [
+    { id: 1, subject: "First root", status: "completed" },
+    { id: 2, subject: "Parent with subtasks", status: "pending" },
+    { id: 3, subject: "Child task", status: "pending", parentId: 2 },
+    { id: 4, subject: "Second root", status: "pending" },
+  ], nextId: 5 }));
+  // Expand card
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  const itemGroup = slot.container.querySelector(".todo-item-group")!;
+  expect(itemGroup).toBeTruthy();
+  expect(itemGroup.textContent).toContain("Parent with subtasks");
+  expect(itemGroup.textContent).toContain("Child task");
+  const subtasksList = itemGroup.querySelector(".todo-subtasks")!;
+  expect(subtasksList).toBeTruthy();
+  expect(subtasksList.textContent).toContain("Child task");
   slot.lifecycle.unmount();
 });
 

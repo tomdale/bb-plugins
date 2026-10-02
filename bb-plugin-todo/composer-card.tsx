@@ -1,23 +1,23 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { experimental_Icon as Icon, useBbNavigate, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow } from "./card.js";
+import { experimental_Icon as Icon, useBbNavigate, useComposer, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow, type CardTreeNode } from "./card.js";
 import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
 import { TODO_PANEL_ACTION_ID } from "./editor-button.js";
+import type { rpcContract } from "./server.js";
 
 const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };
 
-function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
+function TodoRowContent({ row, showIds, working, subjects }: { row: CardRow; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
   const { task, depth, blockers } = row;
   const state = rowState(row);
   const spinning = state === "active" && working;
   const waitsFor = blockers.map(id => `#${id} ${subjects.get(id) ?? ""}`.trim()).join(", ");
   const text = (state === "active" && task.activeForm?.trim()) || task.subject;
-  return <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
-    style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
+  return <>
     <Icon name={rowIcon(row)} className={`todo-row-icon${spinning ? " todo-row-spinner animate-spin" : ""}`} aria-hidden="true" />
     <span className="todo-row-text" title={text}>
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? `, waiting for ${waitsFor}` : ""}: </span>
@@ -27,20 +27,59 @@ function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: b
     {blockers.length > 0 && <span className="todo-row-meta" aria-hidden="true" title={`Waits for ${waitsFor}`}>
       after {blockers.map(id => `#${id}`).join(", ")}
     </span>}
-  </li>;
+  </>;
+}
+
+function TodoRow({ row, showIds, working, subjects }: { row: CardRow; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
+  const { depth } = row;
+  const state = rowState(row);
+  return (
+    <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
+      style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
+      <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+    </li>
+  );
+}
+
+function TodoTreeItem({ node, showIds, working, subjects }: { node: CardTreeNode; showIds: boolean; working: boolean; subjects: Map<number, string> }) {
+  const { row, children } = node;
+  const state = rowState(row);
+  const depth = row.depth;
+  if (!children.length) {
+    return (
+      <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
+        style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
+        <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+      </li>
+    );
+  }
+  return (
+    <li className="todo-item-group" data-task-id={row.task.id}>
+      <div className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
+        style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
+        <TodoRowContent row={row} showIds={showIds} working={working} subjects={subjects} />
+      </div>
+      <ul className="todo-subtasks" aria-label={`Subtasks of #${row.task.id}`}>
+        {children.map(child => (
+          <TodoTreeItem key={child.row.task.id} node={child} showIds={showIds} working={working} subjects={subjects} />
+        ))}
+      </ul>
+    </li>
+  );
 }
 
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
  * by default (showing intelligent compact tasks or progress), can be toggled
  * or clicked to show the full list, renders wide lists in 2 columns after they
- * reach their max height, adds scroll fade gradients when overflowing, and
- * moves into the thread's right gutter when there is room beside the latest
- * message.
+ * reach their max height with subtasks grouped under their parent, adds scroll
+ * fade gradients when overflowing, and moves into the thread's right gutter when
+ * there is room beside the latest message.
  */
 export function TodoCard() {
   const composer = useComposer();
   const navigate = useBbNavigate();
+  const rpc = useRpc<typeof rpcContract>();
   const threadId = composer.scope.kind === "thread" || composer.scope.kind === "queued-message" ? composer.scope.threadId : null;
   const { values: settings } = useSettings();
   const hideDelaySeconds = typeof settings?.completedHideDelaySeconds === "number" ? settings.completedHideDelaySeconds : 30;
@@ -63,10 +102,17 @@ export function TodoCard() {
   useEffect(() => {
     setHiddenAfterCompletion(false);
     if (!threadId || !loaded || !card.allComplete || error) return;
-    if (hideDelaySeconds === 0) { setHiddenAfterCompletion(true); return; }
-    const timer = window.setTimeout(() => setHiddenAfterCompletion(true), hideDelaySeconds * 1000);
+    if (hideDelaySeconds === 0) {
+      setHiddenAfterCompletion(true);
+      void rpc.call("archiveCompleted", { threadId }).catch(() => {});
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setHiddenAfterCompletion(true);
+      void rpc.call("archiveCompleted", { threadId }).catch(() => {});
+    }, hideDelaySeconds * 1000);
     return () => window.clearTimeout(timer);
-  }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds]);
+  }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds, rpc]);
 
   const updateListLayout = useCallback(() => {
     const el = listRef.current;
@@ -76,7 +122,7 @@ export function TodoCard() {
     }
     const canScroll = el.scrollHeight > el.clientHeight + 1;
     const maxHeight = Number.parseFloat(getComputedStyle(el).maxHeight);
-    const reachedMaxHeight = Number.isFinite(maxHeight) ? el.clientHeight >= maxHeight - 1 : canScroll;
+    const reachedMaxHeight = Number.isFinite(maxHeight) ? el.scrollHeight >= maxHeight - 1 : canScroll;
     if (expanded && !useTwoColumns && reachedMaxHeight) setUseTwoColumns(true);
     if (!canScroll) {
       setScrollFade(prev => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
@@ -100,13 +146,11 @@ export function TodoCard() {
   const displayRows = expanded ? card.rows : card.collapsedRows;
   const listClassName = `todo-list${expanded && useTwoColumns ? " todo-list-two-columns" : ""}`;
 
-  // Grid mode halves the measured height, so row-count changes start over in one column.
   useLayoutEffect(() => {
     setUseTwoColumns(false);
   }, [displayRows.length, expanded]);
 
-  // Measure after paint so an overflowing list reaches max height before it widens.
-  useEffect(() => {
+  useLayoutEffect(() => {
     updateListLayout();
   }, [displayRows.length, expanded, updateListLayout]);
 
@@ -156,10 +200,10 @@ export function TodoCard() {
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
             <ul ref={listRef} id={listId} className={listClassName} onScroll={updateListLayout} aria-label="All todos">
-              {card.rows.map(row => (
-                <TodoRow
-                  key={row.task.id}
-                  row={row}
+              {card.roots.map(node => (
+                <TodoTreeItem
+                  key={node.row.task.id}
+                  node={node}
                   showIds={card.showIds}
                   working={working}
                   subjects={subjects}

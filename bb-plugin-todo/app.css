@@ -111,6 +111,24 @@
 }
 .todo-card-floating .todo-list { max-height: none; }
 
+.todo-item-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  list-style: none;
+  gap: 1px;
+}
+
+.todo-subtasks {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  gap: 1px;
+}
+
 /* Wide expanded lists switch to 2 columns after filling their max height. */
 @container todo-card (min-width: 520px) {
   .todo-list-two-columns {
@@ -118,6 +136,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 8px;
     row-gap: 1px;
+    align-items: start;
   }
 }
 

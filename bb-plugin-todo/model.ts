@@ -11,7 +11,19 @@ export interface Task {
   metadata?: Record<string, unknown>;
 }
 export interface State { tasks: Task[]; nextId: number }
-export type Action = "create" | "update" | "get" | "list" | "delete" | "clear";
+export type Action = "create" | "update" | "get" | "list" | "delete" | "clear" | "set";
+export type PlanStatus = "pending" | "in_progress" | "completed";
+export interface SetTaskInput {
+  id?: number;
+  subject: string;
+  status?: PlanStatus;
+  description?: string;
+  activeForm?: string;
+  parentId?: number | null;
+  blockedBy?: number[];
+  owner?: string;
+  metadata?: Record<string, unknown>;
+}
 export interface Input {
   action: Action;
   id?: number;
@@ -27,6 +39,7 @@ export interface Input {
   metadata?: Record<string, unknown>;
   includeDeleted?: boolean;
   move?: "up" | "down";
+  tasks?: SetTaskInput[];
 }
 export const emptyState = (): State => ({ tasks: [], nextId: 1 });
 export type Outcome = { state: State; message: string; changed: boolean };
@@ -97,6 +110,34 @@ export function apply(state: State, input: Input): Outcome {
     return { state, message: JSON.stringify({ ...task, blocks }), changed: false };
   }
   if (action === "clear") return { state: emptyState(), message: `Cleared ${state.tasks.length} tasks`, changed: state.tasks.length > 0 || state.nextId !== 1 };
+  if (action === "set") {
+    const inputTasks = input.tasks ?? [];
+    if (inputTasks.length === 0) return { state: emptyState(), message: "Cleared plan", changed: state.tasks.length > 0 || state.nextId !== 1 };
+    const idMap = new Map<number, number>();
+    inputTasks.forEach((t, index) => { if (t.id !== undefined) idMap.set(t.id, index + 1); });
+    const newTasks: Task[] = [];
+    for (let i = 0; i < inputTasks.length; i++) {
+      const t = inputTasks[i]!;
+      if (!t.subject?.trim()) fail(`task at index ${i} requires subject`);
+      const newId = i + 1;
+      const resolvedParentId = t.parentId != null ? (idMap.get(t.parentId) ?? t.parentId) : undefined;
+      const resolvedBlockedBy = t.blockedBy?.map(b => idMap.get(b) ?? b);
+      const taskObj: Task = { id: newId, subject: t.subject.trim(), status: t.status ?? "pending" };
+      if (t.description !== undefined) taskObj.description = t.description;
+      if (t.activeForm !== undefined) taskObj.activeForm = t.activeForm;
+      if (t.owner !== undefined) taskObj.owner = t.owner;
+      if (t.metadata !== undefined) taskObj.metadata = t.metadata;
+      if (resolvedParentId !== undefined) taskObj.parentId = resolvedParentId;
+      if (resolvedBlockedBy && resolvedBlockedBy.length > 0) taskObj.blockedBy = [...new Set(resolvedBlockedBy)];
+      newTasks.push(taskObj);
+    }
+    const testState: State = { tasks: newTasks, nextId: newTasks.length + 1 };
+    for (const t of newTasks) {
+      if (t.parentId !== undefined) checkParent(testState, t.id, t.parentId);
+      if (t.blockedBy && t.blockedBy.length > 0) checkDependencies(testState, t.id, t.blockedBy, `task #${t.id} blockedBy`);
+    }
+    return { state: testState, message: `Set plan with ${newTasks.length} tasks`, changed: true };
+  }
   if (action === "create") {
     if (!input.subject?.trim()) fail("subject required for create");
     const id = state.nextId;

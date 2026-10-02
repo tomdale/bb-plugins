@@ -8,8 +8,14 @@ export interface CardRow {
   blockers: number[];
 }
 
+export interface CardTreeNode {
+  row: CardRow;
+  children: CardTreeNode[];
+}
+
 export interface CardView {
   rows: CardRow[];
+  roots: CardTreeNode[];
   collapsedRows: CardRow[];
   total: number;
   completed: number;
@@ -23,6 +29,29 @@ export interface CardView {
 export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): readonly Task[] {
   if (isRunning) return tasks;
   return tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" } : task);
+}
+
+export function buildCardTree(rows: readonly CardRow[]): CardTreeNode[] {
+  const byId = new Map(rows.map(r => [r.task.id, r]));
+  const childrenMap = new Map<number, CardRow[]>();
+  const rootRows: CardRow[] = [];
+
+  for (const row of rows) {
+    if (row.task.parentId !== undefined && byId.has(row.task.parentId)) {
+      const list = childrenMap.get(row.task.parentId) ?? [];
+      list.push(row);
+      childrenMap.set(row.task.parentId, list);
+    } else {
+      rootRows.push(row);
+    }
+  }
+
+  const build = (row: CardRow): CardTreeNode => ({
+    row,
+    children: (childrenMap.get(row.task.id) ?? []).map(build),
+  });
+
+  return rootRows.map(build);
 }
 
 export function selectCollapsedRows(rows: readonly CardRow[]): CardRow[] {
@@ -64,6 +93,7 @@ export function buildCardView(tasks: readonly Task[]): CardView {
   const completed = visible.filter(task => task.status === "completed").length;
   return {
     rows,
+    roots: buildCardTree(rows),
     collapsedRows: selectCollapsedRows(rows),
     total: visible.length,
     completed,

@@ -79,6 +79,25 @@ test("collapsed rows show every active task, and empty when none are in progress
   assert.equal(collapsedSummary(partial), "1 of 3 todos done");
 });
 
+test("builds hierarchical tree nodes for root tasks and their subtasks", () => {
+  const view = buildCardView([
+    task(1, "completed"),
+    task(2, "in_progress"),
+    task(3, "pending", { parentId: 2 }),
+    task(4, "pending", { parentId: 3 }),
+    task(5, "pending"),
+  ]);
+  assert.equal(view.roots.length, 3); // 1, 2, 5
+  assert.equal(view.roots[0]?.row.task.id, 1);
+  assert.equal(view.roots[0]?.children.length, 0);
+  assert.equal(view.roots[1]?.row.task.id, 2);
+  assert.equal(view.roots[1]?.children.length, 1);
+  assert.equal(view.roots[1]?.children[0]?.row.task.id, 3);
+  assert.equal(view.roots[1]?.children[0]?.children.length, 1);
+  assert.equal(view.roots[1]?.children[0]?.children[0]?.row.task.id, 4);
+  assert.equal(view.roots[2]?.row.task.id, 5);
+});
+
 test("opens automatically only while running with a task in progress", () => {
   const working = buildCardView([task(1, "in_progress"), task(2, "pending")]);
   assert.equal(autoExpanded(working, true), true);

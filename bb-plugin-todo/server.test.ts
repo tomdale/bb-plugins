@@ -7,24 +7,25 @@ test("native todo tool persists per-thread state and publishes changes", async (
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);
   const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
-  const created = await call({ action: "create", subject: "Research" });
-  assert.match(JSON.stringify(created), /Created #1/);
-  const second = await call({ action: "create", subject: "Implement", blockedBy: [1] });
-  assert.match(JSON.stringify(second), /Created #2/);
+  const created = await call({
+    action: "set",
+    tasks: [
+      { id: 1, subject: "Research" },
+      { id: 2, subject: "Implement", blockedBy: [1] },
+    ],
+  });
+  assert.match(JSON.stringify(created), /Set plan with 2 tasks/);
   const listed = await call({ action: "list" });
   assert.match(JSON.stringify(listed), /blockedBy/);
   const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
   assert.equal(snapshot.tasks.length, 2);
   assert.deepEqual(snapshot.tasks[1]?.blockedBy, [1]);
-  assert.equal(harness.realtimeSignals.length, 2);
+  assert.equal(harness.realtimeSignals.length, 1);
   await harness.behavior.callAgentTool("todo", { action: "update", id: 1, status: "in_progress" });
   await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "thread-test" }), lastAssistantText: null });
   const settled = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
   assert.equal(settled.tasks[0]?.status, "pending");
-  assert.equal(harness.realtimeSignals.length, 4);
-  await harness.behavior.callAgentTool("todo", { action: "delete", id: 1 });
-  const afterDelete = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
-  assert.equal(afterDelete.tasks[0]?.status, "deleted");
+  assert.equal(harness.realtimeSignals.length, 3);
   await harness.lifecycle.dispose();
 });
 
@@ -56,10 +57,72 @@ for (const event of ["thread.idle", "thread.failed", "thread.archived"] as const
   });
 }
 
+test("declaratively sets plan, manages updates, and archives completed plans", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  await plugin(bb);
+  const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
+
+  // Set initial plan
+  const setRes = await call({
+    action: "set",
+    tasks: [
+      { id: 1, subject: "Plan feature", status: "completed" },
+      { id: 2, subject: "Build feature", status: "in_progress", activeForm: "Building" },
+      { id: 3, subject: "Test feature", blockedBy: [2] },
+    ],
+  });
+  assert.match(JSON.stringify(setRes), /Set plan with 3 tasks/);
+
+  // In-turn update
+  await call({ action: "update", id: 2, status: "completed" });
+  await call({ action: "update", id: 3, status: "in_progress", activeForm: "Testing" });
+  await call({ action: "update", id: 3, status: "completed" });
+
+  const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.equal(snapshot.tasks.every(t => t.status === "completed"), true);
+
+  // archiveCompleted archives the plan and clears the active list
+  const archiveRes = await harness.behavior.callRpc("archiveCompleted", { threadId: "thread-test" });
+  assert.equal(archiveRes.archived, true);
+  const afterArchive = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.deepEqual(afterArchive.tasks, []);
+
+  // Set fresh plan starts with local IDs 1, 2
+  await call({
+    action: "set",
+    tasks: [
+      { subject: "Next goal step 1" },
+      { subject: "Next goal step 2" },
+    ],
+  });
+  const freshSnapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.deepEqual(freshSnapshot.tasks.map(t => t.id), [1, 2]);
+
+  // Calling set with a new plan when completed tasks exist auto-archives the old completed plan
+  await call({ action: "update", id: 1, status: "completed" });
+  await call({
+    action: "set",
+    tasks: [{ subject: "Third goal" }],
+  });
+  const thirdSnapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.deepEqual(thirdSnapshot.tasks.map(t => t.subject), ["Third goal"]);
+
+  // listArchives returns the archived plans
+  const archives = await harness.behavior.callRpc("listArchives", { threadId: "thread-test" });
+  assert.equal(archives.archives.length, 2);
+  assert.equal(archives.archives[0]?.tasks.length, 2); // The second plan with "Next goal step 1"
+  assert.equal(archives.archives[1]?.tasks.length, 3); // The first 3-step plan
+
+  await harness.lifecycle.dispose();
+});
+
 test("rejects invalid dependency references without changing persisted state", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);
-  const rejected = await harness.behavior.callAgentTool("todo", { action: "create", subject: "Blocked", blockedBy: [99] });
+  const rejected = await harness.behavior.callAgentTool("todo", {
+    action: "set",
+    tasks: [{ id: 1, subject: "Blocked", blockedBy: [99] }],
+  });
   assert.equal(typeof rejected, "object");
   assert.equal((rejected as { isError?: boolean }).isError, true);
   const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
