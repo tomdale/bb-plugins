@@ -400,18 +400,19 @@ it("toggles back and forth between collapsed and expanded states at any time", a
   slot.lifecycle.unmount();
 });
 
-it("animates collapse to the cached compact height after expansion", async () => {
+it("cancels each finished height animation so collapse measures the compact height", async () => {
   const slot = await mount(() => ({ tasks: [
     { id: 1, subject: "First task", status: "pending" },
     { id: 2, subject: "Second task", status: "pending" },
   ], nextId: 3 }));
   const originalAnimate = Element.prototype.animate;
   const frames: Keyframe[][] = [];
+  let cancelled = 0;
   Object.defineProperty(Element.prototype, "animate", {
     configurable: true,
     value(keyframes: Keyframe[]) {
       frames.push(keyframes);
-      return { finished: Promise.resolve(), cancel() {} } as unknown as Animation;
+      return { finished: Promise.resolve(), cancel() { cancelled += 1; } } as unknown as Animation;
     },
   });
   const content = slot.container.querySelector<HTMLElement>(".todo-card-content")!;
@@ -426,12 +427,14 @@ it("animates collapse to the cached compact height after expansion", async () =>
     await waitFor(() => expect(frames).toHaveLength(1));
     expect(frames[0]?.[0]?.height).toBe("32px");
     expect(frames[0]?.[1]?.height).toBe("82px");
+    await waitFor(() => expect(cancelled).toBe(1));
 
     fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
     await waitFor(() => expect(frames).toHaveLength(2));
     expect(slot.getByText("0 of 2 todos done")).toBeTruthy();
     expect(frames[1]?.[0]?.height).toBe("82px");
     expect(frames[1]?.[1]?.height).toBe("32px");
+    await waitFor(() => expect(cancelled).toBe(2));
   } finally {
     Object.defineProperty(Element.prototype, "animate", { configurable: true, value: originalAnimate });
     slot.lifecycle.unmount();

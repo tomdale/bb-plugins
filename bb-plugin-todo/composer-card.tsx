@@ -100,7 +100,6 @@ export function TodoCard() {
   const contentRef = useRef<HTMLDivElement>(null);
   const transitionGeneration = useRef(0);
   const heightAnimation = useRef<Animation | undefined>(undefined);
-  const contentHeights = useRef<{ collapsed?: number; expanded?: number }>({});
   const [scrollFade, setScrollFade] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
   const listRef = useRef<HTMLUListElement>(null);
   const baseId = useId();
@@ -111,7 +110,6 @@ export function TodoCard() {
     setContentTransitioning(false);
     heightAnimation.current?.cancel();
     heightAnimation.current = undefined;
-    contentHeights.current = {};
     transitionGeneration.current += 1;
   }, [threadId]);
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
@@ -120,13 +118,6 @@ export function TodoCard() {
   const subjects = useMemo(() => new Map(state.tasks.map(task => [task.id, task.subject])), [state.tasks]);
   const ordinals = useMemo(() => new Map(card.rows.map(row => [row.task.id, row.ordinal])), [card.rows]);
   const tasksFingerprint = JSON.stringify(state.tasks);
-  const previousTasksFingerprint = useRef(tasksFingerprint);
-
-  useEffect(() => {
-    if (previousTasksFingerprint.current === tasksFingerprint) return;
-    previousTasksFingerprint.current = tasksFingerprint;
-    contentHeights.current = {};
-  }, [tasksFingerprint]);
 
   useEffect(() => {
     setHiddenAfterCompletion(false);
@@ -178,9 +169,7 @@ export function TodoCard() {
     const content = contentRef.current;
     if (!content) { setExpanded(value => !value); return; }
     const startHeight = content.getBoundingClientRect().height;
-    contentHeights.current[expanded ? "expanded" : "collapsed"] = startHeight;
     const nextExpanded = !expanded;
-    const cachedTargetHeight = contentHeights.current[nextExpanded ? "expanded" : "collapsed"];
     const generation = ++transitionGeneration.current;
     heightAnimation.current?.cancel();
     heightAnimation.current = undefined;
@@ -190,9 +179,7 @@ export function TodoCard() {
     requestAnimationFrame(() => {
       if (transitionGeneration.current !== generation) return;
       content.style.height = "";
-      const naturalTargetHeight = content.getBoundingClientRect().height;
-      const targetHeight = cachedTargetHeight ?? naturalTargetHeight;
-      contentHeights.current[nextExpanded ? "expanded" : "collapsed"] = naturalTargetHeight;
+      const targetHeight = content.getBoundingClientRect().height;
       content.style.height = `${startHeight}px`;
       if (typeof content.animate !== "function") {
         content.style.height = "";
@@ -208,6 +195,8 @@ export function TodoCard() {
       void animation.finished.then(() => {
         if (transitionGeneration.current !== generation) return;
         content.style.height = "";
+        // A finished `fill: "forwards"` animation keeps overriding the element's
+        // height, which would pin the card open and corrupt the next measurement.
         animation.cancel();
         heightAnimation.current = undefined;
         setContentTransitioning(false);
