@@ -255,11 +255,11 @@ it("uses the left-side gutter beside the message column when it fits", async () 
   footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   const lane = document.querySelector<HTMLElement>(".todo-card")!;
-  expect(lane.style.left).toBe("56px");
-  expect(lane.style.width).toBe("320px");
-  // Its vertical bounds are constant and CSS centers the lane in them, so scrolling never moves it against the page.
+  expect(lane.style.left).toBe("80px");
+  expect(lane.style.width).toBe("280px");
+  // Its vertical bounds are the scroll area's height, even beside the composer, and CSS centers the lane in them.
   expect(lane.style.top).toBe("16px");
-  expect(lane.style.bottom).toBe("266px");
+  expect(lane.style.bottom).toBe("216px");
   slot.lifecycle.unmount();
 });
 
@@ -289,7 +289,7 @@ it("measures the gutter from the inset prose column even when a user-message col
   proseColumn.getBoundingClientRect = () => ({ x: 400, y: 100, left: 400, right: 1100, top: 100, bottom: 250, width: 700, height: 150, toJSON: () => ({}) } as DOMRect);
   scrollArea.insertBefore(proseColumn, userColumn);
   fireEvent.scroll(scrollArea);
-  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("64px"));
+  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("88px"));
   slot.lifecycle.unmount();
 });
 
@@ -354,7 +354,10 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Next")).toBeTruthy();
   expect(slot.getByText("Later")).toBeTruthy();
-  expect(slot.getByTitle("Depends on 2. Next").textContent).toContain("depends on 2");
+  // Blockers are announced to screen readers but not drawn on the row.
+  expect(slot.container.querySelector(".todo-row-meta")).toBeNull();
+  expect(slot.container.textContent).not.toContain("depends on");
+  expect(slot.container.textContent).toContain("waiting for 2. Next");
   expect(slot.container.querySelector(".todo-row-number")?.textContent).toBe("1.");
   expect(slot.container.querySelector(".todo-row-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelectorAll(".todo-row-marker-ordered")).toHaveLength(4);

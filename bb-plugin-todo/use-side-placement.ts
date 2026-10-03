@@ -21,8 +21,7 @@ function findComposerScrollArea(composerFooter: HTMLElement): HTMLElement | null
  * Measures whether the Todo card fits in the thread's left gutter beside the
  * message column, and returns fixed coordinates when it does. Null keeps the
  * card inline in the composer. The lane's vertical bounds are constant (the
- * scroll area between its top and the composer) and CSS centers it within
- * them. The measurement follows resizes, scrolls, and timeline
+ * scroll area's height) and CSS centers it within them. The measurement follows resizes, scrolls, and timeline
  * mutations because any of them can move the anchor column.
  */
 export function useTodoSidePlacement(
@@ -66,14 +65,9 @@ export function useTodoSidePlacement(
     const anchor = candidates.find(column => Number.parseFloat(getComputedStyle(column).paddingRight || "0") > 0) ?? candidates[0];
     if (!anchor) { setPlacement(null); return; }
     anchorRef.current = anchor;
+    // The gutter beside the composer is as empty as the rest of it (the composer only spans the message column),
+    // so the lane may use the scroll area's full height.
     const scrollAreaRect = rectOf(scrollArea);
-    const footerRect = rectOf(footer);
-    const usableBottom = Math.min(scrollAreaRect.bottom, footerRect.top);
-    const usableScrollRect = {
-      ...scrollAreaRect,
-      bottom: usableBottom,
-      height: Math.max(0, usableBottom - scrollAreaRect.top),
-    };
     const style = getComputedStyle(anchor);
     const paddingLeft = Number.parseFloat(style.paddingLeft || "0");
     const paddingRight = Number.parseFloat(style.paddingRight || "0");
@@ -86,10 +80,10 @@ export function useTodoSidePlacement(
         right: anchorRect.right - paddingRight,
         width: contentWidth,
       },
-      usableScrollRect,
+      scrollAreaRect,
       { width: window.innerWidth, height: window.innerHeight },
     );
-    setPlacement(current => current?.left === next?.left && current?.top === next?.top && current?.width === next?.width && current?.maxHeight === next?.maxHeight ? current : next);
+    setPlacement(current => current?.left === next?.left && current?.top === next?.top && current?.bottomInset === next?.bottomInset && current?.width === next?.width && current?.maxHeight === next?.maxHeight ? current : next);
   }, []);
   const setCardRef = useCallback((element: HTMLDivElement | null) => {
     cardRef.current = element;

@@ -35,9 +35,6 @@ function TodoRowContent({ row, ordered, working, subjects, ordinals }: { row: Ca
       <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? `, waiting for ${waitsFor}` : ""}: </span>
       {text}
     </span>
-    {blockers.length > 0 && <span className="todo-row-meta" aria-hidden="true" title={`Depends on ${waitsFor}`}>
-      depends on {blockers.map(id => ordinals.get(id) ?? id).join(", ")}
-    </span>}
   </>;
 }
 

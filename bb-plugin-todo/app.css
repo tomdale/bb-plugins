@@ -374,12 +374,6 @@
 .todo-card-floating .todo-row { align-items: flex-start; }
 .todo-card-floating .todo-row-marker { height: 16px; align-items: center; }
 .todo-card-floating .todo-row-text { overflow: visible; text-overflow: clip; white-space: normal; text-wrap: pretty; }
-.todo-row-meta {
-  flex: none;
-  color: var(--muted-foreground);
-  font-size: var(--text-2xs, 0.6875rem);
-  font-variant-numeric: tabular-nums;
-}
 
 .todo-row-active { background: transparent; color: var(--foreground); }
 .todo-row-active .todo-row-number,
