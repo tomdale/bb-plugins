@@ -290,3 +290,22 @@ ProviderModelPickerValue, maxTokens, signal })` that runs one tool-free completi
   through the chosen provider without a thread, plus a picker `catalog: "all"`
   (or a `models`
   prop) for providers whose scoped list is a subset of what they can reach.
+
+## Choose where the open thread goes after archive
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0; `PluginSidebarThreadActions.archive` returns `void`
+  in Plugin SDK 0.6.5 and 0.6.15
+- **Use case:** Workstreams' header Archive button should leave the user on the
+  next waiting thread, as the recap card's Archive does (Up Next first, then the
+  next row in the workstream), so clearing a queue takes one click per thread.
+- **Limit:** `archive` hands the work to BB's flow and returns nothing. A
+  plugin can't tell whether the archive happened, because the user can cancel
+  the child-thread confirmation, and BB sends a viewer of the archived thread to
+  the new-thread screen with no way to name another destination.
+- **Workaround:** the header button accepts BB's destination. The recap card's
+  Archive archives through the server (`threads.archive`) and calls `open`
+  itself, which skips BB's confirmation dialog and Undo toast.
+- **Possible API:** `archive` returns a promise of `{ archivedThreadIds }`, or
+  null when the user cancels, and accepts an option naming the thread to open
+  afterward, so BB keeps the dialog, toast, and pane handling.
