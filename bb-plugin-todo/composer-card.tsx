@@ -6,7 +6,7 @@ import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
-import { TODO_PANEL_ACTION_ID } from "./editor-button.js";
+import { TODO_PANEL_ACTION_ID } from "./panel-action.js";
 import type { rpcContract } from "./server.js";
 
 const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };

@@ -72,10 +72,10 @@ async function mountPanel(initial: State) {
   return { slot, server };
 }
 
-it("registers the Todos panel, header action and composer banner", async () => {
+it("registers the Todos panel and composer banner without a thread header action", async () => {
   const app = await loadPluginApp(() => import("./app.js"));
   expect(app.threadPanelActions.find(action => action.id === "todos")?.layout).toBe("flush");
-  expect(app.threadHeaderActions.map(action => action.id)).toContain("todos");
+  expect(app.threadHeaderActions.map(action => action.id)).not.toContain("todos");
   expect(app.composerCustomizations[0]?.banners?.[0]?.chrome).toBe("bare");
 });
 
@@ -184,28 +184,6 @@ it("shows a rejected edit as an alert without losing the list", async () => {
   fireEvent.click(slot.getByRole("button", { name: "Dismiss" }));
   expect(slot.queryByRole("alert")).toBeNull();
   expect(slot.getByLabelText("Subject for #1")).toBeTruthy();
-  slot.lifecycle.unmount();
-});
-
-it("shows the completion count in the header action and opens the panel", async () => {
-  const app = await loadPluginApp(() => import("./app.js"));
-  const header = app.threadHeaderActions.find(action => action.id === "todos")!;
-  const slot = renderSlot(header, { threadId: "thread-a", projectId: "project", isCompactViewport: false }, { rpc: {
-    snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }, { id: 2, subject: "Next", status: "pending" }, { id: 3, subject: "Gone", status: "deleted" }], nextId: 4 }),
-  } });
-  const button = await slot.findByRole("button", { name: "Open Todos, 1 of 2 complete" });
-  expect(button.textContent).toBe("1/2");
-  fireEvent.click(button);
-  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
-  slot.lifecycle.unmount();
-});
-
-it("keeps the header action icon-only while the list is empty", async () => {
-  const app = await loadPluginApp(() => import("./app.js"));
-  const header = app.threadHeaderActions.find(action => action.id === "todos")!;
-  const slot = renderSlot(header, { threadId: "thread-a", projectId: "project", isCompactViewport: false }, { rpc: { snapshot: () => ({ tasks: [], nextId: 1 }) } });
-  const button = await slot.findByRole("button", { name: "Open Todos" });
-  expect(button.textContent).toBe("");
   slot.lifecycle.unmount();
 });
 
