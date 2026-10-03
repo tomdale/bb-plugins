@@ -3,7 +3,7 @@ import { Button } from "../components/ui/button.js";
 import { Icon } from "../components/ui/icon.js";
 import type { rpcContract } from "../contracts.js";
 import { useResource } from "../hooks/use-resource.js";
-import { Empty, ErrorMessage, pathFor } from "./shared.js";
+import { Empty, ErrorMessage } from "./shared.js";
 import { WorkspaceDetail } from "./workspace.js";
 export function ThreadPanel({ threadId }: { threadId: string }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -66,38 +66,5 @@ export function ThreadHeader({ threadId }: { threadId: string }) {
       <Icon name="GitBranch" className="size-3.5" />
       <span className="truncate text-xs">{context.data.entry.changeName}</span>
     </Button>
-  );
-}
-export function Homepage({ projectId }: { projectId: string | null }) {
-  const rpc = useRpc<typeof rpcContract>();
-  const navigate = useBbNavigate();
-  const bootstrap = useResource("homepage", () => rpc.call("bootstrap"), 30000);
-  const project = bootstrap.data?.projects.find(
-    (project) => project.id === projectId,
-  );
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
-      <div>
-        <p className="text-sm font-medium">Start in an isolated checkout</p>
-        <p className="text-xs text-muted-foreground">
-          Browse Workforest workspaces, templates, and task lanes
-          {project ? ` for ${project.name}` : ""}.
-        </p>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() =>
-          navigate.toPluginPanel("workspaces", {
-            subPath: project?.sources[0]
-              ? pathFor(project.sources[0].hostId)
-              : "",
-          })
-        }
-      >
-        <Icon name="GitBranch" className="size-4" />
-        Workforest
-      </Button>
-    </div>
   );
 }

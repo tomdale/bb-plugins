@@ -6,7 +6,7 @@ import {
 } from "./ui/composer-project.js";
 import { WORKFOREST_ENVIRONMENT_PROVIDER_ID } from "./provider-id.js";
 import { WorkforestInputs } from "./ui/environment-inputs.js";
-import { ThreadPanel, ThreadHeader, Homepage } from "./ui/thread-surfaces.js";
+import { ThreadPanel, ThreadHeader } from "./ui/thread-surfaces.js";
 
 export default definePluginApp((app) => {
   app.composer.customize({
@@ -49,10 +49,5 @@ export default definePluginApp((app) => {
   app.slots.experimental_environmentProviderInputs({
     environmentProviderId: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
     component: WorkforestInputs,
-  });
-  app.slots.homepageSection({
-    id: "workforest",
-    title: "Workforest",
-    component: Homepage,
   });
 });
