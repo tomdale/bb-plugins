@@ -38,6 +38,73 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   rendering (`layouts: ["compact"]`) so a section can skip wide windows without a
   hidden mount.
 
+## Contribute pickers to the New thread composer's picker row
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** Workstreams adds a Workstream picker and a Product or feature
+  picker beside BB's project, environment, branch and permission pickers.
+- **Limit:** there is no slot in that row. The plugin finds the project chip's
+  parent (`[data-promptbox-project-control]`) and inserts an anchor into it, so
+  its chips cannot take part in BB's overflow rules (full and compact labels,
+  the `promptbox-shell` container breakpoints). BB's own chips are `shrink-0` or
+  squeeze only to their icons, so whatever the plugin's chip cannot give up is
+  painted over a neighbor. On a 390px phone BB's row is already full with a
+  project selected: its chips need about 263 of the row's 271px.
+- **Workaround:** on wide screens the chips shrink first (a higher shrink factor
+  than BB's, ellipsized labels, an icon-wide floor). On phones the row is left
+  to BB and one route chip takes a line of its own in the New thread banner,
+  opening a two-tab sheet.
+- **Possible API:** a composer picker contribution (id, label, compact label,
+  icon, value, options, selection handler) that BB renders in its own row and
+  budgets with its own compact rules, so a plugin picker gets the same
+  placement, labels and touch sizing as a built-in one.
+
+## Plugin utility classes on content portaled into host DOM
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** a plugin component portals into a host element (the picker row),
+  and styles itself with Tailwind classes.
+- **Limit:** the build scopes every plugin utility to plugin roots
+  (`:where([data-bb-plugin=<id>], [data-bb-plugin-root]:not([data-bb-plugin]))`),
+  so a utility BB's own stylesheet doesn't also define silently does nothing on
+  portaled content. Nothing says so.
+- **Workaround:** the anchor element is marked `data-bb-plugin-root` and
+  `data-bb-plugin`, which makes the content a plugin root.
+- **Possible API:** a portal helper that returns a scoped host element, or
+  scoping utilities by a class prefix instead of ancestry.
+
+## Copied UI primitives drift from the running BB
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** plugin pickers and dialogs should look and behave like BB's.
+- **Limit:** `components/ui/*` in a plugin are copies of BB's shadcn wrappers
+  (`bb plugin` registry), so they pin one BB release's behavior. For example,
+  the copied `responsive-overlay.tsx` lacks the bottom safe-area padding BB
+  0.44.0's own drawer has, so a plugin's sheet sits under the home indicator
+  until it adds the padding itself.
+- **Workaround:** `.ws-route-sheet` pads its bottom by
+  `env(safe-area-inset-bottom)`.
+- **Possible API:** export the primitives (Popover, Dialog, Drawer, Command)
+  from the SDK so a plugin always renders the running BB's version.
+
+## Unknown icon names draw a lightning bolt
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** a plugin names an icon for a Catalog product or feature.
+- **Limit:** `Icon` takes any string. A name outside BB's registry (`Tag` is not
+  in 0.44.0's) draws BB's lightning-bolt fallback with no warning, in the build,
+  in tests, or at runtime. The identity chip, its list and two other surfaces
+  drew bolts until the icon was declared.
+- **Workaround:** declare the icon in `bb.branding.experimental_icons` and use
+  its namespaced name; a test checks that each declared icon ships a themable
+  SVG under the name the UI uses.
+- **Possible API:** a development warning for an unregistered name, or
+  `isIconName()` so a plugin can check.
+
 ## Select newly registered projects after catalog propagation
 
 - **Status:** not filed
