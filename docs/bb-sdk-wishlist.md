@@ -362,6 +362,25 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 - **Possible API:** `thread.updated` with the changed fields, and
   `section.created`, `section.updated`, and `section.deleted` events.
 
+## Title provenance and conditional title updates
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams titles a thread with its goal from the opening
+  request, seconds after the thread starts, while BB's own generator, the user,
+  or an agent may title the same thread at the same moment. It must never
+  replace a title it did not write.
+- **Limit:** `ThreadResponse` says who wrote a title nowhere, and
+  `threads.update` takes no precondition, so a title set between a plugin's
+  read and its write is overwritten.
+- **Workaround:** the plugin infers ownership from the sequence of titles it
+  has seen (a change it did not write locks the title), and re-reads the thread
+  inside its serial mutation queue immediately before writing, leaving a window
+  of a few milliseconds.
+- **Possible API:** `title` provenance on `ThreadResponse` (`generated`,
+  `user`, `agent`, or the writing plugin's id), and an `ifTitle` precondition
+  on `threads.update` that fails the write when the current title differs.
+
 ## Plugins call the user's AI service and model catalog
 
 - **Status:** not filed
