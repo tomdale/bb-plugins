@@ -59,6 +59,15 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   `systemMessageKind` and originating plugin/tool, with typed retained payloads
   and a host-owned fallback
 
+## Mount plugin content in the native thread conversation
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** Workstreams wants to render a sticky thread goal as part of the native conversation, moving with its scroll position and reading active-thread data.
+- **Limit:** plugin slots include app overlays, thread-header actions, composer banners, and timeline renderers, but no scoped slot within the thread's message scroller. App overlays have no thread id or pane element prop.
+- **Workaround:** a trusted app content script or React overlay locates host DOM by selectors and portals content into it. This depends on private markup, needs explicit split-pane safeguards, and can race pane remounts or scroll restoration.
+- **Possible API:** a `threadContentHeader` slot rendered inside the message viewport with `threadId`, pane identity, scroll position/direction, and a host-managed sticky region.
+
 ## Preserve pending user questions across plugin reloads
 
 - **Status:** not filed
