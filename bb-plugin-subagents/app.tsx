@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { definePluginApp, ThreadChat, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_Icon as Icon, ThreadChat, useBbNavigate, useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginThreadHeaderActionProps, PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, Run } from "./src/contracts.ts";
 import { Button } from "./components/ui/button.js";
@@ -57,8 +57,9 @@ function SubagentsHeader({ threadId, isCompactViewport }: PluginThreadHeaderActi
   const navigate = useBbNavigate();
   const [busy, setBusy] = useState(false);
   return <div className="flex items-center gap-1">
-    {runs.length > 0 && <Button variant="ghost" size="sm" aria-label="View subagents" onClick={() => navigate.openThreadPanel({ actionId: "subagents", title: "Subagents", params: null })}>
-      {isCompactViewport ? `↳ ${runs.length}` : `Subagents (${runs.length})`}
+    {runs.length > 0 && <Button variant="ghost" size="sm" aria-label={`View ${runs.length} subagents`} onClick={() => navigate.openThreadPanel({ actionId: "subagents", title: "Subagents", params: null })}>
+      <Icon name="Bot" aria-hidden className="size-4" />
+      <span>{runs.length}</span>
     </Button>}
     {promoted?.control === "user" && <Button variant="outline" size="sm" disabled={busy} aria-label="Return control to original thread" onClick={async () => {
       setBusy(true);
