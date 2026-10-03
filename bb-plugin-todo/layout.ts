@@ -18,7 +18,9 @@ export interface TodoSidePlacement {
 
 export const TODO_SIDE_MIN_WIDTH = 240;
 const TODO_SIDE_MAX_WIDTH = 280;
-const TODO_SIDE_GAP = 72;
+// The gap to the message text is as large as the gutter allows, up to the ideal, before it gives up width.
+const TODO_SIDE_MIN_GAP = 72;
+const TODO_SIDE_IDEAL_GAP = 120;
 // Keeps the lane off the edge of the scroll area, where it meets the sidebar.
 const TODO_EDGE_RESERVE = 24;
 const TODO_VIEWPORT_INSET = 16;
@@ -42,15 +44,16 @@ export function computeTodoSidePlacement(
   if (anchor.width <= 0 || scrollArea.width <= 0) return null;
 
   const left = Math.max(scrollArea.left, 0);
-  const available = anchor.left - left - TODO_SIDE_GAP - TODO_EDGE_RESERVE;
+  const room = anchor.left - left - TODO_EDGE_RESERVE;
   const top = Math.max(TODO_VIEWPORT_INSET, scrollArea.top + TODO_VIEWPORT_INSET);
   const bottom = Math.min(viewport.height, scrollArea.bottom) - TODO_VIEWPORT_INSET;
   const maxHeight = bottom - top;
-  if (available < TODO_SIDE_MIN_WIDTH || maxHeight < TODO_SIDE_MIN_HEIGHT) return null;
+  if (room < TODO_SIDE_MIN_WIDTH + TODO_SIDE_MIN_GAP || maxHeight < TODO_SIDE_MIN_HEIGHT) return null;
 
-  const width = Math.min(TODO_SIDE_MAX_WIDTH, available);
+  const width = Math.min(TODO_SIDE_MAX_WIDTH, room - TODO_SIDE_MIN_GAP);
+  const gap = Math.min(TODO_SIDE_IDEAL_GAP, room - width);
   return {
-    left: anchor.left - TODO_SIDE_GAP - width,
+    left: anchor.left - gap - width,
     top,
     bottomInset: viewport.height - bottom,
     width,

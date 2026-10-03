@@ -37,7 +37,7 @@ async function mount(
   messageColumn.setAttribute("data-message-column", "");
   Object.defineProperty(messageColumn, "clientWidth", { value: 700 });
   // The wide thread centers its column, leaving a gutter on each side.
-  const columnLeft = sideGutter ? 400 : 0;
+  const columnLeft = sideGutter ? 600 : 0;
   messageColumn.getBoundingClientRect = () => ({ x: columnLeft, y: 300, left: columnLeft, right: columnLeft + 700, top: 300, bottom: 500, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
   scrollArea.append(messageColumn);
   scrollArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: sideGutter ? 1500 : 1000, top: 0, bottom: 700, width: sideGutter ? 1500 : 1000, height: 700, toJSON: () => ({}) } as DOMRect);
@@ -255,7 +255,7 @@ it("uses the left-side gutter beside the message column when it fits", async () 
   footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   const lane = document.querySelector<HTMLElement>(".todo-card")!;
-  expect(lane.style.left).toBe("48px");
+  expect(lane.style.left).toBe("200px");
   expect(lane.style.width).toBe("280px");
   // Its vertical bounds are the scroll area's height, even beside the composer, and CSS centers the lane in them.
   expect(lane.style.top).toBe("16px");
@@ -269,7 +269,7 @@ it("stays in the gutter, at the same place, while no message column is on screen
   const scrollArea = column.parentElement!;
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   const before = document.querySelector<HTMLElement>(".todo-card")!.style.left;
-  column.getBoundingClientRect = () => ({ x: 400, y: 2000, left: 400, right: 1100, top: 2000, bottom: 2200, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
+  column.getBoundingClientRect = () => ({ x: 600, y: 2000, left: 600, right: 1300, top: 2000, bottom: 2200, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
   fireEvent.scroll(scrollArea);
   await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe("");
@@ -286,10 +286,10 @@ it("measures the gutter from the inset prose column even when a user-message col
   proseColumn.style.paddingLeft = "8px";
   proseColumn.style.paddingRight = "8px";
   Object.defineProperty(proseColumn, "clientWidth", { value: 700 });
-  proseColumn.getBoundingClientRect = () => ({ x: 400, y: 100, left: 400, right: 1100, top: 100, bottom: 250, width: 700, height: 150, toJSON: () => ({}) } as DOMRect);
+  proseColumn.getBoundingClientRect = () => ({ x: 600, y: 100, left: 600, right: 1300, top: 100, bottom: 250, width: 700, height: 150, toJSON: () => ({}) } as DOMRect);
   scrollArea.insertBefore(proseColumn, userColumn);
   fireEvent.scroll(scrollArea);
-  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("56px"));
+  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("208px"));
   slot.lifecycle.unmount();
 });
 

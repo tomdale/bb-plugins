@@ -11,7 +11,7 @@ describe("computeTodoSidePlacement", () => {
       { ...rect(400, 1100), left: 416, width: 668 },
       rect(0, 1500),
       { width: 1500, height: 900 },
-    )).toEqual({ left: 64, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
+    )).toEqual({ left: 24, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
   });
 
   it("uses only the gutter to the left of the message column and caps the lane width", () => {
@@ -19,7 +19,18 @@ describe("computeTodoSidePlacement", () => {
       rect(600, 1300, 560, 640),
       rect(0, 1500),
       { width: 1500, height: 900 },
-    )).toEqual({ left: 248, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
+    )).toEqual({ left: 200, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
+  });
+
+  it("gives the gap to the text as much of the gutter as it can, up to 120px, before shrinking the lane", () => {
+    const place = (anchorLeft: number) => computeTodoSidePlacement(rect(anchorLeft, anchorLeft + 700), rect(0, 1600), { width: 1600, height: 900 });
+    const gapOf = (placement: NonNullable<ReturnType<typeof place>>, anchorLeft: number) => anchorLeft - (placement.left + placement.width);
+    expect(gapOf(place(600)!, 600)).toBe(120);
+    expect(gapOf(place(400)!, 400)).toBe(96);
+    expect(place(400)).toMatchObject({ left: 24, width: 280 });
+    // Past its minimum gap of 72px the lane gives up width, down to its own minimum.
+    expect(place(346)).toMatchObject({ left: 24, width: 250 });
+    expect(gapOf(place(346)!, 346)).toBe(72);
   });
 
   it("leaves the banner in the composer when the measured gutter is too narrow", () => {
@@ -43,7 +54,7 @@ describe("computeTodoSidePlacement", () => {
   it("does not use space outside the viewport", () => {
     expect(computeTodoSidePlacement(rect(300, 1000), rect(-200, 1500), { width: 1500, height: 900 })).toBeNull();
     expect(computeTodoSidePlacement(rect(500, 1000), rect(-200, 1500), { width: 1500, height: 900 }))
-      .toEqual({ left: 148, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
+      .toEqual({ left: 100, top: 16, bottomInset: 216, width: 280, maxHeight: 668 });
   });
 
   it("requires usable vertical space and bounds the lane to the thread's vertical area", () => {
