@@ -76,15 +76,6 @@ function TodoTreeItem({ node, ordered, working, subjects, ordinals }: { node: Ca
   );
 }
 
-/** Arrow marking the Todos link as a jump to the thread's Todos panel. */
-function ArrowUpRight() {
-  return (
-    <svg className="todo-destination-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 11l6-6M6 5h5v5" />
-    </svg>
-  );
-}
-
 /**
  * The Todo banner above a thread or queued-message composer. It is collapsed
  * by default (showing intelligent compact tasks or progress), can be toggled
@@ -289,8 +280,8 @@ export function TodoCard() {
       {gutter && canEdit && (
         <div className="todo-gutter-header">
           <button type="button" className="todo-destination" aria-label="Open Todos panel" onClick={() => navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID })}>
+            <Icon name="ListTodo" className="todo-destination-icon" aria-hidden="true" />
             Todos
-            <ArrowUpRight />
           </button>
         </div>
       )}

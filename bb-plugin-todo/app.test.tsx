@@ -310,7 +310,11 @@ it("shows the gutter lane as the full list with only a Todos link as its control
   // Clicking the lane's rows must not collapse it, and the link opens the Todos panel.
   fireEvent.click(within(lane).getAllByRole("listitem")[0]!);
   expect(lane.getAttribute("data-state")).toBe("expanded");
-  fireEvent.click(within(lane).getByRole("button", { name: "Open Todos panel" }));
+  const link = within(lane).getByRole("button", { name: "Open Todos panel" });
+  // The list icon and the "Todos" label are inside one button, left to right.
+  expect(link.firstElementChild?.getAttribute("data-icon")).toBe("ListTodo");
+  expect(link.textContent).toBe("Todos");
+  fireEvent.click(link);
   expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
   slot.lifecycle.unmount();
 });

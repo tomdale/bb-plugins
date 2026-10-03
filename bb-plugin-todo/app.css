@@ -152,7 +152,7 @@
   min-width: 0;
   height: 24px;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 2px 8px;
   border: 0;
   border-radius: calc(var(--radius, 0.5rem) - 2px);
@@ -162,9 +162,10 @@
   font-weight: 500;
   cursor: pointer;
 }
-.todo-destination:hover { color: var(--foreground); }
+.todo-destination:hover { background: var(--state-hover); color: var(--foreground); }
 .todo-destination:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
-.todo-destination-icon { width: 13px; height: 13px; flex: none; }
+/* The icon sits in the same 18px column as the row markers, so it lines up with them and the title with the labels. */
+.todo-destination-icon { width: 14px; height: 14px; flex: none; margin-inline: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .todo-list[data-transitioning] { transition-duration: 1ms; }
 }
