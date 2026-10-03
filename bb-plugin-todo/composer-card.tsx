@@ -95,8 +95,8 @@ function ArrowUpRight() {
  * reach their max height with subtasks grouped under their parent, and adds
  * scroll fade gradients when overflowing.
  *
- * When the thread has room, the card instead becomes a gutter lane beside the
- * live turn: always the full list, with no frame, count, collapse, or edit
+ * When the thread has room, the card instead becomes a lane in the thread's
+ * left gutter, vertically centered: always the full list, with no frame, count, collapse, or edit
  * controls, and a persistent "Todos" link that opens the Todos panel. The lane
  * is the same component and state as the banner, so returning to the narrow
  * layout restores the banner exactly as the user left it.
@@ -267,6 +267,7 @@ export function TodoCard() {
       style={placement ? {
         left: placement.left,
         top: placement.top,
+        bottom: placement.bottomInset,
         width: placement.width,
         maxHeight: placement.maxHeight,
         "--todo-gutter-max-height": `${placement.maxHeight}px`,

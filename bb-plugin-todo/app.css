@@ -23,8 +23,8 @@
 }
 
 /*
- * Gutter lane. The card leaves the composer and sits beside the live turn, so it
- * drops the banner frame: no border, surface, shadow, or hover fill, and no
+ * Gutter lane. The card leaves the composer and sits in the thread's left gutter,
+ * so it drops the banner frame: no border, surface, shadow, or hover fill, and no
  * collapse or edit controls. Only the rows and the "Todos" link remain.
  */
 .todo-card-floating,
@@ -39,6 +39,9 @@
   border-radius: 0;
   background: transparent;
   cursor: default;
+  /* `top` and `bottom` bound the usable area; auto margins center the lane in it at its natural height. */
+  height: fit-content;
+  margin-block: auto;
 }
 
 .todo-card-inner {

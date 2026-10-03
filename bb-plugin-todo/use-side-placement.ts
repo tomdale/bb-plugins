@@ -18,10 +18,11 @@ function findComposerScrollArea(composerFooter: HTMLElement): HTMLElement | null
 }
 
 /**
- * Measures whether the Todo card fits in the thread's right gutter beside the
- * latest visible message column, and returns fixed coordinates when it does.
- * Null keeps the card inline in the composer. The lane is pinned to the top of
- * the scroll area. The measurement follows resizes, scrolls, and timeline
+ * Measures whether the Todo card fits in the thread's left gutter beside the
+ * message column, and returns fixed coordinates when it does. Null keeps the
+ * card inline in the composer. The lane's vertical bounds are constant (the
+ * scroll area between its top and the composer) and CSS centers it within
+ * them. The measurement follows resizes, scrolls, and timeline
  * mutations because any of them can move the anchor column.
  */
 export function useTodoSidePlacement(
