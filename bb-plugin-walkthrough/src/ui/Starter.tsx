@@ -1,11 +1,9 @@
-// The Walkthrough button in the thread header. With no walkthrough it opens
-// a small starter; with one it opens (or reopens) its pane.
+// Walkthrough creation form and the thread's automatic pane opener.
 import { useState } from "react";
 import { experimental_usePluginId as usePluginId, useBbNavigate, useSettings, type PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Icon } from "@/components/ui/icon";
 import { PANEL_ACTION_ID } from "../schemas.ts";
 import { errorMessage, useThreadWalkthroughs } from "./hooks.ts";
 
@@ -15,7 +13,7 @@ export function openPane(navigate: ReturnType<typeof useBbNavigate>, walkthrough
   return navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title, params: { walkthroughId } });
 }
 
-/** Chips plus a request box; used by the header dialog and an empty pane. */
+/** Chips plus a request box in an empty pane. */
 export function StartForm({ threadId, onStarted, autoFocus }: { threadId: string; onStarted?: () => void; autoFocus?: boolean }) {
   const navigate = useBbNavigate();
   const pluginId = usePluginId();
@@ -70,12 +68,12 @@ export function StartForm({ threadId, onStarted, autoFocus }: { threadId: string
   );
 }
 
-export function WalkthroughButton({ threadId, isCompactViewport }: PluginThreadHeaderActionProps) {
+export function WalkthroughAutoOpener({ threadId }: PluginThreadHeaderActionProps) {
   const navigate = useBbNavigate();
   const pluginId = usePluginId();
   const { values } = useSettings();
   const autoOpen = values?.autoOpenPanel !== false;
-  const { walkthroughs, rpc } = useThreadWalkthroughs(threadId, (signal) => {
+  useThreadWalkthroughs(threadId, (signal) => {
     if (!autoOpen) return;
     const key = `${pluginId}:opened:${signal.walkthroughId}`;
     try {
@@ -86,44 +84,5 @@ export function WalkthroughButton({ threadId, isCompactViewport }: PluginThreadH
     }
     openPane(navigate, signal.walkthroughId, "Walkthrough");
   });
-  const [open, setOpen] = useState(false);
-  const active = walkthroughs.find((walkthrough) => walkthrough.status !== "done" && walkthrough.status !== "failed") ?? null;
-
-  const label = active
-    ? active.status === "planning"
-      ? "Getting ready"
-      : active.status === "wrapping-up"
-        ? "Wrapping up"
-      : active.currentPart === null
-        ? "Introduction"
-        : `${active.currentPart + 1}/${active.partCount}`
-    : "Walkthrough";
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="h-7 gap-1.5 px-2 text-xs"
-        aria-label={active ? `Open the walkthrough: ${active.title}, ${label}` : "Start a walkthrough of this thread's changes"}
-        onClick={() => (active ? openPane(navigate, active.id, active.title) : setOpen(true))}
-      >
-        <Icon name="Explore" className="size-4" aria-hidden />
-        {isCompactViewport ? null : <span>{label}</span>}
-        {active && active.openNotes > 0 ? <span className="rounded-full bg-secondary px-1.5 text-secondary-foreground">{active.openNotes}</span> : null}
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Start a walkthrough</DialogTitle>
-            <DialogDescription>
-              A helper agent that knows this conversation writes a walkthrough in a pane beside it. This thread keeps working as usual.
-            </DialogDescription>
-          </DialogHeader>
-          <StartForm threadId={threadId} onStarted={() => setOpen(false)} autoFocus />
-        </DialogContent>
-      </Dialog>
-    </>
-  );
+  return null;
 }

@@ -1,18 +1,18 @@
 # bb-plugin-walkthrough
 
-A reading view for understanding a code change. From any BB thread, click
-**Walkthrough** in the thread header (or ask the agent to walk you through
-something) and a pane opens beside the thread. A helper agent, forked from
-the thread so it knows the conversation, explains the change part by part in
+A reading view for understanding a code change. From any BB thread, open
+**Walkthrough** from the thread panel launcher or ask the agent to walk you
+through something, and a pane opens beside the thread. A helper agent, forked
+from the thread so it knows the conversation, explains the change part by part in
 plain prose with real code excerpts. The original thread keeps working while
 you read.
 
 ## Using it
 
-- **Start:** the header button opens a starter with suggestions ("The changes
-  on this branch", "This PR, for review", "The code we've been talking about",
-  "The changes you just made") or your own words. Asking the thread's agent
-  to walk you through something opens the same pane.
+- **Start:** the thread panel launcher opens a starter with suggestions ("The
+  changes on this branch", "This PR, for review", "The code we've been talking
+  about", "The changes you just made") or your own words. Asking the thread's
+  agent to walk you through something opens the same pane.
 - **Read:** an introduction, then one part at a time: prose with short code
   excerpts (switch between change, after, and before), margin notes, and a
   contents list when the pane is wide. Maximize the pane for full-width

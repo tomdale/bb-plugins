@@ -3,7 +3,7 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { PANEL_ACTION_ID } from "./src/schemas.ts";
 import { WalkthroughPane } from "./src/ui/Pane.tsx";
-import { WalkthroughButton } from "./src/ui/Starter.tsx";
+import { WalkthroughAutoOpener } from "./src/ui/Starter.tsx";
 
 export default definePluginApp((app) => {
   app.slots.threadPanelAction({
@@ -13,5 +13,5 @@ export default definePluginApp((app) => {
     component: WalkthroughPane,
     layout: "flush",
   });
-  app.slots.experimental_threadHeaderAction({ id: "walkthrough", title: "Walkthrough", component: WalkthroughButton });
+  app.slots.experimental_threadHeaderAction({ id: "walkthrough", title: "Walkthrough", component: WalkthroughAutoOpener });
 });

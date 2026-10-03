@@ -1,7 +1,8 @@
 Understand a code change the way you would with a colleague walking you
-through it. From any thread, click **Walkthrough** and a reading view opens
-beside the conversation: an introduction, then the change explained part by
-part in plain prose with real code excerpts, margin notes, and room to ask
+through it. From any thread, open **Walkthrough** from the thread panel
+launcher and a reading view opens beside the conversation: an introduction,
+then the change explained part by part in plain prose with real code excerpts,
+margin notes, and room to ask
 anything.
 
 ## What you get
