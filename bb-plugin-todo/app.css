@@ -328,7 +328,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-.todo-row-active { background: var(--state-hover); color: var(--foreground); }
+.todo-row-active { background: transparent; color: var(--foreground); }
 .todo-row-active .todo-row-number,
 .todo-row-active .todo-row-marker { color: var(--subtle-foreground); }
 .todo-row-completed .todo-row-marker,
@@ -341,9 +341,7 @@
 .todo-editor-period { flex: none; }
 .todo-editor-marker-unordered { color: var(--subtle-foreground); }
 .todo-editor-marker .animate-spin { color: currentColor; }
-.todo-row-active .todo-row-text { font-weight: 500; }
-.todo-card[data-collapsed] .todo-row-active { background: transparent; }
-.todo-card[data-collapsed] .todo-row-active .todo-row-text { font-weight: inherit; }
+.todo-row-active .todo-row-text { font-weight: inherit; }
 .todo-row-pending .todo-row-icon,
 .todo-row-blocked .todo-row-icon,
 .todo-row-completed .todo-row-icon { color: var(--subtle-foreground); }
