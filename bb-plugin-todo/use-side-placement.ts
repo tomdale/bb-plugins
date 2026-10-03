@@ -18,11 +18,12 @@ function findComposerScrollArea(composerFooter: HTMLElement): HTMLElement | null
 }
 
 /**
- * Measures whether the composer card fits in the thread's right gutter beside
- * the latest visible message column, and returns fixed coordinates when it
- * does. Null keeps the card inline in the composer. The measurement follows
- * resizes, scrolls, and timeline mutations because any of them can move the
- * anchor column.
+ * Measures whether the Todo card fits in the thread's right gutter beside the
+ * latest visible message column, and returns fixed coordinates when it does.
+ * Null keeps the card inline in the composer. The lane starts level with the
+ * latest message column (the live turn) and sticks to the top of the scroll
+ * area as that column scrolls past. The measurement follows resizes, scrolls,
+ * and timeline mutations because any of them can move the anchor column.
  */
 export function useTodoSidePlacement(
   threadId: string | null,
@@ -76,6 +77,8 @@ export function useTodoSidePlacement(
       },
       usableScrollRect,
       { width: window.innerWidth, height: window.innerHeight },
+      // Only the latest message column is the live turn; older visible columns keep the lane pinned.
+      { followAnchorTop: anchor === columns[0] },
     );
     setPlacement(current => current?.left === next?.left && current?.top === next?.top && current?.width === next?.width && current?.maxHeight === next?.maxHeight ? current : next);
   }, []);

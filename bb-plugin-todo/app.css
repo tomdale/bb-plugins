@@ -22,13 +22,23 @@
   background: var(--state-hover);
 }
 
-.todo-card-floating {
+/*
+ * Gutter lane. The card leaves the composer and sits beside the live turn, so it
+ * drops the banner frame: no border, surface, shadow, or hover fill, and no
+ * collapse or edit controls. Only the rows and the "Todos" link remain.
+ */
+.todo-card-floating,
+.todo-card-floating:hover {
   position: fixed;
   z-index: 30;
   display: flex;
   min-height: 0;
   flex-direction: column;
-  box-shadow: 0 8px 24px color-mix(in oklab, var(--foreground) 10%, transparent);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: default;
 }
 
 .todo-card-inner {
@@ -116,7 +126,42 @@
   max-height: 184px;
   overflow-y: auto;
 }
-.todo-card-floating .todo-list { max-height: none; }
+/* The lane scrolls inside the room the placement leaves, minus the 24px Todos link row and the list gap. */
+.todo-card-floating .todo-list {
+  max-height: calc(var(--todo-gutter-max-height, 100vh) - 25px);
+  scrollbar-width: none;
+}
+.todo-card-floating .todo-list::-webkit-scrollbar { display: none; }
+.todo-card-floating .todo-card-content { padding: 0; overflow: visible; }
+.todo-card-floating .todo-scroll-fade-top { background: linear-gradient(to bottom, var(--background), transparent); }
+.todo-card-floating .todo-scroll-fade-bottom { background: linear-gradient(to top, var(--background), transparent); }
+
+/* The persistent link to the Todos panel, standing in for the banner's pencil. */
+.todo-gutter-header {
+  display: flex;
+  min-width: 0;
+  min-height: 24px;
+  align-items: center;
+  margin-bottom: 1px;
+}
+.todo-destination {
+  display: inline-flex;
+  min-width: 0;
+  height: 24px;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.todo-destination:hover { color: var(--foreground); }
+.todo-destination:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+.todo-destination-icon { width: 13px; height: 13px; flex: none; }
 @media (prefers-reduced-motion: reduce) {
   .todo-list[data-transitioning] { transition-duration: 1ms; }
 }
@@ -321,6 +366,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The gutter is wide enough for labels to wrap, with markers pinned to the first line. Wrapped rows must not shrink to fit the scrolling list. */
+.todo-card-floating .todo-list > li { flex: none; }
+.todo-card-floating .todo-row { align-items: flex-start; }
+.todo-card-floating .todo-row-marker { height: 16px; align-items: center; }
+.todo-card-floating .todo-row-text { overflow: visible; text-overflow: clip; white-space: normal; text-wrap: pretty; }
 .todo-row-meta {
   flex: none;
   color: var(--muted-foreground);

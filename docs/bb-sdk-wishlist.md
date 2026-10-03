@@ -63,10 +63,10 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 
 - **Status:** not filed
 - **Observed:** BB 0.44.0, Plugin SDK 0.6.9
-- **Use case:** Workstreams wants to render a sticky thread goal as part of the native conversation, moving with its scroll position and reading active-thread data.
+- **Use case:** Workstreams wants to render a sticky thread goal as part of the native conversation, moving with its scroll position and reading active-thread data. Todo wants its list beside the live turn: in the right gutter when the thread is wide, and inline with the turn when narrow, instead of in a composer banner.
 - **Limit:** plugin slots include app overlays, thread-header actions, composer banners, and timeline renderers, but no scoped slot within the thread's message scroller. App overlays have no thread id or pane element prop.
-- **Workaround:** a trusted app content script or React overlay locates host DOM by selectors and portals content into it. This depends on private markup, needs explicit split-pane safeguards, and can race pane remounts or scroll restoration.
-- **Possible API:** a `threadContentHeader` slot rendered inside the message viewport with `threadId`, pane identity, scroll position/direction, and a host-managed sticky region.
+- **Workaround:** a trusted app content script or React overlay locates host DOM by selectors and portals content into it. This depends on private markup, needs explicit split-pane safeguards, and can race pane remounts or scroll restoration. Todo measures `[data-message-column]` and `[data-scroll-footer]` and portals a fixed-position lane into the document body when the gutter fits; below that width it stays a composer banner, because inline placement within the turn needs a host slot.
+- **Possible API:** a `threadContentHeader` slot rendered inside the message viewport with `threadId`, pane identity, scroll position/direction, and a host-managed sticky region. Todo would also use a slot that attaches to the active turn and exposes a right-gutter region beside it that collapses inline when the viewport is narrow.
 
 ## Preserve pending user questions across plugin reloads
 

@@ -252,9 +252,33 @@ it("uses the right-side gutter beside the latest visible message when it fits", 
   scrollArea.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, right: 1500, top: 0, bottom: 700, width: 1500, height: 700, toJSON: () => ({}) } as DOMRect);
   const footer = scrollArea.querySelector<HTMLElement>("[data-scroll-footer]")!;
   footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
-  const card = await slot.findByText("0 of 1 todos done");
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
-  expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("712px");
+  const lane = document.querySelector<HTMLElement>(".todo-card")!;
+  expect(lane.style.left).toBe("712px");
+  // The lane starts level with the live turn rather than at the top of the thread.
+  expect(lane.style.top).toBe("300px");
+  slot.lifecycle.unmount();
+});
+
+it("shows the gutter lane as the full list with only a Todos link as its control", async () => {
+  const slot = await mount(
+    () => ({ tasks: [{ id: 1, subject: "Plan the release", status: "completed" }, { id: 2, subject, status: "pending" }], nextId: 3 }),
+    {},
+    true,
+  );
+  await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
+  const lane = document.querySelector<HTMLElement>(".todo-card")!;
+  expect(lane.getAttribute("data-state")).toBe("expanded");
+  expect(within(lane).getAllByRole("listitem")).toHaveLength(2);
+  expect(lane.querySelector(".todo-count")).toBeNull();
+  expect(lane.querySelector(".todo-view-toggle")).toBeNull();
+  expect(lane.querySelector(".todo-edit")).toBeNull();
+  expect(within(lane).getAllByRole("button")).toHaveLength(1);
+  // Clicking the lane's rows must not collapse it, and the link opens the Todos panel.
+  fireEvent.click(within(lane).getAllByRole("listitem")[0]!);
+  expect(lane.getAttribute("data-state")).toBe("expanded");
+  fireEvent.click(within(lane).getByRole("button", { name: "Open Todos panel" }));
+  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
   slot.lifecycle.unmount();
 });
 
