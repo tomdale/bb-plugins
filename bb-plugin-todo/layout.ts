@@ -18,7 +18,7 @@ export interface TodoSidePlacement {
 
 export const TODO_SIDE_MIN_WIDTH = 240;
 const TODO_SIDE_MAX_WIDTH = 280;
-const TODO_SIDE_GAP = 40;
+const TODO_SIDE_GAP = 72;
 // Keeps the lane off the edge of the scroll area, where it meets the sidebar.
 const TODO_EDGE_RESERVE = 24;
 const TODO_VIEWPORT_INSET = 16;

@@ -249,10 +249,6 @@ function TaskItem({ node, view, mutate, running, expanded, toggle }: {
         className={cn("h-7 min-w-0 flex-1 text-ellipsis rounded-sm bg-transparent px-1.5 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring",
           done ? "text-muted-foreground line-through decoration-muted-foreground/60" : "text-foreground",
           task.status === "in_progress" && "font-medium")} />
-      {node.waitingOn.length > 0 && <span className="inline-flex h-5 shrink-0 items-center rounded-full border border-border px-1.5 text-2xs tabular-nums text-muted-foreground"
-        title={`Depends on ${node.waitingOn.map(id => `${findEditorNode(view.roots, id)?.ordinal ?? id}. ${view.ordered.find(task => task.id === id)?.subject ?? ""}`).join(", ")}`}>
-        depends on {node.waitingOn.map(id => findEditorNode(view.roots, id)?.ordinal ?? id).join(", ")}
-      </span>}
       {task.owner && <span className="hidden h-5 max-w-24 shrink-0 items-center truncate rounded-full bg-muted px-1.5 text-2xs text-muted-foreground sm:inline-flex" title={`Owner: ${task.owner}`}>{task.owner}</span>}
       <button type="button" className={ICON_BUTTON} aria-expanded={open} aria-controls={open ? detailsId : undefined}
         aria-label={`${open ? "Hide" : "Show"} details for #${task.id}`} onClick={() => toggle(task.id)}>

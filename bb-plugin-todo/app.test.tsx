@@ -104,7 +104,7 @@ it("renders hierarchy and blockers in the panel and edits subjects on commit", a
   expect(slot.container.querySelectorAll(".todo-editor-number-active .todo-editor-spokes i")).toHaveLength(8);
   expect(slot.container.querySelector(".todo-editor-period")?.previousSibling?.textContent).toBe("1");
   expect(slot.container.querySelector(".todo-editor-marker-unordered")).toBeNull();
-  expect(slot.getByTitle("Depends on 3. Prerequisite").textContent).toContain("depends on 3");
+  expect(slot.container.textContent).not.toContain("depends on");
   expect(slot.getByRole("status").textContent).toContain("0 of 3 complete");
   const subject = slot.getByLabelText("Subject for #1");
   fireEvent.change(subject, { target: { value: "Renamed parent" } });
@@ -255,7 +255,7 @@ it("uses the left-side gutter beside the message column when it fits", async () 
   footer.getBoundingClientRect = () => ({ x: 0, y: 650, left: 0, right: 1500, top: 650, bottom: 700, width: 1500, height: 50, toJSON: () => ({}) } as DOMRect);
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   const lane = document.querySelector<HTMLElement>(".todo-card")!;
-  expect(lane.style.left).toBe("80px");
+  expect(lane.style.left).toBe("48px");
   expect(lane.style.width).toBe("280px");
   // Its vertical bounds are the scroll area's height, even beside the composer, and CSS centers the lane in them.
   expect(lane.style.top).toBe("16px");
@@ -289,7 +289,7 @@ it("measures the gutter from the inset prose column even when a user-message col
   proseColumn.getBoundingClientRect = () => ({ x: 400, y: 100, left: 400, right: 1100, top: 100, bottom: 250, width: 700, height: 150, toJSON: () => ({}) } as DOMRect);
   scrollArea.insertBefore(proseColumn, userColumn);
   fireEvent.scroll(scrollArea);
-  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("88px"));
+  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("56px"));
   slot.lifecycle.unmount();
 });
 
