@@ -54,39 +54,4 @@ describe("computeTodoSidePlacement", () => {
     expect(computeTodoSidePlacement(rect(0, 100), rect(0, 100 + 12 + 40 + TODO_SIDE_MIN_WIDTH, 120, 600), { width: 1000, height: 900 }))
       .toEqual({ left: 112, top: 136, width: TODO_SIDE_MIN_WIDTH, maxHeight: 448 });
   });
-
-  it("starts the lane level with the anchor's top when following the live turn", () => {
-    expect(computeTodoSidePlacement(
-      rect(120, 880, 300, 500),
-      rect(0, 1500),
-      { width: 1500, height: 900 },
-      { followAnchorTop: true },
-    )).toEqual({ left: 892, top: 300, width: 320, maxHeight: 384 });
-  });
-
-  it("sticks the lane to the top of the scroll area once the live turn scrolls past it", () => {
-    expect(computeTodoSidePlacement(
-      rect(120, 880, -400, 800),
-      rect(0, 1500, 40, 700),
-      { width: 1500, height: 900 },
-      { followAnchorTop: true },
-    )).toEqual({ left: 892, top: 56, width: 320, maxHeight: 628 });
-  });
-
-  it("keeps the lane tall enough to read when the live turn begins near the composer", () => {
-    expect(computeTodoSidePlacement(
-      rect(120, 880, 650, 690),
-      rect(0, 1500),
-      { width: 1500, height: 900 },
-      { followAnchorTop: true },
-    )).toEqual({ left: 892, top: 504, width: 320, maxHeight: 180 });
-  });
-
-  it("pins the lane to the top of the scroll area for anchors other than the live turn", () => {
-    expect(computeTodoSidePlacement(
-      rect(120, 880, 300, 500),
-      rect(0, 1500),
-      { width: 1500, height: 900 },
-    )?.top).toBe(16);
-  });
 });

@@ -255,8 +255,38 @@ it("uses the right-side gutter beside the latest visible message when it fits", 
   await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
   const lane = document.querySelector<HTMLElement>(".todo-card")!;
   expect(lane.style.left).toBe("712px");
-  // The lane starts level with the live turn rather than at the top of the thread.
-  expect(lane.style.top).toBe("300px");
+  // Its vertical position is constant, so scrolling never moves it against the page.
+  expect(lane.style.top).toBe("16px");
+  slot.lifecycle.unmount();
+});
+
+it("stays in the gutter, at the same place, while no message column is on screen", async () => {
+  const slot = await mount(idleSnapshot, {}, true);
+  const column = document.querySelector<HTMLElement>("[data-message-column]")!;
+  const scrollArea = column.parentElement!;
+  await waitFor(() => expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe(""));
+  const before = document.querySelector<HTMLElement>(".todo-card")!.style.left;
+  column.getBoundingClientRect = () => ({ x: 0, y: 2000, left: 0, right: 700, top: 2000, bottom: 2200, width: 700, height: 200, toJSON: () => ({}) } as DOMRect);
+  fireEvent.scroll(scrollArea);
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(document.querySelector(".todo-card")?.getAttribute("data-floating")).toBe("");
+  expect(document.querySelector<HTMLElement>(".todo-card")!.style.left).toBe(before);
+  slot.lifecycle.unmount();
+});
+
+it("measures the gutter from the inset prose column even when a user-message column is the last one visible", async () => {
+  const slot = await mount(idleSnapshot, {}, true);
+  const userColumn = document.querySelector<HTMLElement>("[data-message-column]")!;
+  const scrollArea = userColumn.parentElement!;
+  const proseColumn = document.createElement("div");
+  proseColumn.setAttribute("data-message-column", "");
+  proseColumn.style.paddingLeft = "8px";
+  proseColumn.style.paddingRight = "8px";
+  Object.defineProperty(proseColumn, "clientWidth", { value: 700 });
+  proseColumn.getBoundingClientRect = () => ({ x: 0, y: 100, left: 0, right: 700, top: 100, bottom: 250, width: 700, height: 150, toJSON: () => ({}) } as DOMRect);
+  scrollArea.insertBefore(proseColumn, userColumn);
+  fireEvent.scroll(scrollArea);
+  await waitFor(() => expect(document.querySelector<HTMLElement>(".todo-card")?.style.left).toBe("704px"));
   slot.lifecycle.unmount();
 });
 

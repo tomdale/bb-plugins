@@ -20,10 +20,9 @@ function findComposerScrollArea(composerFooter: HTMLElement): HTMLElement | null
 /**
  * Measures whether the Todo card fits in the thread's right gutter beside the
  * latest visible message column, and returns fixed coordinates when it does.
- * Null keeps the card inline in the composer. The lane starts level with the
- * latest message column (the live turn) and sticks to the top of the scroll
- * area as that column scrolls past. The measurement follows resizes, scrolls,
- * and timeline mutations because any of them can move the anchor column.
+ * Null keeps the card inline in the composer. The lane is pinned to the top of
+ * the scroll area. The measurement follows resizes, scrolls, and timeline
+ * mutations because any of them can move the anchor column.
  */
 export function useTodoSidePlacement(
   threadId: string | null,
@@ -49,10 +48,21 @@ export function useTodoSidePlacement(
     if (!scope) { setPlacement(null); return; }
     const scrollRect = scrollArea.getBoundingClientRect();
     const columns = Array.from(scope.querySelectorAll<HTMLElement>("[data-message-column]")).reverse();
-    const anchor = columns.find(column => {
+    // Every message column shares the same horizontal edges, so any mounted column locates the gutter. Prefer
+    // visible ones, but keep the lane in the gutter while a tall tool output or windowed-out range leaves none
+    // on screen; falling back to the composer there would make the card jump between the two places.
+    const measurable = columns.filter(column => {
       const rect = column.getBoundingClientRect();
-      return column.isConnected && rect.width > 0 && rect.height > 0 && rect.bottom > scrollRect.top && rect.top < scrollRect.bottom;
+      return column.isConnected && rect.width > 0 && rect.height > 0;
     });
+    const visibleColumns = measurable.filter(column => {
+      const rect = column.getBoundingClientRect();
+      return rect.bottom > scrollRect.top && rect.top < scrollRect.bottom;
+    });
+    const candidates = visibleColumns.length ? visibleColumns : measurable;
+    // User-message columns have no inset while prose columns do, so their content edges differ by the inset.
+    // Preferring inset columns keeps the lane from shifting as the nearest column changes kind.
+    const anchor = candidates.find(column => Number.parseFloat(getComputedStyle(column).paddingRight || "0") > 0) ?? candidates[0];
     if (!anchor) { setPlacement(null); return; }
     anchorRef.current = anchor;
     const scrollAreaRect = rectOf(scrollArea);
@@ -77,8 +87,6 @@ export function useTodoSidePlacement(
       },
       usableScrollRect,
       { width: window.innerWidth, height: window.innerHeight },
-      // Only the latest message column is the live turn; older visible columns keep the lane pinned.
-      { followAnchorTop: anchor === columns[0] },
     );
     setPlacement(current => current?.left === next?.left && current?.top === next?.top && current?.width === next?.width && current?.maxHeight === next?.maxHeight ? current : next);
   }, []);
