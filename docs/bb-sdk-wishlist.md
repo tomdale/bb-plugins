@@ -8,6 +8,36 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Replace or resize the recent-thread list on a phone's Home screen
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.9
+- **Use case:** Workstreams puts Up Next and the user's threads grouped by
+  workstream on the phone Home screen, in place of BB's flat Recent list, and
+  wants that content to use the whole scroll area under the top controls.
+- **Limit:** `homepageSection` renders after the native list inside
+  `RootComposeCompactHome`'s scroll viewport, under a host heading taken from
+  the registration's `title`. No slot replaces or hides the list, and BB sets the
+  viewport's `top` inline (the larger of 56px and the region height minus the
+  composer height minus 5.5 rows), rewriting it in a `ResizeObserver`, so only a
+  band about 354px tall above the composer scrolls; the space above is blank. A
+  60px spacer offsets the content, and newer builds also bottom-justify it (a
+  `min-h-full flex-col justify-end` wrapper). A section cannot omit the host
+  heading, and wide windows still mount it.
+- **Workaround:** the section finds out where it mounted and, inside the compact
+  viewport, a stylesheet scoped by `:has([data-ws-home="takeover"])` hides
+  `[data-root-compose-mobile-recents]` and the offset spacer, overrides the inline
+  `top` with `!important`, top-aligns the content, and hides the section's heading.
+  Where the viewport isn't found the section renders below BB's list. This
+  depends on the `data-testid` values and the list's data attribute, and on
+  `:has()`.
+- **Possible API:** a slot that supplies the home list (`homeThreadList`, as
+  `threadList` does for the sidebar) so BB hosts the scroll area and composer
+  spacing itself; or `homepageSection` options for placement (`replace-recents`,
+  `top`, `bottom`), an optional host heading (`title: null`), and per-layout
+  rendering (`layouts: ["compact"]`) so a section can skip wide windows without a
+  hidden mount.
+
 ## Select newly registered projects after catalog propagation
 
 - **Status:** not filed
