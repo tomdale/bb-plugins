@@ -77,7 +77,18 @@ async function setup(
           source: "@app",
           path: "/work/workspaces/app",
         };
-      if (method === "sources") return sources;
+      if (method === "sources")
+        return sources.length
+          ? sources
+          : [
+              {
+                id: "template:app",
+                kind: "template",
+                name: "app",
+                source: "@app",
+                path: "/work/workspaces/app",
+              },
+            ];
       if (method === "detail") return detail;
       if (method === "inventory")
         return { workspaces: [], repositories: [entry] };
@@ -180,6 +191,49 @@ describe("BB integration", () => {
         }),
       ).toBeNull();
     }
+  });
+  it("returns all Workforest sources scoped to the selected project", async () => {
+    const selected: WorkforestSource = {
+      id: "template:selected",
+      kind: "template",
+      name: "selected",
+      source: "@selected",
+      path: "/work/workspaces/selected",
+    };
+    const unrelated: WorkforestSource = {
+      id: "repository:example/other",
+      kind: "repository",
+      name: "other",
+      source: "example/other",
+      path: "/work/repos/other",
+    };
+    const repository: WorkforestSource = {
+      id: "repository:example/toolbelt",
+      kind: "repository",
+      name: "toolbelt",
+      source: "example/toolbelt",
+      path: entry.path,
+    };
+    const h = await setup(entry.path, [selected, unrelated, repository]);
+    h.sdk.stub("projects.get", async () => ({
+      id: "p1",
+      sources: [{ hostId: "h1", path: selected.path }],
+    }));
+    expect(
+      await h.behavior.callRpc("projectSources", {
+        hostId: "h1",
+        projectId: "p1",
+      }),
+    ).toEqual([selected]);
+    h.sdk.stub("projects.get", async () => ({
+      id: "p1",
+      sources: [{ hostId: "h1", path: entry.path }],
+    }));
+    const duplicateName = await h.behavior.callRpc("projectSources", {
+      hostId: "h1",
+      projectId: "p1",
+    });
+    expect(duplicateName).toEqual([repository]);
   });
   it("does not guess between distinct sources sharing a project path", async () => {
     const h = await setup(entry.path, [

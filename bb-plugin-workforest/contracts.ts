@@ -168,6 +168,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ hostId: id, projectId: id }),
     output: sourceSchema.nullable(),
   },
+  projectSources: {
+    input: z.object({ hostId: id, projectId: id }),
+    output: z.array(sourceSchema),
+  },
   bootstrap: { input: z.null(), output: bootstrapSchema },
   project: {
     input: targetSchema.extend({ path: absolutePath.optional() }),

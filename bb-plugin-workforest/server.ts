@@ -6,6 +6,7 @@ import {
   rpcContract,
   targetSchema,
   type Detail,
+  type Entry,
   type WorkforestSource,
 } from "./contracts.js";
 import { isWithin, resolveCheckout } from "./workforest.js";
@@ -31,6 +32,19 @@ export const workforestEnvironmentInputs = z.discriminatedUnion("mode", [
     .strict(),
 ]);
 type WorkforestEnvironmentInputs = z.infer<typeof workforestEnvironmentInputs>;
+
+function belongsToSource(entry: Entry, source: WorkforestSource) {
+  if (source.kind === "template")
+    return (
+      entry.groupName === source.name && entry.type === "template-workspace"
+    );
+  const root = source.path.replace(/\/$/u, "");
+  return (
+    entry.type === "worktree" &&
+    entry.path.startsWith(`${root}/`) &&
+    entry.selector.split("/", 1)[0] === source.name
+  );
+}
 
 export { rpcContract } from "./contracts.js";
 
@@ -80,18 +94,37 @@ export default function plugin(bb: BbPluginApi) {
     const source = await bb.storage.kv.get<WorkforestSource>(
       `source:${JSON.stringify([projectId, hostId])}`,
     );
-    const project = await bb.sdk.projects.get({ projectId });
-    const matchesPath = (candidate: WorkforestSource) =>
-      project.sources.some(
-        (item) => item.hostId === hostId && item.path === candidate.path,
-      );
-    if (source && matchesPath(source)) return source;
-    const catalog = await host.call("sources", null, { hostId });
-    const matches = catalog.filter(matchesPath);
-    const identities = new Set(matches.map((candidate) => candidate.id));
-    return identities.size === 1 ? matches[0]! : null;
+    const catalog = await projectSources(hostId, projectId);
+    if (source && catalog.some((candidate) => candidate.id === source.id))
+      return source;
+    return catalog.length === 1 ? catalog[0]! : null;
   }
-
+  async function projectPaths(hostId: string, projectId: string) {
+    const project = await bb.sdk.projects.get({ projectId });
+    return project.sources
+      .filter((source) => source.hostId === hostId)
+      .map((source) => source.path);
+  }
+  async function projectSources(hostId: string, projectId: string) {
+    const project = await bb.sdk.projects.get({ projectId });
+    const paths = new Set(
+      project.sources
+        .filter((source) => source.hostId === hostId)
+        .map((source) => source.path),
+    );
+    const catalog = await host.call("sources", null, { hostId });
+    const mapped = await bb.storage.kv.get<WorkforestSource>(
+      `source:${JSON.stringify([projectId, hostId])}`,
+    );
+    const matches = catalog.filter((source) => paths.has(source.path));
+    if (
+      mapped &&
+      paths.has(mapped.path) &&
+      !matches.some((source) => source.id === mapped.id)
+    )
+      matches.push(mapped);
+    return matches;
+  }
   bb.experimental_environments.register({
     id: WORKFOREST_ENVIRONMENT_PROVIDER_ID,
     displayName: "Workforest workspace",
@@ -112,38 +145,41 @@ export default function plugin(bb: BbPluginApi) {
     experimental_existingPath: (inputs) =>
       inputs.mode === "existing" ? inputs.path : null,
     async validate(context) {
-      const source = await projectSource(context.host.id, context.project.id);
-      if (source) {
+      const [scopedSources, selectedProjectPaths] = await Promise.all([
+        projectSources(context.host.id, context.project.id),
+        projectPaths(context.host.id, context.project.id),
+      ]);
+      const requestedSource =
+        context.inputs.mode === "new" ? context.inputs.source : null;
+      if (
+        requestedSource !== null &&
+        !scopedSources.some((candidate) => candidate.source === requestedSource)
+      )
+        return {
+          action: "refuse",
+          message: "Workspace source does not match the selected project.",
+        };
+      if (context.inputs.mode === "existing") {
+        const inputs = context.inputs;
+        const inventory = await host.call("inventory", null, {
+          hostId: context.host.id,
+        });
         if (
-          context.inputs.mode === "new" &&
-          context.inputs.source !== source.source
+          ![...inventory.workspaces, ...inventory.repositories].some(
+            (entry) =>
+              entry.selector === inputs.selector &&
+              entry.path === inputs.path &&
+              ((selectedProjectPaths.includes(entry.path) &&
+                (entry.type === "template-workspace" ||
+                  entry.type === "worktree")) ||
+                scopedSources.some((source) => belongsToSource(entry, source))),
+          )
         )
           return {
             action: "refuse",
-            message: "Workspace source does not match the selected project.",
+            message:
+              "Checkout does not belong to the selected Workforest project.",
           };
-        if (context.inputs.mode === "existing") {
-          const inputs = context.inputs;
-          const inventory = await host.call("inventory", null, {
-            hostId: context.host.id,
-          });
-          if (
-            ![...inventory.workspaces, ...inventory.repositories].some(
-              (entry) =>
-                entry.selector === inputs.selector &&
-                entry.path === inputs.path &&
-                entry.groupName === source.name &&
-                (source.kind === "template"
-                  ? entry.type === "template-workspace"
-                  : entry.type === "worktree"),
-            )
-          )
-            return {
-              action: "refuse",
-              message:
-                "Checkout does not belong to the selected Workforest source.",
-            };
-        }
       }
       return { action: "accept" };
     },
@@ -259,6 +295,8 @@ export default function plugin(bb: BbPluginApi) {
     sources: ({ hostId }) => host.call("sources", null, { hostId }),
     sourceProject: ({ hostId, sourceId }) => sourceProject(hostId, sourceId),
     projectSource: ({ hostId, projectId }) => projectSource(hostId, projectId),
+    projectSources: ({ hostId, projectId }) =>
+      projectSources(hostId, projectId),
     bootstrap: async () => {
       const [hosts, projects] = await Promise.all([
         bb.sdk.hosts.list(),

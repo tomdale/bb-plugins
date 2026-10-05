@@ -7,16 +7,24 @@ import {
   useRpc,
   type PluginEnvironmentProviderInputsProps,
 } from "@get-bb/plugin-sdk/app";
-import type {
-  Entry,
-  Template,
-  WorkforestSource,
-  rpcContract,
-} from "../contracts.js";
+import type { Entry, WorkforestSource, rpcContract } from "../contracts.js";
 import { ErrorMessage, selectClass } from "./shared.js";
 
 type Choice =
   { mode: "new"; source: string } | { mode: "existing"; selector: string };
+
+function belongsToSource(entry: Entry, source: WorkforestSource) {
+  if (source.kind === "template")
+    return (
+      entry.groupName === source.name && entry.type === "template-workspace"
+    );
+  const root = source.path.replace(/\/$/u, "");
+  return (
+    entry.type === "worktree" &&
+    entry.path.startsWith(`${root}/`) &&
+    entry.selector.split("/", 1)[0] === source.name
+  );
+}
 export function WorkforestInputs({
   projectId,
   target,
@@ -29,9 +37,9 @@ export function WorkforestInputs({
   const [loaded, setLoaded] = useState<{
     key: string;
     entries: Entry[];
-    templates: Template[];
     choice: Choice;
     source: WorkforestSource | null;
+    sources: WorkforestSource[];
   }>();
   const [error, setError] = useState<string>();
   const [retry, setRetry] = useState(0);
@@ -50,29 +58,35 @@ export function WorkforestInputs({
     void Promise.all([
       rpc.call("bootstrap", null),
       rpc.call("inventory", { hostId }),
-      rpc.call("templates", { hostId }),
       projectId
-        ? rpc.call("projectSource", { hostId, projectId })
-        : Promise.resolve(null),
+        ? Promise.all([
+            rpc.call("projectSource", { hostId, projectId }),
+            rpc.call("projectSources", { hostId, projectId }),
+          ])
+        : Promise.resolve([null, [] as WorkforestSource[]] as const),
     ])
-      .then(([bootstrap, inventory, templates, source]) => {
+      .then(([bootstrap, inventory, [source, sources]]) => {
         if (cancelled) return;
         const allEntries = [...inventory.workspaces, ...inventory.repositories];
-        const entries = source
-          ? allEntries.filter(
-              (entry) =>
-                entry.groupName === source.name &&
-                (source.kind === "template"
-                  ? entry.type === "template-workspace"
-                  : entry.type === "worktree"),
-            )
-          : allEntries;
         const project = bootstrap.projects.find(
-          (project) => project.id === projectId,
+          (item) => item.id === projectId,
         );
-        const matches = inventory.workspaces.filter((entry) =>
+        const projectPaths = new Set(
+          project?.sources
+            .filter((item) => item.hostId === hostId)
+            .map((item) => item.path) ?? [],
+        );
+        const scopedSources = sources;
+        const entries = allEntries.filter(
+          (entry) =>
+            (projectPaths.has(entry.path) &&
+              (entry.type === "template-workspace" ||
+                entry.type === "worktree")) ||
+            scopedSources.some((item) => belongsToSource(entry, item)),
+        );
+        const matches = entries.filter((entry) =>
           project?.sources.some(
-            (source) => source.hostId === hostId && source.path === entry.path,
+            (item) => item.hostId === hostId && item.path === entry.path,
           ),
         );
         const saved =
@@ -82,9 +96,8 @@ export function WorkforestInputs({
         let choice: Choice = source
           ? { mode: "existing", selector: "" }
           : { mode: "new", source: "" };
-        if (!source && matches.length === 1)
-          choice = { mode: "existing", selector: matches[0]!.selector };
-        else if (
+        if (
+          source &&
           saved?.mode === "existing" &&
           typeof saved.selector === "string" &&
           entries.some(
@@ -93,12 +106,20 @@ export function WorkforestInputs({
           )
         )
           choice = { mode: "existing", selector: saved.selector };
+        else if (!source && matches.length === 1)
+          choice = { mode: "existing", selector: matches[0]!.selector };
         else if (saved?.mode === "new" && typeof saved.source === "string")
           choice = {
             mode: "new",
             source: source?.source ?? saved.source,
           };
-        setLoaded({ key, entries, templates, choice, source });
+        setLoaded({
+          key,
+          entries,
+          choice,
+          source,
+          sources,
+        });
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -134,10 +155,9 @@ export function WorkforestInputs({
             },
       );
     } else {
-      const valid =
-        /^(?:@[a-zA-Z0-9][a-zA-Z0-9_+.-]*|[a-zA-Z0-9][a-zA-Z0-9_.-]*\/[a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.test(
-          choice.source,
-        );
+      const valid = current.sources.some(
+        (source) => source.source === choice.source,
+      );
       onChange(
         valid
           ? { status: "ready", value: choice }
@@ -240,30 +260,34 @@ export function WorkforestInputs({
               </>
             ) : (
               <>
-                {current.source ? (
+                {current.sources.length === 1 ? (
                   <p className="text-xs text-muted-foreground">
-                    Source: {current.source.source}
+                    Source: {current.sources[0]!.source}
                   </p>
-                ) : (
-                  <>
-                    <label>
-                      Source
-                      <Input
-                        aria-label="Workforest source"
-                        list="workforest-sources"
-                        value={choice.source}
-                        placeholder="@template or owner/repository"
-                        onChange={(event) =>
-                          choose({ ...choice, source: event.target.value })
-                        }
-                      />
-                    </label>
-                    <datalist id="workforest-sources">
-                      {current.templates.map((template) => (
-                        <option key={template.id} value={`@${template.id}`} />
+                ) : current.sources.length > 1 ? (
+                  <label>
+                    Source
+                    <select
+                      className={selectClass}
+                      aria-label="Workforest source"
+                      value={choice.source}
+                      onChange={(event) =>
+                        choose({ ...choice, source: event.target.value })
+                      }
+                    >
+                      <option value="">Select source…</option>
+                      {current.sources.map((source) => (
+                        <option key={source.id} value={source.source}>
+                          {source.source}
+                        </option>
                       ))}
-                    </datalist>
-                  </>
+                    </select>
+                  </label>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    This project has no Workforest source for creating another
+                    checkout.
+                  </p>
                 )}
                 <p className="text-xs text-muted-foreground">
                   Checkout name comes from this thread’s title.

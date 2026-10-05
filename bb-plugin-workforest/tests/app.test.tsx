@@ -59,6 +59,21 @@ describe("Workforest UI", () => {
     ).toBe(false);
     slot.lifecycle.unmount();
   });
+  it("shows the full Workforest checkout identity in the thread header", async () => {
+    const slot = renderSlot(
+      app.threadHeaderActions[0]!,
+      { threadId: "t1", projectId: "p1", isCompactViewport: false },
+      { rpc: { context: () => ({ hostId: "h1", entry, path: entry.path }) } },
+    );
+    const header = await slot.findByRole("button", {
+      name: `Open Workforest workspace ${entry.selector}`,
+    });
+    expect(header.textContent).toContain(entry.selector);
+    expect(header.querySelector("span[title]")?.getAttribute("title")).toBe(
+      entry.selector,
+    );
+    slot.lifecycle.unmount();
+  });
   it("shows repository status and a non-destructive cleanup preview action", async () => {
     const slot = renderSlot(
       app.navPanels[0]!,

@@ -32,8 +32,8 @@ function mount(
       rpc: {
         bootstrap: () => bootstrap,
         inventory: () => ({ workspaces: [workspace], repositories: [] }),
-        templates: () => [],
         projectSource: () => null,
+        projectSources: () => [],
         ...overrides,
       },
     },
@@ -51,10 +51,17 @@ describe("Workforest environment inputs", () => {
     };
     const { slot, changes } = mount({
       projectSource: () => source,
+      projectSources: () => [source],
+      sources: () => [source],
       inventory: () => ({
         workspaces: [
           workspace,
-          { ...workspace, groupName: "other", selector: "other/main" },
+          {
+            ...workspace,
+            groupName: "other",
+            selector: "other/main",
+            path: "/work/other/main",
+          },
         ],
         repositories: [],
       }),
@@ -83,17 +90,52 @@ describe("Workforest environment inputs", () => {
         source: "example/toolbelt",
         path: "/work/repos/toolbelt",
       }),
+      bootstrap: () => ({
+        ...bootstrap,
+        projects: [
+          {
+            ...bootstrap.projects[0]!,
+            sources: [
+              ...bootstrap.projects[0]!.sources,
+              { hostId: "h1", path: "/work/repos/toolbelt" },
+            ],
+          },
+        ],
+      }),
+      projectSources: () => [
+        {
+          id: "repository:example/toolbelt",
+          kind: "repository",
+          name: "toolbelt",
+          source: "example/toolbelt",
+          path: "/work/repos/toolbelt",
+        },
+      ],
+      sources: () => [
+        {
+          id: "repository:example/toolbelt",
+          kind: "repository",
+          name: "toolbelt",
+          source: "example/toolbelt",
+          path: "/work/repos/toolbelt",
+        },
+      ],
       inventory: () => ({
         workspaces: [workspace],
         repositories: [
-          { ...entry, groupName: "toolbelt", selector: "toolbelt/main" },
+          {
+            ...entry,
+            groupName: "toolbelt",
+            selector: "toolbelt/main",
+            path: "/work/repos/toolbelt/main",
+          },
         ],
       }),
     });
     fireEvent.click(
       await slot.findByRole("button", { name: "Workforest checkout settings" }),
     );
-    expect(screen.queryByRole("option", { name: entry.selector })).toBeNull();
+    expect(screen.getByRole("option", { name: entry.selector })).toBeTruthy();
     expect(screen.getByRole("option", { name: "toolbelt/main" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Workforest mode"), {
       target: { value: "new" },
@@ -157,6 +199,67 @@ describe("Workforest environment inputs", () => {
     await slot.findByText("Coordinator · 2 repos");
     await waitFor(() => expect(changes.at(-1).status).toBe("ready"));
   });
+  it("filters all existing checkouts and creation sources to the selected project", async () => {
+    const secondWorkspace = {
+      ...workspace,
+      groupName: "other",
+      selector: "other/main",
+      path: "/work/other/main",
+    };
+    const appSource = {
+      id: "template:app",
+      kind: "template" as const,
+      name: "app",
+      source: "@app",
+      path: "/work/workspaces/app",
+    };
+    const toolSource = {
+      id: "repository:example/toolbelt",
+      kind: "repository" as const,
+      name: "toolbelt",
+      source: "example/toolbelt",
+      path: "/work/repos/toolbelt",
+    };
+    const { slot } = mount({
+      projectSources: () => [appSource, toolSource],
+      projectSource: () => null,
+      sources: () => [appSource, toolSource],
+      inventory: () => ({
+        workspaces: [workspace, secondWorkspace],
+        repositories: [
+          {
+            ...entry,
+            groupName: "toolbelt",
+            selector: "toolbelt/main",
+            path: "/work/repos/toolbelt/main",
+          },
+          {
+            ...entry,
+            groupName: "other",
+            selector: "other/fix",
+            path: "/work/other/fix",
+          },
+        ],
+      }),
+    });
+    await slot.findByText("Coordinator · 2 repos");
+    fireEvent.click(
+      slot.getByRole("button", { name: "Workforest checkout settings" }),
+    );
+    expect(screen.getByRole("option", { name: entry.selector })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "other/main" })).toBeNull();
+    expect(screen.getByRole("option", { name: "toolbelt/main" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "other/fix" })).toBeNull();
+    fireEvent.change(slot.getByLabelText("Workforest mode"), {
+      target: { value: "new" },
+    });
+    const sourceSelect = screen.getByLabelText("Workforest source");
+    expect(sourceSelect.querySelectorAll("option")).toHaveLength(3);
+    expect(sourceSelect.querySelector('[value="@app"]')).toBeTruthy();
+    expect(
+      sourceSelect.querySelector('[value="example/toolbelt"]'),
+    ).toBeTruthy();
+  });
   it("does not auto-select another machine's matching path", async () => {
     const { slot, changes } = mount(
       {},
@@ -165,7 +268,9 @@ describe("Workforest environment inputs", () => {
     fireEvent.click(
       await slot.findByRole("button", { name: "Workforest checkout settings" }),
     );
-    await screen.findByLabelText("Workforest source");
+    await screen.findByText(
+      "This project has no Workforest source for creating another checkout.",
+    );
     expect(changes.at(-1).status).toBe("blocked");
   });
   it("does not treat a member project as a workspace-root match", async () => {
@@ -183,9 +288,11 @@ describe("Workforest environment inputs", () => {
     fireEvent.click(
       await slot.findByRole("button", { name: "Workforest checkout settings" }),
     );
-    await screen.findByLabelText("Workforest source");
+    await screen.findByText(
+      "This project has no Workforest source for creating another checkout.",
+    );
   });
-  it("retains valid saved input when no workspace project matches", async () => {
+  it("does not expose existing checkouts from another project", async () => {
     const { slot, changes } = mount(
       {},
       {
@@ -193,10 +300,14 @@ describe("Workforest environment inputs", () => {
         value: { mode: "existing", selector: entry.selector, path: entry.path },
       },
     );
-    await slot.findByText("Coordinator · 2 repos");
-    await waitFor(() => expect(changes.at(-1).status).toBe("ready"));
+    await slot.findByText("Create workspace…");
+    fireEvent.click(
+      slot.getByRole("button", { name: "Workforest checkout settings" }),
+    );
+    expect(screen.queryByRole("option", { name: entry.selector })).toBeNull();
+    expect(changes.at(-1).status).toBe("blocked");
   });
-  it("allows switching from an auto-selected root to new-workspace creation", async () => {
+  it("blocks creating a workspace outside the selected project sources", async () => {
     const { slot, changes } = mount();
     await slot.findByText("Coordinator · 2 repos");
     fireEvent.click(
@@ -205,15 +316,10 @@ describe("Workforest environment inputs", () => {
     fireEvent.change(screen.getByLabelText("Workforest mode"), {
       target: { value: "new" },
     });
-    fireEvent.change(screen.getByLabelText("Workforest source"), {
-      target: { value: "@example" },
-    });
-    await waitFor(() =>
-      expect(changes.at(-1)).toEqual({
-        status: "ready",
-        value: { mode: "new", source: "@example" },
-      }),
+    await screen.findByText(
+      "This project has no Workforest source for creating another checkout.",
     );
+    expect(changes.at(-1).status).toBe("blocked");
   });
   it("blocks new-machine selection rather than using stale inventory", async () => {
     const { slot, changes } = mount({}, { target: { kind: "new-host" } });

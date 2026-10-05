@@ -58,13 +58,15 @@ export function ThreadHeader({ threadId }: { threadId: string }) {
       variant="ghost"
       size="sm"
       className="h-7 max-w-40 gap-1.5 px-2"
-      aria-label="Open Workforest workspace"
+      aria-label={`Open Workforest workspace ${context.data.entry.selector}`}
       onClick={() =>
         navigate.openThreadPanel({ actionId: "workspace", title: "Workforest" })
       }
     >
       <Icon name="GitBranch" className="size-3.5" />
-      <span className="truncate text-xs">{context.data.entry.changeName}</span>
+      <span className="truncate text-xs" title={context.data.entry.selector}>
+        {context.data.entry.selector}
+      </span>
     </Button>
   );
 }
