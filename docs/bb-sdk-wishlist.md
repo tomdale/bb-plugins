@@ -91,8 +91,8 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 - **Status:** not filed
 - **Observed:** BB 0.44.0, Plugin SDK 0.6.5
 - **Use case:** New work's suggestion row (Send to a thread) and Debug section
-  sit under the composer in Workstreams' dialog, and should sit in the same
-  place in BB's New thread view.
+  belong under the composer in BB's New thread view, where Workstreams' former
+  New work dialog put them.
 - **Limit:** a composer `banner` renders above the prompt box, and no slot
   renders below it.
 - **Workaround:** on the New thread view both stay in the banner, above the
