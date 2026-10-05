@@ -60,6 +60,47 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   budgets with its own compact rules, so a plugin picker gets the same
   placement, labels and touch sizing as a built-in one.
 
+## Attach plugin data to every submit of a composer
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams' New thread banner shows a Product or feature for
+  the draft (picked by hand or classified) and needs the server's
+  `message.dispatch` hook to file the new thread with it, whichever way the
+  user submits.
+- **Limit:** `experimental_data` reaches dispatch hooks only through the
+  plugin's own `composer.submit(options)`. A plugin cannot add data to a submit
+  the user starts: BB's Enter key calls the prompt box's `onSubmit` directly
+  (`PromptBoxInternal.tsx` `submitPrompt`), firing no form `submit` event, and
+  the composer has no before-submit hook or standing submission data. The
+  banner's capture-phase `submit` listener on `form[data-promptbox]` sees only
+  send-button clicks, so a manually picked identity was lost on Enter.
+- **Workaround:** the banner reports each draft's text and identity to the
+  plugin server as they change (`draftIdentity`), and the dispatch hook pairs a
+  fresh first message with the reported draft of the same text, waiting up to
+  10 seconds for a report that arrives after the dispatch (`ComposedDrafts`).
+  Identical drafts in two windows can pair with either thread, and the form
+  listener still depends on BB's markup.
+- **Possible API:** `composer.setSubmissionData(json | null)`, scoped to the
+  calling plugin and cleared with the slot, that BB attaches as
+  `experimental_submission` to every submit of that composer; or an
+  `onBeforeSubmit(listener)` that may return data for the submit.
+
+## Place composer content below the prompt box
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5
+- **Use case:** New work's suggestion row (Send to a thread) and Debug section
+  sit under the composer in Workstreams' dialog, and should sit in the same
+  place in BB's New thread view.
+- **Limit:** a composer `banner` renders above the prompt box, and no slot
+  renders below it.
+- **Workaround:** on the New thread view both stay in the banner, above the
+  prompt box; only the Product or feature chip is portaled into the picker row
+  (see Contribute pickers to the New thread composer's picker row).
+- **Possible API:** a banner `placement: "above" | "below"` option, or a
+  `composerFooter` slot with the same `useComposer()` scope.
+
 ## Plugin utility classes on content portaled into host DOM
 
 - **Status:** not filed
