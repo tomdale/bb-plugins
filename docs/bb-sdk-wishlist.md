@@ -425,3 +425,22 @@ ProviderModelPickerValue, maxTokens, signal })` that runs one tool-free completi
 - **Possible API:** `archive` returns a promise of `{ archivedThreadIds }`, or
   null when the user cancels, and accepts an option naming the thread to open
   afterward, so BB keeps the dialog, toast, and pane handling.
+
+## Add a property row to the thread info tab
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5 and 0.6.16
+- **Use case:** Workstreams gives each thread a Topic setting (Automatic by
+  default, with the classifier's current result shown under it, or a topic the
+  user picks). It belongs with the thread's other properties in the panel's info
+  tab (Parent, Project, Environment, Directory), where users already look for
+  and change what a thread is attached to.
+- **Limit:** `PluginAppSlots` has no slot for that tab. `threadPanelAction` only
+  adds an entry to the panel's new-tab launcher, which opens a separate tab, and
+  `experimental_threadHeaderAction` places a control in the thread header.
+- **Workaround:** the Topic control is a thread header action (`task-identity`)
+  that opens a popover with Automatic and the topic list.
+- **Possible API:** a `threadInfoRow` slot (id, label, icon, component receiving
+  `{ threadId }`, optional order) that BB renders as a label and value row in
+  the info tab, with the value component able to open its own popover the way
+  the Parent row's picker does.
