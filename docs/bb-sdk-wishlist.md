@@ -8,6 +8,21 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Parse Markdown in frontend rendering tests
+
+- **Status:** not filed
+- **Observed:** BB 0.44.0, Plugin SDK 0.6.5 and 0.6.15
+- **Use case:** Workstreams recap tests need to verify that file destinations
+  with spaces render as clickable links, including workspace-relative paths.
+- **Limit:** the frontend harness's `Markdown` component puts its source in a
+  plain text div. It cannot expose invalid Markdown destinations or verify
+  anchors and their file routing.
+- **Workaround:** rendering tests use `react-markdown`, the parser BB uses,
+  and assert anchors alongside the document context passed to the host. Live
+  app checks verify that activation opens BB's file preview.
+- **Possible API:** a frontend harness option that uses BB's Markdown parser
+  and records file navigation through the supplied document context.
+
 ## Replace or resize the recent-thread list on a phone's Home screen
 
 - **Status:** not filed
