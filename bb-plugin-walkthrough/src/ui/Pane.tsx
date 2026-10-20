@@ -13,7 +13,7 @@ import { CodeExcerpt } from "./code.tsx";
 import { errorMessage, useThreadWalkthroughs, useWalkthrough, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { openPane, StartForm } from "./Starter.tsx";
 import { NotesTab, ReviewTab, type NoteDraft } from "./notes.tsx";
-import { Muted } from "./parts.tsx";
+import { Muted, SummaryRow } from "./parts.tsx";
 import { Prose, type ProseContext } from "./prose.tsx";
 
 export function paneParams(params: unknown): string | null {
@@ -45,13 +45,10 @@ function EmptyPane({ threadId }: { threadId: string }) {
       {walkthroughs.length > 0 ? (
         <div>
           <p className="mb-2 text-xs text-muted-foreground">Earlier walkthroughs in this thread</p>
-          <ul className="space-y-1">
+          <ul className="space-y-2.5">
             {walkthroughs.map((walkthrough) => (
               <li key={walkthrough.id}>
-                <button type="button" onClick={() => openPane(navigate, walkthrough.id, walkthrough.title)} className="text-left text-sm hover:underline">
-                  {walkthrough.title === "Walkthrough" ? walkthrough.request : walkthrough.title}
-                  <span className="ml-2 text-xs text-muted-foreground">{walkthrough.status === "done" ? "finished" : walkthrough.status}</span>
-                </button>
+                <SummaryRow summary={walkthrough} onOpen={() => openPane(navigate, walkthrough.id, walkthrough.title)} />
               </li>
             ))}
           </ul>

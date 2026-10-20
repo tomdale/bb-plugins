@@ -1,6 +1,6 @@
 // Pure walkthrough logic shared by the server and the pane: labels, the
 // notes Markdown mirror, and text handed to the worker agent.
-import type { Location, Mode, Note, NoteKind, Part, Walkthrough } from "./schemas.ts";
+import type { Location, Mode, Note, NoteKind, Part, Walkthrough, WalkthroughStatus } from "./schemas.ts";
 
 export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
   question: "Question",
@@ -21,9 +21,78 @@ export function noteKindsFor(mode: Mode): NoteKind[] {
   return mode === "pr" ? ["question", "comment", "todo", "note"] : ["question", "todo", "note"];
 }
 
-/** Abbreviates a full commit SHA; branch names and short refs pass through. */
+/** The SHA of git's empty tree: the base of a walkthrough of a repository's first commit. */
+export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
+ * A base ref as a reader should see it. Full SHAs are abbreviated, the empty
+ * tree reads as "start of history", and a ref the worker annotated
+ * ("c884aad (PR base on main)") keeps only its leading token.
+ */
 export function shortRef(ref: string): string {
-  return /^[0-9a-f]{12,40}$/iu.test(ref) ? ref.slice(0, 8) : ref;
+  const token = ref.trim().split(/\s+/u)[0] ?? "";
+  if (token.toLowerCase() === EMPTY_TREE_SHA) return "start of history";
+  return /^[0-9a-f]{12,40}$/iu.test(token) ? token.slice(0, 8) : token;
+}
+
+/** What a walkthrough's changes are measured against, in the words of the header subtitle. */
+export function comparedWith(walkthrough: Pick<Walkthrough, "baseRef">): string {
+  const base = shortRef(walkthrough.baseRef);
+  return base === "start of history" ? "everything since the start of history" : `compared with ${base}`;
+}
+
+// ---------------------------------------------------------------------------
+// Walkthrough lists
+// ---------------------------------------------------------------------------
+
+export function statusLabel(status: WalkthroughStatus): string {
+  switch (status) {
+    case "planning":
+      return "Getting ready";
+    case "reading":
+      return "In progress";
+    case "wrapping-up":
+      return "Wrapping up";
+    case "done":
+      return "Finished";
+    case "failed":
+      return "Stopped";
+  }
+}
+
+/** A short absolute time: "14:05" today, "Yesterday", "Mar 5", or "Mar 5, 2025" in another year. */
+export function formatStarted(timestamp: number, now: number = Date.now()): string {
+  const when = new Date(timestamp);
+  const today = new Date(now);
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOfDay(today) - startOfDay(when)) / 86_400_000);
+  if (days === 0) return when.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (days === 1) return "Yesterday";
+  const sameYear = when.getFullYear() === today.getFullYear();
+  return when.toLocaleDateString(undefined, sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+}
+
+export interface SummaryFacts {
+  status: WalkthroughStatus;
+  partCount: number;
+  currentPart: number | null;
+  createdAt: number;
+}
+
+/** A list row's title: the request stands in until the worker has titled the walkthrough. */
+export function summaryTitle(summary: { title: string; request: string }): string {
+  return summary.title === "Walkthrough" ? summary.request || summary.title : summary.title;
+}
+
+/** "In progress · Part 2 of 6 · Mar 5": enough to tell same-titled walkthroughs apart. */
+export function summaryDetail(summary: SummaryFacts, now: number = Date.now()): string {
+  const settled = summary.status === "done" || summary.status === "failed";
+  let progress: string | null = null;
+  if (summary.partCount > 0) {
+    if (settled) progress = summary.partCount === 1 ? "1 part" : `${summary.partCount} parts`;
+    else progress = summary.currentPart === null ? "Introduction" : `Part ${summary.currentPart + 1} of ${summary.partCount}`;
+  }
+  return [statusLabel(summary.status), progress, formatStarted(summary.createdAt, now)].filter((part) => part !== null).join(" · ");
 }
 
 export function formatLocation(location: Location | null | undefined): string | null {

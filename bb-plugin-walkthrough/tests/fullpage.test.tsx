@@ -109,6 +109,9 @@ describe("full page", () => {
   it("lists recent walkthroughs at the root and opens one as a page", async () => {
     const summary = { id: "wt_1", title: "Branch feature", request: "r", status: "reading", partCount: 3, currentPart: 0, openNotes: 0, createdAt: 1 };
     const slot = await mountPage("", { recent: () => ({ walkthroughs: [summary, { ...summary, id: "wt_2", title: "Walkthrough", request: "The PR", status: "done" }] }) });
+    // Raw statuses become words, with progress.
+    await slot.findByText(/In progress · Part 1 of 3/u);
+    expect(slot.queryByText("reading")).toBeNull();
     fireEvent.click(await slot.findByRole("button", { name: /The PR/ }));
     expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "walkthroughs", options: { subPath: "wt_2" } }]);
   });

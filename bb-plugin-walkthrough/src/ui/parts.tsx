@@ -2,9 +2,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { experimental_Diff as Diff, experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { formatLocation, shortRef } from "../model.ts";
+import { formatLocation, shortRef, summaryDetail, summaryTitle } from "../model.ts";
 import { fileTarget, type FileContext } from "../files.ts";
-import type { DiffResult } from "../rpc.ts";
+import type { DiffResult, WalkthroughSummary } from "../rpc.ts";
 import type { Location, Walkthrough } from "../schemas.ts";
 import { errorMessage, useWalkthroughRpc } from "./hooks.ts";
 
@@ -40,6 +40,20 @@ export function LocationLink({
 
 export function Muted({ children, className }: { children: ReactNode; className?: string }) {
   return <p className={cn("text-sm text-muted-foreground", className)}>{children}</p>;
+}
+
+/**
+ * One row of a walkthrough list: its title, then status, progress, and start
+ * time so walkthroughs with the same title can be told apart. The SDK offers
+ * no way to build a link to a nav panel or thread panel, so the row is a button.
+ */
+export function SummaryRow({ summary, onOpen }: { summary: WalkthroughSummary; onOpen: () => void }) {
+  return (
+    <button type="button" onClick={onOpen} className="group block w-full text-left">
+      <span className="block truncate text-sm group-hover:underline">{summaryTitle(summary)}</span>
+      <span className="block text-xs text-muted-foreground">{summaryDetail(summary)}</span>
+    </button>
+  );
 }
 
 const COLLAPSE_AFTER_LINES = 24;

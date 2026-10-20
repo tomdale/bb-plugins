@@ -2,10 +2,9 @@
 // instead of a thread side panel, plus an index of recent walkthroughs at its
 // root.
 import { useBbNavigate, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
-import type { WalkthroughSummary } from "../rpc.ts";
 import { PAGE_PATH } from "../schemas.ts";
 import { useRecentWalkthroughs, useWalkthrough } from "./hooks.ts";
-import { Muted } from "./parts.tsx";
+import { Muted, SummaryRow } from "./parts.tsx";
 import { Reader } from "./Pane.tsx";
 
 /** The walkthrough id is the first segment of the route after the panel path. */
@@ -26,10 +25,6 @@ function Page({ walkthroughId }: { walkthroughId: string }) {
   return <Reader threadId={view.walkthrough.threadId} view={view} rpc={rpc} surface="page" />;
 }
 
-function label(walkthrough: WalkthroughSummary): string {
-  return walkthrough.title === "Walkthrough" ? walkthrough.request || walkthrough.title : walkthrough.title;
-}
-
 function Index() {
   const navigate = useBbNavigate();
   const { walkthroughs, error } = useRecentWalkthroughs();
@@ -45,17 +40,10 @@ function Index() {
         ) : walkthroughs.length === 0 ? (
           <Muted>No walkthroughs yet.</Muted>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-2.5">
             {walkthroughs.map((walkthrough) => (
               <li key={walkthrough.id}>
-                <button
-                  type="button"
-                  onClick={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}
-                  className="flex w-full items-baseline gap-2 text-left text-sm hover:underline"
-                >
-                  <span className="min-w-0 truncate">{label(walkthrough)}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{walkthrough.status === "done" ? "finished" : walkthrough.status}</span>
-                </button>
+                <SummaryRow summary={walkthrough} onOpen={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })} />
               </li>
             ))}
           </ul>
