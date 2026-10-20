@@ -16,6 +16,7 @@ import { openPane, StartForm } from "./Starter.tsx";
 import { NotesTab, ReviewTab } from "./notes.tsx";
 import { Muted, SummaryRow } from "./parts.tsx";
 import { Prose, type ProseContext } from "./prose.tsx";
+import { isOutdated } from "../staleness.ts";
 
 export function paneParams(params: unknown): string | null {
   if (typeof params !== "object" || params === null) return null;
@@ -598,6 +599,19 @@ function PartPage({
         </p>
         <h2 className="font-serif text-2xl font-medium leading-tight">{part.title}</h2>
       </header>
+      {isOutdated(walkthrough, part) ? (
+        <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-secondary/50 px-3 py-2 text-[13px]">
+          <span className="text-muted-foreground">The code changed after this part was written, so details here may be out of date.</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: index }).catch((cause: unknown) => toast.error(errorMessage(cause)))}
+          >
+            Rewrite this part
+          </Button>
+        </div>
+      ) : null}
       {part.status === "ready" ? (
         <Blocks walkthrough={walkthrough} blocks={part.blocks} wide={wide} />
       ) : part.status === "failed" ? (

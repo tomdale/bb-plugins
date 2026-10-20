@@ -271,3 +271,22 @@ describe("review drawer", () => {
     expect((await slot.findByRole("link", { name: "o/r#2" })).getAttribute("href")).toBe(pr.url);
   });
 });
+
+describe("out-of-date parts", () => {
+  it("offers a rewrite when the code changed after the part was written", async () => {
+    const base = walkthrough();
+    const stale = walkthrough({ codeFingerprint: "new", parts: [{ ...base.parts[0]!, writtenAgainst: "old" }] });
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: stale, notes: [] } }), retry: () => ({ ok: true }) });
+    await slot.findByText(/code changed after this part was written/u);
+    fireEvent.click(slot.getByRole("button", { name: "Rewrite this part" }));
+    expect(slot.inspection.rpcCalls.at(-1)?.input).toEqual({ walkthroughId: "wt_1", place: 0 });
+  });
+
+  it("stays quiet when the part matches the code", async () => {
+    const base = walkthrough();
+    const fresh = walkthrough({ codeFingerprint: "same", parts: [{ ...base.parts[0]!, writtenAgainst: "same" }] });
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: fresh, notes: [] } }) });
+    await slot.findByText("The schema comes first.");
+    expect(slot.queryByText(/code changed after/u)).toBeNull();
+  });
+});
