@@ -107,10 +107,13 @@ export function TodoCard() {
   const visible = !!threadId && !finishedAndExpired && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
   const gutter = placement !== null;
-  // A one-task plan is its own full list. The gutter lane has no collapse control, so it also always shows the full
+  // A one-task plan is its own full list. A card whose tasks are all in progress already lists every task when
+  // collapsed, so there is nothing to expand. The gutter lane has no collapse control, so it always shows the full
   // list; `expanded` is the banner's own state.
   const single = card.total === 1;
-  const showAll = gutter || single || expanded;
+  const expandable = card.collapsedRows.length !== card.total;
+  const toggleable = !gutter && !single && expandable;
+  const showAll = gutter || single || (expanded && expandable);
 
   const updateListLayout = useCallback(() => {
     const el = listRef.current;
@@ -204,7 +207,7 @@ export function TodoCard() {
   if (!visible) return null;
 
   const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (gutter || single) return;
+    if (!toggleable) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, [role="button"]')) return;
     if (typeof window !== "undefined" && window.getSelection()?.toString().trim()) return;
@@ -272,7 +275,7 @@ export function TodoCard() {
             <span className="todo-summary-text">{collapsedSummary(card)}</span>
           </div>
         )}
-        {!gutter && !single && <div className="todo-actions">
+        {toggleable && <div className="todo-actions">
           <button
             type="button"
             id={toggleId}

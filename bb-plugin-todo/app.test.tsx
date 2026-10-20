@@ -182,6 +182,41 @@ it("shows a one-task plan as its row, without a summary, count, or chevron", asy
   slot.lifecycle.unmount();
 });
 
+it("has no expand toggle while every task is in progress, since the collapsed card already lists them all", async () => {
+  type Plan = { tasks: Array<{ id: number; subject: string; status: "pending" | "in_progress" | "completed" }>; nextId: number };
+  const running = (status: "in_progress" | "completed") => ({ tasks: [
+    { id: 1, subject: "First", status: "in_progress" },
+    { id: 2, subject: "Second", status: "in_progress" },
+    { id: 3, subject: "Third", status },
+  ], nextId: 4 } as Plan);
+  let current = running("in_progress");
+  const app = await loadPluginApp(() => import("./app.js"));
+  const slot = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
+    rpc: { snapshot: () => ({ ageMs: 0, ...current }) },
+  });
+  await slot.findByText("Third");
+  const card = slot.container.querySelector<HTMLElement>(".todo-card")!;
+  expect(within(card).getAllByRole("listitem")).toHaveLength(3);
+  expect(card.querySelector(".todo-view-toggle")).toBeNull();
+  fireEvent.click(card);
+  expect(within(card).getAllByRole("listitem")).toHaveLength(3);
+  // Once a task stops being in progress, expanding would show more, so the toggle returns.
+  current = running("completed");
+  await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
+  await waitFor(() => expect(slot.queryByText("Third")).toBeNull());
+  expect(slot.getByRole("button", { name: "Show all 3 todos" })).toBeTruthy();
+  fireEvent.click(slot.getByRole("button", { name: "Show all 3 todos" }));
+  expect(slot.getByText("Third")).toBeTruthy();
+  // A card left expanded collapses to the in-progress list, without a way back, once everything is in progress again.
+  current = running("in_progress");
+  await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
+  await waitFor(() => expect(card.querySelector(".todo-view-toggle")).toBeNull());
+  expect(card.getAttribute("data-state")).toBe("collapsed");
+  expect(within(card).getAllByRole("listitem")).toHaveLength(3);
+  slot.lifecycle.unmount();
+});
+
 it("shows a single in-progress or completed task as its row", async () => {
   const app = await loadPluginApp(() => import("./app.js"));
   const render = (status: string, isRunning: boolean) => renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
