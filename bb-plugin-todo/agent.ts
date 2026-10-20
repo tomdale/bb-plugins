@@ -1,5 +1,5 @@
 /**
- * The agent-facing `todo` contract: four optional lists named `tasks`, `add`, `done`, and `start`.
+ * The agent-facing `todo` contract: the optional fields `tasks`, `add`, `under`, `done`, and `start`.
  *
  * Models fill in every field of a schema, sending `""`, `[]`, `{}` or `null`
  * for the ones they do not mean. The argument schema therefore treats every
@@ -23,9 +23,16 @@ const list = <T extends z.ZodType>(item: T, description: string) => z.preprocess
   return items.length > 0 ? items : undefined;
 }, z.array(item).optional().describe(description));
 
+/** An optional id that treats 0 as absent, since ids start at 1. */
+const optionalId = (description: string) => z.preprocess(
+  value => blank(value) || value === 0 ? undefined : value,
+  z.coerce.number().int().positive().optional().describe(description),
+);
+
 export const agentInput = z.strictObject({
   tasks: list(z.string().trim(), "Replace the plan with these task subjects, in order. The first task starts. A replaced plan with completed work is archived."),
   add: list(z.string().trim(), "Append these task subjects to the plan."),
+  under: optionalId("With add: the id of the task the added tasks are subtasks of."),
   done: list(z.coerce.number().int().positive(), "Task ids to complete. The next unblocked pending task starts when none is in progress."),
   start: list(z.coerce.number().int().positive(), "Task ids to mark in progress, for parallel work or work resumed after a turn ended."),
 });
@@ -33,26 +40,30 @@ export type AgentCall = z.output<typeof agentInput>;
 
 const glyph = (task: Task) => task.status === "completed" ? "✓" : task.status === "in_progress" ? "▶" : "○";
 
-/** The plan as the agent reads it: ids, statuses, and unfinished blockers. */
+/** The plan as the agent reads it: ids, statuses, nesting, and unfinished blockers. */
 export function renderPlan(state: State): string {
   const rows = ordered(state);
   if (rows.length === 0) return "No tasks";
   const open = new Set(rows.filter(task => task.status !== "completed").map(task => task.id));
+  const depths = new Map<number, number>();
   const lines = rows.map(task => {
+    const depth = task.parentId !== undefined && depths.has(task.parentId) ? depths.get(task.parentId)! + 1 : 0;
+    depths.set(task.id, depth);
     const waiting = task.status === "pending" ? (task.blockedBy ?? []).filter(id => open.has(id)) : [];
-    return `${glyph(task)} ${task.id} ${task.subject}${waiting.length ? ` (waits on ${waiting.map(id => `#${id}`).join(", ")})` : ""}`;
+    return `${"  ".repeat(depth)}${glyph(task)} ${task.id} ${task.subject}${waiting.length ? ` (waits on ${waiting.map(id => `#${id}`).join(", ")})` : ""}`;
   });
   return [`Plan ${rows.length - open.size}/${rows.length} done`, ...lines].join("\n");
 }
 
 /**
  * Applies one agent call in the order tasks, add, done, start. When a call
- * completes a task or adds one and leaves nothing in progress, the first
- * pending task without unfinished blockers starts. Unknown ids are reported
- * and the rest of the call still applies.
+ * completes a task or adds one and leaves nothing being worked on, the first
+ * pending task in display order without unfinished blockers starts. Unknown ids are reported
+ * and the rest of the call still applies; an unknown `under` skips the add so
+ * tasks are never placed somewhere the agent did not name.
  */
 export function applyAgentCall(state: State, call: AgentCall): Outcome {
-  const { tasks, add, done, start } = call;
+  const { tasks, add, under, done, start } = call;
   const notes: string[] = [];
 
   let next = state;
@@ -63,12 +74,17 @@ export function applyAgentCall(state: State, call: AgentCall): Outcome {
     tasks: subjects.map((subject, index) => ({ subject, status: index === 0 ? "in_progress" : "pending" })),
   });
 
-  if (tasks) setPlan(tasks);
-  if (add) {
-    if (ordered(next).length === 0) setPlan(add);
-    else for (const subject of add) run({ action: "create", subject });
-  }
   const missing: number[] = [];
+  if (tasks) setPlan(tasks);
+  let added = false;
+  if (add) {
+    if (under !== undefined && !find(under)) missing.push(under);
+    else {
+      if (ordered(next).length === 0) setPlan(add);
+      else for (const subject of add) run({ action: "create", subject, parentId: under });
+      added = true;
+    }
+  } else if (under !== undefined) notes.push("under applies to add");
   let completed = false;
   for (const id of new Set(done)) {
     const task = find(id);
@@ -83,9 +99,12 @@ export function applyAgentCall(state: State, call: AgentCall): Outcome {
   }
   if (missing.length) notes.push(`No task ${missing.map(id => `#${id}`).join(", ")}`);
 
-  if ((completed || add) && !next.tasks.some(task => task.status === "in_progress")) {
-    const open = new Set(next.tasks.filter(task => task.status === "pending" || task.status === "in_progress").map(task => task.id));
-    const upcoming = ordered(next, "pending").find(task => !task.blockedBy?.some(id => open.has(id)));
+  // A parent with unfinished subtasks is waiting on them, not being worked on.
+  const unfinished = next.tasks.filter(task => task.status === "pending" || task.status === "in_progress");
+  const parents = new Set(unfinished.map(task => task.parentId));
+  if ((completed || added) && !unfinished.some(task => task.status === "in_progress" && !parents.has(task.id))) {
+    const open = new Set(unfinished.map(task => task.id));
+    const upcoming = ordered(next).find(task => task.status === "pending" && !task.blockedBy?.some(id => open.has(id)));
     if (upcoming) run({ action: "update", id: upcoming.id, status: "in_progress" });
   }
 
