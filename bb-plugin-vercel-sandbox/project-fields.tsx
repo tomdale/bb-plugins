@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { useRpc, type PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { vercelRpcContract } from "./rpc.js";
 import { Button } from "@/components/ui/button";
@@ -55,10 +55,7 @@ function ChoiceField({
       ? `No ${lower}s available`
       : (selected?.name ?? placeholder);
   return (
-    <div className="flex flex-col gap-1.5">
-      <Label id={id} className="block text-xs font-medium text-foreground">
-        {label}
-      </Label>
+    <FieldRow label={label} labelId={id}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -125,20 +122,51 @@ function ChoiceField({
           No {lower}s are available for this selection.
         </p>
       ) : null}
-    </div>
+    </FieldRow>
+  );
+}
+
+/**
+ * One label/control row of the connection grid. Rendered as two grid cells
+ * so editable rows line up with the read-only rows they replace.
+ */
+export function FieldRow({
+  label,
+  labelId,
+  children,
+}: {
+  label: string;
+  labelId: string;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <Label
+        id={labelId}
+        className="flex h-8 items-center text-sm font-normal text-muted-foreground"
+      >
+        {label}
+      </Label>
+      <div className="min-w-0 space-y-1.5">{children}</div>
+    </>
   );
 }
 
 export function ProjectFields({
   hostId,
+  initial,
   onChoose,
 }: {
   hostId: string;
+  /** The team and project to preselect, such as the saved connection's. */
+  initial: { teamId: string; projectId: string } | null;
   onChoose: (choice: ProjectChoice | null) => void;
 }) {
   const rpc = useRpc<Contract>();
-  const [teamId, setTeamId] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  const [teamId, setTeamId] = useState<string | null>(initial?.teamId ?? null);
+  const [projectId, setProjectId] = useState<string | null>(
+    initial?.projectId ?? null,
+  );
   const [teamsAttempt, retryTeams] = useState(0);
   const [projectsAttempt, retryProjects] = useState(0);
   const [teams, setTeams] = useState<Listing>({
@@ -150,9 +178,6 @@ export function ProjectFields({
     key: projectKey,
     status: "loading",
   });
-  useEffect(() => {
-    onChoose(null);
-  }, [hostId, onChoose]);
   useEffect(() => {
     let current = true;
     setTeams({ key: hostId, status: "loading" });
@@ -190,10 +215,30 @@ export function ProjectFields({
       current = false;
     };
   }, [rpc, hostId, teamId, projectKey, projectsAttempt]);
-  const teamName =
-    teams.status === "ready"
-      ? teams.choices.find((choice) => choice.id === teamId)?.name
-      : undefined;
+  // The choice is reported only once both listings confirm the selected
+  // team and project, so a preselection the account can no longer see is
+  // never submitted.
+  useEffect(() => {
+    const team =
+      teams.status === "ready"
+        ? teams.choices.find((choice) => choice.id === teamId)
+        : undefined;
+    const project =
+      projects.key === projectKey && projects.status === "ready"
+        ? projects.choices.find((choice) => choice.id === projectId)
+        : undefined;
+    onChoose(
+      team && project
+        ? {
+            hostId,
+            teamId: team.id,
+            projectId: project.id,
+            teamName: team.name,
+            projectName: project.name,
+          }
+        : null,
+    );
+  }, [hostId, teams, projects, projectKey, teamId, projectId, onChoose]);
   return (
     <>
       <ChoiceField
@@ -203,9 +248,9 @@ export function ProjectFields({
         placeholder="Choose a team"
         onRetry={() => retryTeams((value) => value + 1)}
         onChoose={(next) => {
+          if (next === teamId) return;
           setTeamId(next);
           setProjectId(null);
-          onChoose(null);
         }}
       />
       <ChoiceField
@@ -222,25 +267,7 @@ export function ProjectFields({
           teamId === null ? "Choose a team first" : "Choose a project"
         }
         onRetry={() => retryProjects((value) => value + 1)}
-        onChoose={(next) => {
-          const projectName =
-            projects.status === "ready"
-              ? projects.choices.find((choice) => choice.id === next)?.name
-              : undefined;
-          setProjectId(next);
-          if (
-            teamId !== null &&
-            teamName !== undefined &&
-            projectName !== undefined
-          )
-            onChoose({
-              hostId,
-              teamId,
-              projectId: next,
-              teamName,
-              projectName,
-            });
-        }}
+        onChoose={setProjectId}
       />
     </>
   );

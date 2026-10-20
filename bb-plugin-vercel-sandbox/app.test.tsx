@@ -409,8 +409,8 @@ describe("settings section", () => {
     accountName: string | null;
     teamId: string | null;
     projectId: string | null;
-    teamName?: string | null;
-    projectName?: string | null;
+    teamName: string | null;
+    projectName: string | null;
     legacyAllocations: {
       count: number;
       teamId: string;
@@ -428,6 +428,8 @@ describe("settings section", () => {
     accountName: null,
     teamId: null,
     projectId: null,
+    teamName: null,
+    projectName: null,
     legacyAllocations: null,
     adoptedAllocations: 0,
   };
@@ -441,6 +443,8 @@ describe("settings section", () => {
     accountName: "tom",
     teamId: "team_abc",
     projectId: "prj_def",
+    teamName: null,
+    projectName: null,
     legacyAllocations: null,
     adoptedAllocations: 0,
   };
@@ -511,6 +515,13 @@ describe("settings section", () => {
     );
   }
 
+  function rowValue(list: Element | null, term: string) {
+    const label = [...(list?.querySelectorAll("dt") ?? [])].find(
+      (entry) => entry.textContent === term,
+    );
+    return label?.nextElementSibling?.textContent ?? null;
+  }
+
   function connectCalls(slot: ReturnType<typeof renderSettings>) {
     return slot.inspection.rpcCalls.filter(
       (call) => call.method === "account.connect",
@@ -518,14 +529,14 @@ describe("settings section", () => {
   }
 
   async function chooseProject(slot: ReturnType<typeof renderSettings>) {
-    const change = slot.queryByRole("button", { name: "Change connection" });
-    if (change !== null) fireEvent.click(change);
-    openMenu(await slot.findByRole("button", { name: /Team Choose a team/ }));
+    const edit = slot.queryByRole("button", { name: "Edit" });
+    if (edit !== null) fireEvent.click(edit);
+    openMenu(await slot.findByRole("button", { name: /^Team / }));
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: "My team" }),
     );
     openMenu(
-      await slot.findByRole("button", { name: /Project Choose a project/ }),
+      await slot.findByRole("button", { name: /^Project (?!Choose a team)/ }),
     );
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: "My project" }),
@@ -535,31 +546,36 @@ describe("settings section", () => {
   it("names the machine and project without claiming launch entitlement", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
     await slot.findByText(
-      "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
+      "Connected. New sandboxes are created with this account.",
     );
-    expect(slot.getByText(/checks your plan's sandbox limits/)).toBeTruthy();
+    expect(slot.getByRole("heading", { name: "Account" })).toBeTruthy();
     const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
-    expect(summary?.textContent).toContain("team_abc / prj_def");
-    expect(summary?.textContent).toContain("tom");
+    expect(rowValue(summary, "Machine")).toBe("Tom's MacBook");
+    expect(rowValue(summary, "Team")).toBe("team_abc");
+    expect(rowValue(summary, "Project")).toBe("prj_def");
+    expect(rowValue(summary, "Signed in as")).toBe("tom");
+    expect(rowValue(summary, "Linked folder")).toBe("/Users/me/vercel-bb");
     expect(summary?.textContent).not.toContain("user_abc");
-    const ids = slot
-      .getByText("Authentication folder", { selector: "dt" })
-      .closest("dl");
-    expect(ids?.textContent).toContain("/Users/me/vercel-bb");
-    expect(ids?.textContent).toContain("user_abc");
-    expect(
-      slot.queryByRole("heading", { name: "Change connection" }),
-    ).toBeNull();
+    expect(slot.queryByText("IDs")).toBeNull();
     expect(slot.queryByRole("button", { name: /Machine/ })).toBeNull();
-    fireEvent.click(slot.getByRole("button", { name: "Change connection" }));
-    expect(
-      slot.getByRole("heading", { name: "Change connection" }),
-    ).toBeTruthy();
-    expect(slot.queryByLabelText("Linked folder")).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: "Edit" }));
+    expect(slot.queryByRole("button", { name: "Edit" })).toBeNull();
+    const form = slot.getByRole("form", { name: "Edit the Vercel account" });
+    expect(within(form).queryByRole("list")).toBeNull();
     expect(
       slot.getByRole("button", { name: /Machine Tom's MacBook/ }),
     ).toBeTruthy();
-    expect(slot.getByRole("button", { name: "Reconnect" })).toBeTruthy();
+    expect(
+      await slot.findByRole("button", { name: /Team My team/ }),
+    ).toBeTruthy();
+    expect(
+      await slot.findByRole("button", { name: /Project My project/ }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        slot.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
+      ).toBe(false),
+    );
     expect(slot.getByText("2 vCPU · 4 GiB")).toBeTruthy();
     expect(slot.getByText("30 min")).toBeTruthy();
     expect(slot.getByText("1–32 vCPU, 5 min–24 h")).toBeTruthy();
@@ -570,13 +586,25 @@ describe("settings section", () => {
     expect(document.body.textContent).not.toMatch(TOKEN_SHAPED);
     expect(slot.queryByLabelText(/token/i)).toBeNull();
     expect(
-      slot.getByText(
-        /This page can't remove an access token saved by an earlier/,
-      ).textContent,
-    ).toContain("revoke that token in Vercel");
-    expect(
       slot.queryByText(/until someone removes it|Remove it there/),
     ).toBeNull();
+  });
+
+  it("shows team, project, and account IDs on hover instead of inline", async () => {
+    const slot = renderSettings({
+      "account.inspect": () => ({
+        ...CONNECTED,
+        teamName: "My team",
+        projectName: "My project",
+      }),
+    });
+    const team = await slot.findByText("My team");
+    expect(document.body.textContent).not.toContain("team_abc");
+    fireEvent.focus(team);
+    fireEvent.pointerMove(team);
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("team_abc"),
+    );
   });
 
   it("shows the saved connection while the first check runs", async () => {
@@ -596,8 +624,10 @@ describe("settings section", () => {
     });
     await slot.findByText("Checking the Vercel CLI on Tom's MacBook…");
     const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
-    expect(summary?.textContent).toContain("My team / My project");
-    expect(summary?.textContent).toContain("tom");
+    expect(rowValue(summary, "Team")).toBe("My team");
+    expect(rowValue(summary, "Project")).toBe("My project");
+    expect(rowValue(summary, "Signed in as")).toBe("tom");
+    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
     expect(slot.queryByRole("form")).toBeNull();
     check.resolve({
       ...CONNECTED,
@@ -605,7 +635,7 @@ describe("settings section", () => {
       projectName: "My project",
     });
     await slot.findByText(
-      "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
+      "Connected. New sandboxes are created with this account.",
     );
   });
 
@@ -630,21 +660,16 @@ describe("settings section", () => {
 
   it("collapses the change form on cancel", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
-    fireEvent.click(
-      await slot.findByRole("button", { name: "Change connection" }),
-    );
+    fireEvent.click(await slot.findByRole("button", { name: "Edit" }));
     fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
-    expect(slot.queryByRole("button", { name: "Reconnect" })).toBeNull();
-    expect(
-      slot.getByRole("button", { name: "Change connection" }),
-    ).toBeTruthy();
+    expect(slot.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
   });
 
   it("guides terminal sign-in and GUI project selection when nothing is connected", async () => {
     const slot = renderSettings({ "account.inspect": () => NOT_CONNECTED });
     await slot.findByText(/Not connected/);
     expect(slot.getByText(NOT_CONNECTED.message)).toBeTruthy();
-    expect(slot.getByRole("heading", { name: "Set up" })).toBeTruthy();
     const steps = within(
       slot.getByRole("form", { name: "Connect the Vercel CLI" }),
     )
@@ -656,7 +681,7 @@ describe("settings section", () => {
     expect(steps[1]).toContain("select the Vercel team and project");
     expect(slot.queryByText(/vc link/)).toBeNull();
     expect(slot.queryByLabelText("Linked folder")).toBeNull();
-    expect(slot.getByRole("button", { name: "Connect project" })).toBeTruthy();
+    expect(slot.getByRole("button", { name: "Connect" })).toBeTruthy();
   });
 
   it("lists only enrolled machines and connects the chosen machine, team and project", async () => {
@@ -675,7 +700,7 @@ describe("settings section", () => {
     expect(choices).toEqual(["Tom's MacBook", "StudioOffline", "Build box"]);
     fireEvent.click(slot.getByRole("menuitemradio", { name: /Build box/ }));
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
+    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
     const busy = await slot.findByRole("button", { name: "Connecting…" });
     expect(busy.hasAttribute("disabled")).toBe(true);
     expect(connectCalls(slot)).toEqual([
@@ -701,14 +726,16 @@ describe("settings section", () => {
       await pending.promise;
     });
     expect(
-      slot.getByText(
-        "Connected. New sandboxes use the Vercel CLI on Build box.",
-      ),
+      slot.getByText("Connected. New sandboxes are created with this account."),
     ).toBeTruthy();
     expect(
-      slot.getByRole("button", { name: "Change connection" }),
-    ).toBeTruthy();
-    expect(slot.queryByRole("button", { name: "Connect project" })).toBeNull();
+      rowValue(
+        slot.getByText("Machine", { selector: "dt" }).closest("dl"),
+        "Machine",
+      ),
+    ).toBe("Build box");
+    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(slot.queryByRole("button", { name: "Connect" })).toBeNull();
   });
 
   it("clears project selection on team or machine changes and ignores stale project responses", async () => {
@@ -758,7 +785,7 @@ describe("settings section", () => {
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
     );
     submitConnect(slot);
-    await slot.findByText("Choose a team and project before connecting.");
+    await slot.findByText("Choose a team and project first.");
     expect(connectCalls(slot)).toEqual([]);
     expect(
       slot.queryByRole("button", { name: /Project Other project/ }),
@@ -844,7 +871,7 @@ describe("settings section", () => {
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
     );
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
+    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
     const alert = await slot.findByText(/Couldn't connect/);
     expect(alert.textContent).toContain("Project access was refused");
   });
@@ -866,7 +893,7 @@ describe("settings section", () => {
       await slot.findByRole("menuitemradio", { name: /Build box/ }),
     );
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
+    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
     const alert = await slot.findByText(/Couldn't connect/);
     expect(alert.textContent).toContain(
       "vc login finished there as the OS user that runs BB",
@@ -882,9 +909,7 @@ describe("settings section", () => {
       slot.getByRole("button", { name: /Project My project/ }),
     ).toBeTruthy();
     expect(
-      slot
-        .getByRole("button", { name: "Connect project" })
-        .hasAttribute("disabled"),
+      slot.getByRole("button", { name: "Connect" }).hasAttribute("disabled"),
     ).toBe(false);
   });
 
@@ -949,7 +974,7 @@ describe("settings section", () => {
     );
     submitConnect(slot);
     expect(
-      await slot.findByText("Choose a team and project before connecting."),
+      await slot.findByText("Choose a team and project first."),
     ).toBeTruthy();
     expect(connectCalls(slot)).toEqual([]);
   });
@@ -1027,12 +1052,12 @@ describe("settings section", () => {
     const alert = slot.getByRole("alert");
     expect(alert.textContent).toContain("signed in as a different user");
     expect(
-      slot.getByText("Authentication folder", { selector: "dt" }).closest("dl")
+      slot.getByText("Linked folder", { selector: "dt" }).closest("dl")
         ?.textContent,
     ).toContain("prj_def");
     fireEvent.click(slot.getByRole("button", { name: "Check again" }));
     await slot.findByText(
-      "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
+      "Connected. New sandboxes are created with this account.",
     );
     expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
     expect(calls).toBe(2);
@@ -1062,13 +1087,13 @@ describe("settings section", () => {
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
     );
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
-    await slot.findByText(/Connected. New sandboxes use/);
+    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
+    await slot.findByText(/Connected. New sandboxes are created/);
     await act(async () => {
       recheck.resolve(NOT_CONNECTED);
       await recheck.promise;
     });
-    expect(slot.getByText(/Connected. New sandboxes use/)).toBeTruthy();
+    expect(slot.getByText(/Connected. New sandboxes are created/)).toBeTruthy();
   });
 
   it("recovers when the machine list fails to load", async () => {
@@ -1110,8 +1135,8 @@ describe("settings section", () => {
     expect(apply.hasAttribute("disabled")).toBe(true);
     fireEvent.click(apply);
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Reconnect" }));
-    await slot.findByRole("button", { name: "Connecting…" });
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+    await slot.findByRole("button", { name: "Saving…" });
     expect(connectCalls(slot).map((call) => call.input)).toEqual([
       {
         hostId: "host-mac",
@@ -1198,7 +1223,7 @@ describe("settings section", () => {
         .getAttribute("aria-checked"),
     ).toBe("true");
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Reconnect" }));
+    fireEvent.click(slot.getByRole("button", { name: "Save" }));
     const consent = await slot.findByRole("checkbox", {
       name: /Let sam \(user_other\) on Tom's MacBook/,
     });
