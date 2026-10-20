@@ -8,6 +8,27 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Route inline Markdown file links outside a workspace
+
+- **Status:** not filed
+- **Observed:** BB 0.46.1; plugin pins SDK 0.6.5, running app SDK 0.6.59
+- **Use case:** a Workstreams recap links to a local backup outside the thread's
+  checkout, and the link should open the host file in BB's preview panel.
+- **Limit:** `Markdown.experimental_document` accepts workspace and thread-storage
+  targets, but no host identity or link resolver. BB's
+  `buildMarkdownDocumentLinkRouting` delegates out-of-root paths to the ambient
+  timeline handler; a composer card without that handler renders an anchor whose
+  activation does not open the file. `experimental_FileLink` supports explicit
+  host targets, but `Markdown` does not expose custom anchor rendering.
+- **Workaround:** Workstreams captures ordinary clicks on the renderer's `file:`
+  anchors and calls `experimental_openFilePreview` with an explicit host target
+  for out-of-workspace paths. The Markdown stays intact, including formatting
+  across links; workspace links, other URLs, and modified clicks keep the host
+  renderer's behavior.
+- **Possible API:** an optional `hostId` in `Markdown.experimental_document` that
+  resolves absolute paths outside its root, or a typed file-target resolver for
+  Markdown anchors.
+
 ## Parse Markdown in frontend rendering tests
 
 - **Status:** not filed
