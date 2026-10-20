@@ -228,7 +228,7 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
     rpc: { snapshot: () => ({ ageMs: 0, tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
-  expect(completed.getByText("All todos complete")).toBeTruthy();
+  expect(completed.getByText("1 todos complete")).toBeTruthy();
   expect(completed.getByRole("button", { name: "Show all 1 todos" })).toBeTruthy();
   // Entire card in collapsed state is clickable to expand
   fireEvent.click(completed.container.querySelector(".todo-card")!);
@@ -236,12 +236,12 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
   expect(completed.getByRole("button", { name: "Show compact todos" })).toBeTruthy();
   // Collapse it back
   fireEvent.click(completed.getByRole("button", { name: "Show compact todos" }));
-  expect(completed.getByText("All todos complete")).toBeTruthy();
+  expect(completed.getByText("1 todos complete")).toBeTruthy();
 
   await act(async () => { vi.advanceTimersByTime(29_999); });
-  expect(completed.getByText("All todos complete")).toBeTruthy();
+  expect(completed.getByText("1 todos complete")).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(1); });
-  expect(completed.queryByText("All todos complete")).toBeNull();
+  expect(completed.queryByText("1 todos complete")).toBeNull();
   completed.lifecycle.unmount();
 });
 
@@ -260,11 +260,11 @@ it("counts the time since the plan changed toward the hide delay", async () => {
     rpc: { snapshot: () => ({ ageMs: 20_000, tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
-  expect(slot.getByText("All todos complete")).toBeTruthy();
+  expect(slot.getByText("1 todos complete")).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(9_999); });
-  expect(slot.getByText("All todos complete")).toBeTruthy();
+  expect(slot.getByText("1 todos complete")).toBeTruthy();
   await act(async () => { vi.advanceTimersByTime(1); });
-  expect(slot.queryByText("All todos complete")).toBeNull();
+  expect(slot.queryByText("1 todos complete")).toBeNull();
   slot.lifecycle.unmount();
 });
 
@@ -454,8 +454,8 @@ it("renders top and bottom scroll fade gradients based on scroll state when scro
 it("hides a completed card after the configured delay and shows it again when tasks change", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.05 });
-  await slot.findByText("All todos complete");
-  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
+  await slot.findByText("1 todos complete");
+  await waitFor(() => expect(slot.queryByText("1 todos complete")).toBeNull());
   current = { tasks: [{ id: 1, subject, status: "completed" as const }, { id: 2, subject: "Next task", status: "pending" as const }], nextId: 3 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await slot.findByText("1 of 2 todos done");
@@ -465,12 +465,12 @@ it("hides a completed card after the configured delay and shows it again when ta
 it("restarts the completion delay after another completed-list mutation", async () => {
   let current = { tasks: [{ id: 1, subject, status: "completed" as const }], nextId: 2 };
   const slot = await mount(() => current, { completedHideDelaySeconds: 0.15 });
-  await slot.findByText("All todos complete");
+  await slot.findByText("1 todos complete");
   await new Promise(resolve => setTimeout(resolve, 90));
   current = { tasks: [{ id: 1, subject: "Updated completed task", status: "completed" as const }], nextId: 2 };
   await slot.behavior.emitRealtime("todo-changed", { threadId: "thread-a" });
   await new Promise(resolve => setTimeout(resolve, 90));
-  expect(slot.getByText("All todos complete")).toBeTruthy();
-  await waitFor(() => expect(slot.queryByText("All todos complete")).toBeNull());
+  expect(slot.getByText("1 todos complete")).toBeTruthy();
+  await waitFor(() => expect(slot.queryByText("1 todos complete")).toBeNull());
   slot.lifecycle.unmount();
 });

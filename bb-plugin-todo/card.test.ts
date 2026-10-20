@@ -35,7 +35,7 @@ test("summarizes progress and detects a finished plan", () => {
   assert.equal(collapsedSummary(partial), "1 of 2 todos done");
   const done = buildCardView([task(1, "completed"), task(2, "completed")]);
   assert.equal(done.allComplete, true);
-  assert.equal(collapsedSummary(done), "All todos complete");
+  assert.equal(collapsedSummary(done), "2 todos complete");
   assert.equal(buildCardView([]).allComplete, false);
 });
 

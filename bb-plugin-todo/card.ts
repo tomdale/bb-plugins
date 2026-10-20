@@ -28,7 +28,7 @@ export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): re
 }
 
 export function collapsedSummary(view: CardView): string {
-  if (view.allComplete) return "All todos complete";
+  if (view.allComplete) return `${view.total} todos complete`;
   return `${view.completed} of ${view.total} todos done`;
 }
 

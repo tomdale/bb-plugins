@@ -260,7 +260,7 @@ export function TodoCard() {
             {scrollFade.bottom && <div className="todo-scroll-fade todo-scroll-fade-bottom" data-fade="bottom" aria-hidden="true" />}
           </div>
         ) : card.allComplete ? (
-          <div className="todo-summary" id={listId} aria-label="All todos complete">
+          <div className="todo-summary" id={listId} aria-label={collapsedSummary(card)}>
             <Icon name="CircleCheck" className="todo-summary-icon text-muted-foreground" aria-hidden="true" />
             <span className="todo-summary-text">{collapsedSummary(card)}</span>
           </div>
