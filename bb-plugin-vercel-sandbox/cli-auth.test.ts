@@ -130,7 +130,11 @@ describe("CLI authentication boundary", () => {
     const connection = connected.value.connection;
     expect(await worker.experimental_call("inspect", connection)).toEqual({
       ok: true,
-      value: { accountName: "fixture-user" },
+      value: {
+        accountName: "fixture-user",
+        teamName: "Test team",
+        projectName: "Test project",
+      },
     });
     expect(cli.tokens.length).toBe(2);
     expect(new Set(cli.tokens).size).toBe(2);

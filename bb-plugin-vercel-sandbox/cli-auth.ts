@@ -190,7 +190,32 @@ export function cliAuthentication(run: CliRunner = runVc) {
       "Too many Vercel teams or projects to list. Use the CLI to connect explicit team and project IDs.",
     );
   };
+  // Display names are best effort: a failed lookup leaves the IDs shown.
+  const names = async (connection: Connection, signal: AbortSignal) => {
+    const directory = connection.directory ?? homedir();
+    const lookup = async (endpoint: string) => {
+      try {
+        return z
+          .object({ name: z.string().min(1).max(200) })
+          .parse(
+            JSON.parse(
+              await command(["api", endpoint, "--raw"], directory, signal),
+            ),
+          ).name;
+      } catch {
+        signal.throwIfAborted();
+        return null;
+      }
+    };
+    return {
+      teamName: await lookup(`/v2/teams/${connection.teamId}`),
+      projectName: await lookup(
+        `/v9/projects/${connection.projectId}?teamId=${connection.teamId}`,
+      ),
+    };
+  };
   return {
+    names,
     teams: (signal: AbortSignal) => choices("teams", undefined, signal),
     projects: (teamId: string, signal: AbortSignal) =>
       choices("projects", teamId, signal),

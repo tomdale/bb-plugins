@@ -133,14 +133,39 @@ export function createVercelSandboxPlugin() {
         adoptedAllocations,
       };
     };
+    // Names resolved by the CLI refresh the saved display labels; a name the
+    // lookup could not resolve keeps its saved value for the same scope.
+    const rememberNames = async (
+      connection: Connection,
+      teamName: string | null,
+      projectName: string | null,
+    ) => {
+      if (teamName === null && projectName === null) return;
+      const saved = connectionNamesSchema.safeParse(
+        await bb.storage.kv.get<unknown>("connection-names"),
+      );
+      const same =
+        saved.success &&
+        saved.data.teamId === connection.teamId &&
+        saved.data.projectId === connection.projectId
+          ? saved.data
+          : null;
+      await bb.storage.kv.set("connection-names", {
+        teamId: connection.teamId,
+        projectId: connection.projectId,
+        teamName: teamName ?? same?.teamName ?? null,
+        projectName: projectName ?? same?.projectName ?? null,
+      });
+    };
     const inspectAccount = async (signal?: AbortSignal) => {
       let connection: Connection | null = null;
       try {
         connection = await currentConnection();
-        const { accountName } = await remote.inspect(
+        const { accountName, teamName, projectName } = await remote.inspect(
           connection,
           operationSignal(signal, 60_000),
         );
+        await rememberNames(connection, teamName, projectName);
         return accountResult(
           connection,
           true,

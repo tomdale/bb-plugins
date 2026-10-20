@@ -2,6 +2,7 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import {
   accountNameSchema,
+  displayNameSchema,
   accountHostInputSchema,
   projectsInputSchema,
   accountChoicesSchema,
@@ -57,7 +58,15 @@ export const hostContract = defineRpcContract({
   },
   inspect: {
     input: connectionSchema,
-    output: result(z.object({ accountName: accountNameSchema }).strict()),
+    output: result(
+      z
+        .object({
+          accountName: accountNameSchema,
+          teamName: displayNameSchema,
+          projectName: displayNameSchema,
+        })
+        .strict(),
+    ),
   },
   get: { input: operationInput, output: result(sandboxViewSchema.nullable()) },
   create: { input: operationInput, output: result(sandboxViewSchema) },

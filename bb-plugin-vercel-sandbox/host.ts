@@ -105,7 +105,10 @@ export function createVercelHostEntry(
           await createVercelClient(credentials, transport, (signal) =>
             auth.credentials(connection, signal),
           ).inspectAccount(context.signal);
-          return { accountName: credentials.accountName };
+          return {
+            accountName: credentials.accountName,
+            ...(await auth.names(connection, context.signal)),
+          };
         }),
       get: (input, context) =>
         guarded(context.signal, async () => {

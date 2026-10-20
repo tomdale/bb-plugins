@@ -239,21 +239,12 @@ describe("Vercel machine allocation", () => {
     );
   });
 
-  it("returns display names only for the scope they were chosen for", async () => {
+  it("resolves team and project names from the CLI and never shows names saved for another scope", async () => {
     const test = await setup();
-    const named = await test.harness.behavior.callRpc("account.connect", {
+    await test.harness.behavior.callRpc("account.connect", {
       hostId: "host_auth",
       ...test.cli.scope,
-      teamName: "My team",
-      projectName: "My project",
     });
-    expect(named).toMatchObject({
-      teamName: "My team",
-      projectName: "My project",
-    });
-    expect(
-      await test.harness.behavior.callRpc("account.inspect", {}),
-    ).toMatchObject({ teamName: "My team", projectName: "My project" });
     await test.bb.storage.kv.set("connection-names", {
       teamId: "team_other",
       projectId: test.cli.scope.projectId,
@@ -262,7 +253,17 @@ describe("Vercel machine allocation", () => {
     });
     expect(
       await test.harness.behavior.callRpc("account.inspect", {}),
-    ).toMatchObject({ teamName: null, projectName: null });
+    ).toMatchObject({ teamName: "Test team", projectName: "Test project" });
+    const named = await test.harness.behavior.callRpc("account.connect", {
+      hostId: "host_auth",
+      ...test.cli.scope,
+      teamName: "Chosen team",
+      projectName: "Chosen project",
+    });
+    expect(named).toMatchObject({
+      teamName: "Chosen team",
+      projectName: "Chosen project",
+    });
   });
 
   it("rejects partial, ambiguous, and injected project selections before host calls", async () => {

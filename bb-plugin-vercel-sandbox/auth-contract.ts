@@ -51,7 +51,7 @@ export const legacyIdentitySchema = scopeSchema
   })
   .strict();
 // Display-only labels chosen in Settings; never part of allocation identity.
-const displayNameSchema = z.string().min(1).max(200).nullable();
+export const displayNameSchema = z.string().min(1).max(200).nullable();
 export const accountConnectInputSchema = connectionInputSchema
   .safeExtend({
     teamName: displayNameSchema.default(null),
