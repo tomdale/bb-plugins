@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto";
 import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
-import { renderNotesMarkdown } from "./model.ts";
+import { describeNoteForAgent, renderNotesMarkdown } from "./model.ts";
 import { filterPatchToRange } from "./patch.ts";
 import type { DiffResult, ExcerptResult } from "./rpc.ts";
 import {
@@ -570,11 +570,19 @@ export class WalkthroughService {
     const walkthrough = this.get(id);
     const open = this.store.notes(id).filter((note) => note.status === "open" && (note.kind === "todo" || note.kind === "question"));
     if (open.length === 0) return false;
-    const lines = open.map((note) => `- ${note.kind === "todo" ? "Todo" : "Question"}: ${note.text}${note.location ? ` (${note.location.path}${note.location.startLine ? `:${note.location.startLine}` : ""})` : ""}`);
+    const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
+    const subject = walkthrough.pr ? `PR #${walkthrough.pr.number}${walkthrough.pr.url ? ` (${walkthrough.pr.url})` : ""}` : walkthrough.title;
+    const file = walkthrough.notesFile.written && walkthrough.notesFile.path ? `\n\nAll notes: ${walkthrough.notesFile.path}` : "";
     await this.bb.sdk.threads.send({
       threadId: walkthrough.threadId,
       mode: "auto",
-      input: [{ type: "text", text: `From my walkthrough of ${walkthrough.title}:\n\n${lines.join("\n")}${walkthrough.notesFile.written && walkthrough.notesFile.path ? `\n\nAll notes: ${walkthrough.notesFile.path}` : ""}`, mentions: [] }],
+      input: [
+        {
+          type: "text",
+          text: `From my walkthrough of ${subject}. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n${lines.join("\n")}${file}`,
+          mentions: [],
+        },
+      ],
     });
     return true;
   }

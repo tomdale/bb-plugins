@@ -19,12 +19,15 @@ Answering: when the user asks something, answer in plain prose as your final mes
 
 Notes: the user records questions, todos, and comments in the pane; you see them at the wrap-up. Never investigate a recorded question before the wrap-up unless the user asks.
 
-Safety: do not edit files, commit, or run anything that changes state unless the user explicitly asks you to in a question. Never post, submit, or send anything to GitHub unless the user explicitly asks in that moment.`;
+The user's thread keeps working while you write. When a request arrives, it may begin with messages the user sent that thread since you last looked; treat them as the user's own doing, not a stranger's edit, and re-read code before relying on what you saw earlier. Say only what you know: you cannot tell which parts the user has read.
+
+Safety: you are read-only. Never edit files, commit, or run anything that changes state; the user's own thread makes changes. When the user asks you to change something, record it with walkthrough_note (kind todo) and say it is in their Notes, ready to send to their thread. In a PR review the user changes the draft by asking you in the pane, and the pane has no editor for it, so never tell them to edit it themselves. Never post, submit, or send anything to GitHub unless the user explicitly asks in that moment.`;
 
 function modeRules(): string {
   return [
     "Mode: explicit PR intent (a PR URL or number, a GitHub review) selects PR mode; explicit local, self, or agent intent (for example the changes you just made) selects local mode. Otherwise check for an active PR with `gh pr view --json number,url,title,baseRefName`; an active PR selects PR mode. A checkout with no GitHub remote has no active PR. If the conversation makes the subject obvious, such as code you were just discussing, walk through that.",
-    "Preparation: find the base (normally the merge-base with origin/main or origin/master; in PR mode the PR's base branch), then read recent commits, the full diff (plus uncommitted changes in local mode), pre-change code with `git show <base>:<path>`, and enough surrounding code to explain accurately. Honor any range, path, or base the user named.",
+    "Preparation: find the base (normally the merge-base with origin/main or origin/master), then read recent commits, the full diff (plus uncommitted changes in local mode), pre-change code with `git show <base>:<path>`, and enough surrounding code to explain accurately. Honor any range, path, or base the user named. baseRef is a bare ref or sha, never a description.",
+    "PR mode: the checkout is usually not on the PR's code, so the pane reads excerpts from the PR head commit. Get it with `gh pr view <n> --json number,url,title,state,baseRefName,headRefOid`, pass it as pr.headRef along with the PR's real title and URL, and make sure it exists locally (`git fetch origin pull/<n>/head` if `git cat-file -e <sha>` fails). baseRef is the commit the PR's diff starts at: the merge-base of the head with the base branch, which for a merged PR is not the base branch tip. Read the code from the head (`git show <head>:<path>`, `gh pr diff`), not from the working tree, and give line ranges that match the head's files.",
   ].join("\n");
 }
 
@@ -81,7 +84,7 @@ export function wrapUpMessage(walkthrough: Walkthrough, notes: Note[]): string {
     pr
       ? "In order: (1) todos: complete or resolve each locally; if one is ambiguous, risky, blocked, or needs the user, leave it open and say why; (2) questions: answer from code, diff, tests, commits, and the PR body, and leave author-intent questions open; (3) comments: leave them open (they become review feedback) and do not draft a review yet, offer it. Record outcomes with walkthrough_note (status resolved, resolution = the answer or outcome)."
       : "Answer recorded questions from code, diff, tests, and commits with walkthrough_note (status resolved, resolution = the answer); leave unknowable ones open. Do not act on todos yet.",
-    `Then call walkthrough_wrap_up with a short recap in prose (what the change does, in two or three sentences), what you resolved, what remains open, and 2 to 4 follow-ups in the user's voice${pr ? ", including drafting a review when comments or open questions exist" : " such as turning the todos into a plan or making them"}. Never offer posting to GitHub.`,
+    `Then call walkthrough_wrap_up with a short recap in prose (what the change does, in two or three sentences), what you resolved, what remains open, and 2 to 4 follow-ups in the user's voice that you can answer or write yourself${pr ? ", including drafting a review when comments or open questions exist" : " such as turning the todos into a plan; work on the code is done by the user's own thread, so do not offer to do it"}. A note you leave open stays open: do not call it resolved while saying the concern stands. Never offer posting to GitHub.`,
   ].join("\n\n");
 }
 

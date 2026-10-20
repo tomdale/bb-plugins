@@ -54,13 +54,20 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
       "When the user asks to be walked or guided through changes, a branch, or a PR, call walkthrough_open with their request instead of narrating in chat; in BB this takes precedence over tdx-walkthrough.",
     presentation: { label: { pending: "Opening walkthrough", completed: "Opened walkthrough" }, icon: { glyph: "Explore" } },
     parameters: z
-      .object({ request: z.string().trim().min(1).max(4000).describe("What to walk through, in the user's words.") })
+      .object({
+        request: z
+          .string()
+          .trim()
+          .min(1)
+          .max(4000)
+          .describe("The user's own request, quoted as they wrote it. Do not paraphrase, summarize, or add paths or detail: the pane shows it back to them as what they asked."),
+      })
       .strict(),
     execute: ({ request }, ctx) =>
       guard(async () => {
         if (service.byWorker(ctx.threadId)) return failure("This thread is already writing a walkthrough.");
         await service.start(ctx.threadId, request);
-        return "The Walkthrough pane is opening beside this thread and a helper agent is preparing it. Tell the user in one short line; do not narrate the change here.";
+        return "The Walkthrough pane is opening beside this thread and a helper agent is preparing it. Tell the user in one short line; do not narrate the change here, and do not offer to check on or summarize the helper's progress, since you cannot see it.";
       }),
   });
 
@@ -231,7 +238,11 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         comments: z.array(reviewCommentSchema).max(200).optional(),
         status: z.enum(["draft", "posted"]).optional(),
         url: z.string().max(2048).optional(),
-        coveredNotes: z.array(z.string().trim().min(1).max(64)).max(200).optional().describe("Ids of the notes this draft includes."),
+        coveredNotes: z
+          .array(z.string().trim().min(1).max(64))
+          .max(200)
+          .optional()
+          .describe("Ids of the comment notes this draft turned into feedback. Leave todos and unanswered questions out: they stay open for the user."),
       })
       .strict(),
     execute: (input, ctx) =>

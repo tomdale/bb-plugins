@@ -248,7 +248,7 @@ describe("walkthrough orchestration", () => {
 
     expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: true });
     expect(sent.at(-1)).toMatchObject({ threadId: THREAD });
-    expect(sent.at(-1)!.text).toContain("Todo: Name the cap (tts.ts:3)");
+    expect(sent.at(-1)!.text).toContain('n1 todo [Keeping speech requests small · tts.ts:3]: "Name the cap"');
 
     await rpc("close", { walkthroughId });
     current = await view(walkthroughId);
