@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Sidebar Switcher",
-    "description": "Switch which plugin renders BB's sidebar thread list, navigation, and header from the sidebar footer or command palette.",
+    "description": "Switch which plugin renders BB's sidebar thread list and navigation from the sidebar footer or command palette.",
     "branding": {
       "icon": "PanelLeft"
     },
@@ -43,7 +43,7 @@
     "vaul": "^1.1.2",
     "vitest": "^4.1.11"
   },
-  "description": "Switch which plugin renders BB's sidebar thread list, navigation, and header from the sidebar footer or command palette.",
+  "description": "Switch which plugin renders BB's sidebar thread list and navigation from the sidebar footer or command palette.",
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

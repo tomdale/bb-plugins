@@ -62,7 +62,6 @@ export interface SwitcherState {
 const emptyProviders = (): Providers => ({
   threadList: [],
   navigation: [],
-  header: [],
 });
 
 function message(cause: unknown) {

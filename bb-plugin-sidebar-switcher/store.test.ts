@@ -23,7 +23,6 @@ function fakeBackend(
   const preferences: Record<SidebarPreferenceKey, PreferenceEntry> = {
     "sidebar.threadListProvider": { value: "__automatic__", revision: 3 },
     "sidebar.navigationProvider": { value: "__builtin__", revision: 1 },
-    "sidebar.headerProvider": { value: "__builtin__", revision: 0 },
   };
   const imported: string[] = [];
   const backend: SwitcherBackend = {
@@ -84,6 +83,34 @@ describe("switcher store", () => {
     // Bundles are cached by hash across refreshes.
     await store.refresh();
     expect(imported).toHaveLength(2);
+  });
+
+  it("refreshes and switches both providers with BB's navigation-owned header contract", async () => {
+    const { backend, preferences } = fakeBackend({
+      navigation: (app: any) => app.slots.experimental_sidebarNavigation({
+        id: "navigation",
+        title: "Navigation",
+        headerComponent() {},
+      }),
+      workstreams: bundles.workstreams,
+    }, [plugin("navigation"), plugin("workstreams")]);
+    // Current BB has no independent sidebar.headerProvider preference.
+    expect(await backend.listPreferences()).not.toHaveProperty("sidebar.headerProvider");
+    const store = createSwitcherStore({ ownPluginId: "sidebar-switcher" });
+    store.attach(backend);
+    await store.refresh();
+    expect(store.getState().status).toBe("ready");
+    expect(store.getState().error).toBeNull();
+    expect(store.getState().providers.navigation.map((p) => p.value)).toEqual([
+      "navigation/navigation",
+    ]);
+
+    await store.select("threadList", "workstreams/sidebar");
+    await store.select("navigation", "navigation/navigation");
+    expect(preferences["sidebar.threadListProvider"].value).toBe("workstreams/sidebar");
+    expect(preferences["sidebar.navigationProvider"].value).toBe("navigation/navigation");
+    expect(backend.setPreference).toHaveBeenCalledTimes(2);
+    expect(store.getState().pending).toEqual({});
   });
 
   it("retries a write once after a revision conflict", async () => {

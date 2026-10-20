@@ -3,19 +3,17 @@
 // preference value maps to a choice. No React, no SDK runtime.
 
 /** The exclusive sidebar slots BB lets the user pick a provider for. */
-export type SidebarSlotKind = "threadList" | "navigation" | "header";
+export type SidebarSlotKind = "threadList" | "navigation";
 
 export const SIDEBAR_SLOT_KINDS: readonly SidebarSlotKind[] = [
   "threadList",
   "navigation",
-  "header",
 ];
 
 /** The server-synced UI preference that selects each slot's provider. */
 export const PREFERENCE_KEY = {
   threadList: "sidebar.threadListProvider",
   navigation: "sidebar.navigationProvider",
-  header: "sidebar.headerProvider",
 } as const satisfies Record<SidebarSlotKind, string>;
 
 export type SidebarPreferenceKey = (typeof PREFERENCE_KEY)[SidebarSlotKind];
@@ -24,13 +22,11 @@ export type SidebarPreferenceKey = (typeof PREFERENCE_KEY)[SidebarSlotKind];
 const SLOT_METHOD: Record<string, SidebarSlotKind> = {
   experimental_threadList: "threadList",
   experimental_sidebarNavigation: "navigation",
-  experimental_sidebarHeader: "header",
 };
 
 export const SLOT_LABEL: Record<SidebarSlotKind, string> = {
   threadList: "Sidebar",
   navigation: "Navigation",
-  header: "Header",
 };
 
 export const AUTOMATIC = "__automatic__";
@@ -193,14 +189,13 @@ export function normalizePreference(
   kind: SidebarSlotKind,
   value: string,
 ): string {
-  if (kind === "header") return value === AUTOMATIC ? BUILTIN : value;
   if (value === BUILTIN) return BUNDLED_DEFAULT[kind] ?? value;
   return value;
 }
 
 /**
- * The switcher's rows for one slot: every provider by title, with the header
- * slot's None first. BB's Automatic sentinel is listed only while it is the
+ * The switcher's rows for one slot: every provider by title.
+ * BB's Automatic sentinel is listed only while it is the
  * saved value, so picking a provider hides it; a saved value naming a
  * missing provider is appended so the current state is always visible.
  */
@@ -210,11 +205,9 @@ export function choicesFor(
   currentValue: string | null,
 ): Choice[] {
   const choices: Choice[] = [
-    ...(kind === "header"
-      ? [{ value: BUILTIN, label: "None", detail: "BB's own header only", isUnavailable: false }]
-      : currentValue === AUTOMATIC
-        ? [{ value: AUTOMATIC, label: "Automatic", detail: null, isUnavailable: false }]
-        : []),
+    ...(currentValue === AUTOMATIC
+      ? [{ value: AUTOMATIC, label: "Automatic", detail: null, isUnavailable: false }]
+      : []),
     ...sortProviders(providers).map((provider) => ({
       value: provider.value,
       label: provider.title,
@@ -251,8 +244,7 @@ export function stepProvider(
   if (ordered.length === 0) return null;
   let index = ordered.findIndex((p) => p.value === currentValue);
   if (index === -1) {
-    const resolved =
-      kind === "header" ? null : resolveAutomatic(kind, ordered);
+    const resolved = resolveAutomatic(kind, ordered);
     index = resolved === null ? -1 : ordered.indexOf(resolved);
   }
   if (index === -1) return direction === 1 ? ordered[0]! : ordered.at(-1)!;

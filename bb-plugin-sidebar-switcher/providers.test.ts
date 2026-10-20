@@ -52,14 +52,16 @@ describe("collectSidebarRegistrations", () => {
           title: "Workstreams",
           description: "Grouped",
         });
-        app.slots.experimental_sidebarNavigation({ id: "nav", title: "Nav" });
-        app.slots.experimental_sidebarHeader({ id: "head" });
+        app.slots.experimental_sidebarNavigation({
+          id: "nav",
+          title: "Nav",
+          headerComponent() {},
+        });
       }),
     );
     expect(found).toEqual([
       { kind: "threadList", id: "sidebar", title: "Workstreams", description: "Grouped" },
       { kind: "navigation", id: "nav", title: "Nav", description: null },
-      { kind: "header", id: "head", title: "head", description: null },
     ]);
   });
 
@@ -101,7 +103,6 @@ describe("preferences and choices", () => {
   it("normalizes legacy sentinels the way BB does", () => {
     expect(normalizePreference("threadList", "__builtin__")).toBe("thread-list/thread-list");
     expect(normalizePreference("navigation", "__builtin__")).toBe("navigation/navigation");
-    expect(normalizePreference("header", "__automatic__")).toBe("__builtin__");
   });
 
   it("resolves Automatic to the first non-bundled provider", () => {
@@ -118,7 +119,6 @@ describe("preferences and choices", () => {
       "gone/list",
     ]);
     expect(choices.at(-1)?.isUnavailable).toBe(true);
-    expect(choicesFor("header", [], "__builtin__").map((c) => c.label)).toEqual(["None"]);
   });
 
   it("lists Automatic only while it is the saved value", () => {

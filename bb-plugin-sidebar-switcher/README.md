@@ -14,9 +14,9 @@ Settings → Appearance.
 - **Sidebar footer → Sidebar plugins** (panel icon) opens a menu of enabled
   sidebars. Pick one to switch; the menu closes as the change applies.
   *Automatic* appears only while it is the current setting.
-  If a plugin also replaces BB's sidebar navigation or the controls beside
-  the sidebar toggle (Settings → Appearance → Navigation / Header), a group
-  for that appears too.
+  If multiple plugins provide sidebar navigation, a Navigation group appears
+  too. Selecting a navigation provider also selects its controls beside the
+  sidebar toggle; those controls are part of that provider, not a separate choice.
 - **Command palette** (Mod+Shift+P):
   - *Switch to next sidebar* — default shortcut **Mod+Alt+L**.
   - *Switch to previous sidebar* — unbound by default.
@@ -26,8 +26,8 @@ Settings → Appearance.
   through sidebars in title order.
 
 Choices write the same synced UI preferences as Settings → Appearance
-(`sidebar.threadListProvider`, `sidebar.navigationProvider`,
-`sidebar.headerProvider`), so they apply to every window.
+(`sidebar.threadListProvider`, `sidebar.navigationProvider`), so they apply
+to every window.
 
 ## Development
 

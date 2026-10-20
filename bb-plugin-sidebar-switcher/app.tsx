@@ -1,6 +1,6 @@
 // Sidebar Switcher frontend: a sidebar-footer disclosure and palette commands
 // that change which plugin renders BB's sidebar (the thread list slot) and,
-// when alternatives exist, its navigation and header,
+// when alternatives exist, its navigation and associated header controls,
 // without a trip to Settings → Appearance.
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { RefObject } from "react";
@@ -86,8 +86,7 @@ function useSwitcherState(): SwitcherState {
 
 /** A slot is worth showing only when there is more than one real choice. */
 function hasAlternatives(kind: SidebarSlotKind, state: SwitcherState) {
-  const providers = state.providers[kind];
-  return kind === "header" ? providers.length >= 1 : providers.length >= 2;
+  return state.providers[kind].length >= 2;
 }
 
 function ChoiceRow({
