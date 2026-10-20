@@ -302,7 +302,7 @@ function Preparing({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc: Walkth
       <p className="font-serif text-lg leading-snug">“{walkthrough.request}”</p>
       {walkthrough.message && !waiting ? (
         <div className="space-y-3 rounded-md border border-border p-3">
-          <Prose text={walkthrough.message} context={{ environmentId: walkthrough.environmentId, codePath: null }} />
+          <Prose text={walkthrough.message} context={{ files: walkthrough, codePath: null }} />
           {walkthrough.status !== "failed" ? (
             <AskBox placeholder="Reply…" onSubmit={(text) => rpc.call("reply", { walkthroughId: walkthrough.id, text })} />
           ) : null}
@@ -321,7 +321,7 @@ function Introduction({ walkthrough, onOpen }: { walkthrough: Walkthrough; onOpe
         <p className="text-xs text-muted-foreground">Introduction</p>
         <h2 className="font-serif text-2xl font-medium leading-tight">{walkthrough.title}</h2>
       </header>
-      <Prose text={walkthrough.introduction} context={{ environmentId: walkthrough.environmentId, codePath: null }} />
+      <Prose text={walkthrough.introduction} context={{ files: walkthrough, codePath: null }} />
       <div>
         <p className="mb-2 text-xs text-muted-foreground">
           {walkthrough.parts.length === 1 ? "We’ll go through it in one part" : `We’ll go through it in ${walkthrough.parts.length} parts`}
@@ -355,7 +355,7 @@ function Blocks({ walkthrough, blocks, wide }: { walkthrough: Walkthrough; block
         const next = blocks.slice(index + 1).find((candidate) => candidate.kind === "code");
         const previous = blocks.slice(0, index).reverse().find((candidate) => candidate.kind === "code");
         const context: ProseContext = {
-          environmentId: walkthrough.environmentId,
+          files: walkthrough,
           codePath: next?.kind === "code" ? next.path : previous?.kind === "code" ? previous.path : null,
         };
         return <Prose key={index} text={block.text} context={context} className="my-3" />;
@@ -394,7 +394,7 @@ function PartPage({
         <Blocks walkthrough={walkthrough} blocks={part.blocks} wide={wide} />
       ) : part.status === "failed" ? (
         <div className="space-y-3">
-          {part.message ? <Prose text={part.message} context={{ environmentId: walkthrough.environmentId, codePath: null }} /> : null}
+          {part.message ? <Prose text={part.message} context={{ files: walkthrough, codePath: null }} /> : null}
           <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: index }).catch((cause: unknown) => toast.error(errorMessage(cause)))}>
             Try again
           </Button>
@@ -491,7 +491,7 @@ function ExchangeView({ walkthrough, exchange }: { walkthrough: Walkthrough; exc
     <div>
       <p className="font-serif italic">“{exchange.question}”</p>
       {exchange.answer ? (
-        <Prose text={exchange.answer} context={{ environmentId: walkthrough.environmentId, codePath: null }} className="mt-2" />
+        <Prose text={exchange.answer} context={{ files: walkthrough, codePath: null }} className="mt-2" />
       ) : null}
       {exchange.status === "queued" ? <p className="mt-1 text-xs text-muted-foreground">Waiting for the current step to finish…</p> : null}
       {exchange.status === "answering" && !exchange.answer ? <p className="mt-1 animate-pulse text-xs text-muted-foreground">Thinking…</p> : null}
@@ -569,7 +569,7 @@ function WrapUp({ walkthrough, rpc, wide, threadId }: { walkthrough: Walkthrough
         <Blocks walkthrough={walkthrough} blocks={part.blocks} wide={wide} />
       ) : part.status === "failed" ? (
         <div className="space-y-3">
-          {part.message ? <Prose text={part.message} context={{ environmentId: walkthrough.environmentId, codePath: null }} /> : null}
+          {part.message ? <Prose text={part.message} context={{ files: walkthrough, codePath: null }} /> : null}
           <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: "wrap-up" })}>
             Try again
           </Button>

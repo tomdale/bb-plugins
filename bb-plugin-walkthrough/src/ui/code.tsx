@@ -42,13 +42,13 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
     <figure className={cn("my-5 grid gap-x-4 gap-y-2", wide && notes.length > 0 ? "grid-cols-[minmax(0,1fr)_11rem]" : "grid-cols-1")}>
       <figcaption className="col-span-full flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-serif text-[13.5px] text-foreground">{block.caption}</span>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <LocationLink
-            environmentId={walkthrough.environmentId}
+            files={walkthrough}
             location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }}
-            className="text-muted-foreground"
+            className="min-w-0 break-all text-muted-foreground"
           />
-          <span role="group" aria-label="Show the code as" className="flex overflow-hidden rounded-md border border-border">
+          <span role="group" aria-label="Show the code as" className="flex shrink-0 overflow-hidden rounded-md border border-border">
             {VIEWS.map((candidate) => (
               <button
                 key={candidate}
@@ -74,7 +74,7 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
           </p>
         ) : patch ? (
           <div className={cn("relative", long && !expanded && "max-h-[28rem] overflow-hidden")}>
-            <Diff patch={patch} path={block.path} />
+            <Diff patch={patch} path={available?.path ?? block.path} />
             {long && !expanded ? (
               <button
                 type="button"

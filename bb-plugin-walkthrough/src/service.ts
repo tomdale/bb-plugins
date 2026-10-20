@@ -7,7 +7,9 @@
 // ends. SQLite is the source of truth; the pane re-reads it on every change
 // signal, and `.agent/review-notes.md` mirrors the notes once one exists.
 import { randomUUID } from "node:crypto";
-import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
+import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
+import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
 import { renderNotesMarkdown } from "./model.ts";
 import { filterPatchToRange } from "./patch.ts";
 import type { DiffResult, ExcerptResult } from "./rpc.ts";
@@ -76,11 +78,15 @@ export class WalkthroughService {
   private readonly locks = new Map<string, Promise<void>>();
   private readonly streaming = new Set<string>();
 
+  private readonly codeHost: ExperimentalHostClient<typeof codeHostContract>;
+
   constructor(
     private readonly bb: BbPluginApi,
     private readonly store: WalkthroughStore,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.codeHost = bb.hosts.experimental_client({ contract: codeHostContract });
+  }
 
   // -- lookup ---------------------------------------------------------------
 
@@ -723,6 +729,23 @@ export class WalkthroughService {
 
   // -- code -----------------------------------------------------------------
 
+  private async loadCode(walkthrough: Walkthrough, path: string, withFullFile: boolean): Promise<CodeSnapshot> {
+    const relative = workspaceRelativePath(path, walkthrough.workspacePath);
+    if (relative === null) {
+      if (!isAbsolutePath(path) || walkthrough.hostId === null) throw new WalkthroughError("This code path has no known workspace or host.");
+      return this.codeHost.call(
+        "readCode",
+        { path, baseRef: walkthrough.baseRef, includeUncommitted: walkthrough.includeUncommitted, withFullFile },
+        { hostId: walkthrough.hostId },
+      );
+    }
+    const file = await this.filePatch(walkthrough, relative);
+    const patch = typeof file === "string" ? "" : file.patch;
+    const sides = withFullFile ? await this.fullFile(walkthrough, relative, patch) : null;
+    if (typeof file === "string" && sides === null) throw new WalkthroughError(file);
+    return { path: relative, patch, truncated: typeof file !== "string" && file.truncated, sides };
+  }
+
   private diffTarget(walkthrough: Walkthrough) {
     return walkthrough.includeUncommitted ? ("all" as const) : ("branch_committed" as const);
   }
@@ -750,12 +773,12 @@ export class WalkthroughService {
   ): Promise<DiffResult> {
     try {
       const walkthrough = this.get(walkthroughId);
-      const file = await this.filePatch(walkthrough, path);
-      if (typeof file === "string") return { outcome: "unavailable", message: file };
+      const file = await this.loadCode(walkthrough, path, withFullFile);
+      if (!file.patch) return { outcome: "unavailable", message: `${path} has no changes against ${walkthrough.baseRef}.` };
       const start = range.startLine;
       const narrowed = start === undefined ? { patch: file.patch, filtered: false } : filterPatchToRange(file.patch, start, range.endLine ?? start);
-      const fullFileContents = withFullFile && !narrowed.filtered ? await this.fullFile(walkthrough, path, file.patch) : null;
-      return { outcome: "available", path, patch: narrowed.patch, truncated: file.truncated, filtered: narrowed.filtered, fullFileContents };
+      const fullFileContents = !narrowed.filtered ? file.sides : null;
+      return { outcome: "available", path: file.path, patch: narrowed.patch, truncated: file.truncated, filtered: narrowed.filtered, fullFileContents };
     } catch (cause) {
       return { outcome: "unavailable", message: errorText(cause) };
     }
@@ -769,16 +792,16 @@ export class WalkthroughService {
   async excerpt(walkthroughId: string, path: string, startLine: number, endLine: number): Promise<ExcerptResult> {
     try {
       const walkthrough = this.get(walkthroughId);
-      const file = await this.filePatch(walkthrough, path);
-      const sides = await this.fullFile(walkthrough, path, typeof file === "string" ? "" : file.patch);
-      const change = typeof file === "string" ? null : filterPatchToRange(file.patch, startLine, endLine).patch;
+      const file = await this.loadCode(walkthrough, path, true);
+      const sides = file.sides;
+      const change = file.patch ? filterPatchToRange(file.patch, startLine, endLine).patch : null;
       const low = Math.min(startLine, endLine);
       const high = Math.max(startLine, endLine);
-      const after = sides ? contextPatch(path, sides.new.content, low, high) : null;
-      const beforeRange = change ? oldRange(change) : null;
-      const before = sides && beforeRange ? contextPatch(path, sides.old.content, beforeRange.start, beforeRange.end) : null;
-      if (change === null && after === null) return { outcome: "unavailable", message: typeof file === "string" ? file : "No code to show." };
-      return { outcome: "available", path, change, after, before };
+      const after = sides ? contextPatch(file.path, sides.new.content, low, high) : null;
+      const beforeRange = change ? oldRange(change) : { start: low, end: high };
+      const before = sides && beforeRange ? contextPatch(file.path, sides.old.content, beforeRange.start, beforeRange.end) : null;
+      if (change === null && after === null) return { outcome: "unavailable", message: "No code to show." };
+      return { outcome: "available", path: file.path, change, after, before };
     } catch (cause) {
       return { outcome: "unavailable", message: errorText(cause) };
     }

@@ -4,9 +4,10 @@
 import { Fragment, type ReactNode } from "react";
 import { experimental_FileLink as FileLink, UrlLink } from "@get-bb/plugin-sdk/app";
 import { cn } from "@/lib/utils";
+import { fileTarget, type FileContext } from "../files.ts";
 
 export interface ProseContext {
-  environmentId: string | null;
+  files: FileContext;
   /** The code block a `line:` reference points into. */
   codePath: string | null;
 }
@@ -25,11 +26,12 @@ function link(label: ReactNode, href: string, context: ProseContext, key: string
   const refClass = "cursor-pointer border-b border-dotted border-muted-foreground/70 hover:bg-secondary";
   if (href.startsWith("line:")) {
     const range = lineRange(href.slice(5));
-    if (range && context.codePath && context.environmentId) {
+    const target = context.codePath ? fileTarget(context.files, context.codePath) : null;
+    if (range && target) {
       return (
         <FileLink
           key={key}
-          target={{ kind: "workspace", environmentId: context.environmentId, path: context.codePath }}
+          target={target}
           location={range.start === range.end ? { kind: "line", line: range.start, column: null } : { kind: "range", startLine: range.start, endLine: range.end }}
           className={refClass}
           title={`${context.codePath}, line${range.start === range.end ? ` ${range.start}` : `s ${range.start}–${range.end}`}`}
@@ -52,13 +54,14 @@ function link(label: ReactNode, href: string, context: ProseContext, key: string
     );
   }
   const file = /^([^#]+?)(?:#L(\d+)(?:-L?(\d+))?)?$/u.exec(href);
-  if (file && context.environmentId && !href.includes("://")) {
+  const target = file && !href.includes("://") ? fileTarget(context.files, file[1]!) : null;
+  if (file && target) {
     const start = file[2] ? Number(file[2]) : null;
     const end = file[3] ? Number(file[3]) : start;
     return (
       <FileLink
         key={key}
-        target={{ kind: "workspace", environmentId: context.environmentId, path: file[1]! }}
+        target={target}
         location={start === null ? null : start === end ? { kind: "line", line: start, column: null } : { kind: "range", startLine: start, endLine: end! }}
         className={refClass}
       >

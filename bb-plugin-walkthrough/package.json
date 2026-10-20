@@ -13,6 +13,7 @@
       "icon": "Explore"
     },
     "server": "./server.ts",
+    "host": "./host.ts",
     "app": "./app.tsx",
     "skills": [
       "skills"
@@ -66,6 +67,7 @@
     "README.md",
     "PLUGIN_OVERVIEW.md",
     "server.ts",
+    "host.ts",
     "app.tsx",
     "src",
     "components",

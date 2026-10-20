@@ -5,11 +5,13 @@ import plugin from "../server.ts";
 const THREAD = "thr_user";
 const WORKER = "thr_worker";
 
-async function setup(options: { forkFails?: boolean } = {}) {
+async function setup(options: { forkFails?: boolean; readCode?: () => unknown } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
+    experimental_hostEntry: true,
+    experimental_callHostRpc: () => options.readCode?.(),
     sdk: {
       threads: {
         get: async (args: { threadId: string }) => makeThreadResponse({ id: args.threadId, environmentId: "env_1", status: "idle" }),
@@ -78,6 +80,33 @@ const PART = {
   ],
   suggestions: ["Why 4,000?"],
 };
+
+describe("walkthrough code routing", () => {
+  const patch = "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new\n";
+
+  it("loads an excerpt from another repository on the walkthrough's host", async () => {
+    const { rpc, tool, harness } = await setup({ readCode: () => ({
+      path: "src/file.ts", patch, truncated: false,
+      sides: { old: { path: "src/file.ts", content: "old\n" }, new: { path: "src/file.ts", content: "new\n" } },
+    }) });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain another repository" });
+    await tool("walkthrough_plan", PLAN);
+    const result = await rpc("excerpt", { walkthroughId, path: "/work/other/src/file.ts", startLine: 1, endLine: 1 });
+    expect(result).toMatchObject({ outcome: "available", path: "src/file.ts", change: patch, after: expect.stringContaining(" new"), before: expect.stringContaining(" old") });
+    expect(harness.inspection.sdk.callsTo("environments.diffPatch")).toHaveLength(0);
+    expect(harness.experimental_hostRpcCalls).toMatchObject([{ hostId: "host_1", method: "readCode", input: { path: "/work/other/src/file.ts", baseRef: "origin/main", includeUncommitted: true, withFullFile: true } }]);
+  });
+
+  it("normalizes an absolute in-workspace path for the environment diff API", async () => {
+    const { rpc, tool, harness } = await setup();
+    harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [{ path: "src/file.ts", patch, truncated: false }] }));
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain this repo" });
+    await tool("walkthrough_plan", PLAN);
+    expect(await rpc("diff", { walkthroughId, path: "/work/repo/src/file.ts" })).toMatchObject({ outcome: "available", path: "src/file.ts", patch });
+    expect(harness.inspection.sdk.callsTo("environments.diffPatch")[0]?.[0]).toMatchObject({ paths: ["src/file.ts"] });
+    expect(harness.experimental_hostRpcCalls).toHaveLength(0);
+  });
+});
 
 describe("walkthrough orchestration", () => {
   it("forks a hidden worker, plans, then writes the part on screen and the next one", async () => {

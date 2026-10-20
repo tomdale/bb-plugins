@@ -3,22 +3,24 @@ import { experimental_Diff as Diff, experimental_FileLink as FileLink } from "@g
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatLocation, shortRef } from "../model.ts";
+import { fileTarget, type FileContext } from "../files.ts";
 import type { DiffResult } from "../rpc.ts";
 import type { Location, Walkthrough } from "../schemas.ts";
 import { errorMessage, useWalkthroughRpc } from "./hooks.ts";
 
-/** A clickable workspace file reference, or plain text when no workspace is known. */
+/** A live file reference, routed to its workspace or explicit host. */
 export function LocationLink({
-  environmentId,
+  files,
   location,
   className,
 }: {
-  environmentId: string | null;
+  files: FileContext;
   location: Location;
   className?: string;
 }) {
   const label = formatLocation(location) ?? location.path;
-  if (environmentId === null) return <code className={cn("text-xs", className)}>{label}</code>;
+  const target = fileTarget(files, location.path);
+  if (target === null) return <code className={cn("text-xs", className)}>{label}</code>;
   const fileLocation =
     location.startLine === undefined
       ? null
@@ -27,7 +29,7 @@ export function LocationLink({
         : ({ kind: "range", startLine: location.startLine, endLine: location.endLine } as const);
   return (
     <FileLink
-      target={{ kind: "workspace", environmentId, path: location.path }}
+      target={target}
       location={fileLocation}
       className={cn("font-mono text-xs underline-offset-2 hover:underline", className)}
     >
@@ -87,7 +89,7 @@ export function DiffView({
     <div className="overflow-hidden rounded-md border border-border bg-card">
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5">
         <Icon name="FileDiff" className="size-3.5 text-muted-foreground" aria-hidden />
-        <LocationLink environmentId={walkthrough.environmentId} location={location} />
+        <LocationLink files={walkthrough} location={location} />
         <span className="ml-auto text-xs text-muted-foreground" title={walkthrough.baseRef}>
           vs {shortRef(walkthrough.baseRef)}
         </span>

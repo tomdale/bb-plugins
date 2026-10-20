@@ -307,7 +307,7 @@ function NoteRow({ walkthrough, note, rpc }: { walkthrough: Walkthrough; note: N
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             <span>{note.id}</span>
             {group ? <span className="truncate">{group}</span> : null}
-            {note.location ? <LocationLink environmentId={walkthrough.environmentId} location={note.location} /> : null}
+            {note.location ? <LocationLink files={walkthrough} location={note.location} /> : null}
             {note.author === "agent" ? <span className="rounded bg-secondary px-1 text-secondary-foreground">agent</span> : null}
           </div>
         </>
@@ -420,7 +420,7 @@ export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc:
             {review.comments.map((comment, index) => (
               <li key={`${comment.path}:${comment.line}:${index}`} className="space-y-1 rounded-md border border-border px-3 py-2">
                 <LocationLink
-                  environmentId={walkthrough.environmentId}
+                  files={walkthrough}
                   location={{
                     path: comment.path,
                     startLine: comment.startLine ?? comment.line,

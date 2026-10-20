@@ -190,7 +190,12 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   repository-scoped child threads, using Workforest task worktrees for isolation.
   A plugin-owned composer picker selects existing roots or member checkouts and
   registers projects automatically. Workspace roots retain filesystem context;
-  native Git integration remains in repository threads.
+  native Git integration remains in repository threads. Walkthrough uses a
+  read-only host entry for absolute excerpts outside the conversation's workspace:
+  `environments.diffPatch` accepts an environment ID and paths, not a repository
+  root, so it cannot compare a different checkout from a coordinator thread.
+  The host entry resolves the excerpt's Git root and reads the patch and revisions
+  there; absolute file links use explicit host targets.
 - **Possible API:** environment repository inventory with explicit Git operation
   targets, and a composer selection contract that can seed provider inputs.
 

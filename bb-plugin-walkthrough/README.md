@@ -41,6 +41,13 @@ its final message, streamed into the pane. Ordinary threads get one tool,
 `walkthrough_open`. The worker is archived with the thread, or when the user
 clicks Done.
 
+Excerpts inside the thread's workspace use BB's environment diff APIs. Absolute
+paths in another checkout use a read-only host entry that resolves the file's
+Git repository and compares against the walkthrough's base there. Local mode
+includes working-tree edits; committed mode reads HEAD. File and line links open
+BB's preview using workspace-relative paths or an explicit host target, so a
+walkthrough can explain code outside the conversation's working directory.
+
 ## Settings
 
 `autoOpenPanel` (default on): open the pane when an agent starts a
