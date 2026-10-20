@@ -22,7 +22,11 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
   FieldRow,
+  INLINE_TRIGGER_CLASS,
   ProjectFields,
+  ROW_GRID_CLASS,
+  ROW_LABEL_CLASS,
+  ROW_VALUE_CLASS,
   type ProjectChoice,
 } from "./project-fields.js";
 import {
@@ -59,7 +63,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { vercelRpcContract } from "./rpc.js";
-import { PROVIDER_ID } from "./provider-id.js";
+import { IMAGE, PROVIDER_ID } from "./provider-id.js";
 
 type Contract = typeof vercelRpcContract;
 type LaunchOptions = PluginRpcResult<Contract["launch.options"]>;
@@ -617,10 +621,6 @@ function hostLabel(hosts: Load<AccountHost[]>, hostId: string): string {
   return host?.name ?? hostId;
 }
 
-// Label and value columns shared by the read-only rows and the inline editor,
-// so editing swaps values for controls in place and sections line up.
-const CONNECTION_GRID = "grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 text-sm";
-
 /** A display name whose underlying Vercel ID appears on hover or focus. */
 function NamedId({ name, id }: { name: string | null; id: string }) {
   if (name === null) return <span className="break-all font-mono">{id}</span>;
@@ -629,13 +629,39 @@ function NamedId({ name, id }: { name: string | null; id: string }) {
       <TooltipTrigger asChild>
         <span
           tabIndex={0}
-          className="cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-fit cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {name}
         </span>
       </TooltipTrigger>
       <TooltipContent className="font-mono">{id}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * A read-only row of the account grid, matching an editable row's size.
+ * Rows outside a description list, such as beside the editor's pickers,
+ * render as plain grid cells.
+ */
+function StaticRow({
+  term,
+  inList = true,
+  children,
+}: {
+  term: string;
+  inList?: boolean;
+  children: ReactNode;
+}) {
+  const Term = inList ? "dt" : "div";
+  const Value = inList ? "dd" : "div";
+  return (
+    <div className="contents">
+      <Term className={ROW_LABEL_CLASS}>{term}</Term>
+      <Value className={cn(ROW_VALUE_CLASS, "break-words text-foreground")}>
+        {children}
+      </Value>
+    </div>
   );
 }
 
@@ -646,44 +672,93 @@ function ConnectionDetails({
   account: SavedAccount;
   machineName: string;
 }) {
-  const rows: { term: string; value: ReactNode }[] = [
-    { term: "Machine", value: machineName },
-  ];
-  if (account.teamId !== null)
-    rows.push({
-      term: "Team",
-      value: <NamedId name={account.teamName} id={account.teamId} />,
-    });
-  if (account.projectId !== null)
-    rows.push({
-      term: "Project",
-      value: <NamedId name={account.projectName} id={account.projectId} />,
-    });
-  if (account.accountId !== null)
-    rows.push({
-      term: "Signed in as",
-      value: <NamedId name={account.accountName} id={account.accountId} />,
-    });
-  if (account.directory !== null)
-    rows.push({
-      term: "Linked folder",
-      value: <span className="break-all font-mono">{account.directory}</span>,
-    });
   return (
-    <dl className={cn(CONNECTION_GRID, "gap-y-1.5")}>
-      {rows.map(({ term, value }) => (
-        <div key={term} className="contents">
-          <dt className="text-muted-foreground">{term}</dt>
-          <dd className="min-w-0 break-words text-foreground">{value}</dd>
-        </div>
-      ))}
+    <dl className={ROW_GRID_CLASS}>
+      <StaticRow term="Machine">{machineName}</StaticRow>
+      {account.teamId === null ? null : (
+        <StaticRow term="Team">
+          <NamedId name={account.teamName} id={account.teamId} />
+        </StaticRow>
+      )}
+      {account.projectId === null ? null : (
+        <StaticRow term="Project">
+          <NamedId name={account.projectName} id={account.projectId} />
+        </StaticRow>
+      )}
+      <IdentityRows account={account} />
     </dl>
   );
 }
 
+/** Rows that come from the CLI login rather than a choice in Settings. */
+function IdentityRows({
+  account,
+  inList = true,
+}: {
+  account: SavedAccount;
+  inList?: boolean;
+}) {
+  return (
+    <>
+      {account.accountId === null ? null : (
+        <StaticRow term="Signed in as" inList={inList}>
+          <NamedId name={account.accountName} id={account.accountId} />
+        </StaticRow>
+      )}
+      {account.directory === null ? null : (
+        <StaticRow term="Linked folder" inList={inList}>
+          <span className="break-all font-mono">{account.directory}</span>
+        </StaticRow>
+      )}
+    </>
+  );
+}
+
+const STATUS_TONES = {
+  muted: "text-muted-foreground",
+  normal: "text-foreground",
+  success: "text-foreground",
+  error: "text-destructive-text",
+} as const;
+
 /**
- * The one-line connection state above the details. Checking and connected
- * share the same single-line shape so a finished check doesn't move the page.
+ * The status line under the Account heading. The icon box is one line tall
+ * so the icon centers on the first line of text at any font size.
+ */
+function StatusLine({
+  icon,
+  tone,
+  alert = false,
+  children,
+}: {
+  icon: "Spinner" | "AlertCircle" | "Info" | "CircleCheck";
+  tone: keyof typeof STATUS_TONES;
+  alert?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role={alert ? "alert" : "status"}
+      className={cn("flex items-start gap-2 text-sm", STATUS_TONES[tone])}
+    >
+      <span className="flex h-[1lh] shrink-0 items-center">
+        <Icon
+          name={icon}
+          className={cn(
+            "size-3.5",
+            icon === "Spinner" && "animate-spin",
+            tone === "success" && "text-success",
+          )}
+        />
+      </span>
+      <div className="min-w-0 break-words">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The connection state above the details. Checking and connected are both
+ * one line so a finished check doesn't move the page.
  */
 function ConnectionStatus({
   state,
@@ -695,67 +770,54 @@ function ConnectionStatus({
   known: SavedAccount | null;
   hosts: Load<AccountHost[]>;
 }) {
-  const line = "flex min-h-5 items-start gap-2 text-sm";
-  const icon = "mt-[3px] size-3.5 shrink-0";
   if (state.status === "pending") {
     return (
-      <p role="status" className={cn(line, "text-muted-foreground")}>
-        <Icon name="Spinner" className={cn(icon, "animate-spin")} />
+      <StatusLine icon="Spinner" tone="muted">
         {known?.hostId
           ? `Checking the Vercel CLI on ${hostLabel(hosts, known.hostId)}…`
           : "Checking the Vercel connection…"}
-      </p>
+      </StatusLine>
     );
   }
   if (state.status === "error") {
     return (
-      <p role="alert" className={cn(line, "text-destructive-text")}>
-        <Icon name="AlertCircle" className={icon} />
+      <StatusLine icon="AlertCircle" tone="error" alert>
         Couldn't check the Vercel connection. Try again in a moment.
-      </p>
+      </StatusLine>
     );
   }
   const account = state.data;
   if (account.hostId === null) {
     return (
-      <div role="status" className="space-y-1">
-        <p className={cn(line, "text-foreground")}>
-          <Icon name="Info" className={icon} />
-          <span className="min-w-0 break-words">
-            Not connected. Sign in with the Vercel CLI on one of your machines,
-            then choose where sandboxes are created.
-          </span>
+      <StatusLine icon="Info" tone="normal">
+        <p>
+          Not connected. Sign in with the Vercel CLI on one of your machines,
+          then choose where sandboxes are created.
         </p>
         {account.message === "" ? null : (
-          <p className="pl-5.5 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {account.message}
           </p>
         )}
-      </div>
+      </StatusLine>
     );
   }
   if (!account.available) {
     return (
-      <div role="alert" className="space-y-1">
-        <p className={cn(line, "text-destructive-text")}>
-          <Icon name="AlertCircle" className={icon} />
-          <span className="min-w-0 break-words">{account.message}</span>
-        </p>
-        <p className="pl-5.5 text-xs leading-relaxed text-muted-foreground">
+      <StatusLine icon="AlertCircle" tone="error" alert>
+        <p>{account.message}</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           BB can't start or manage sandboxes with this account. Fix it on{" "}
           {hostLabel(hosts, account.hostId)} and check again, or edit the
           account.
         </p>
-      </div>
+      </StatusLine>
     );
   }
   return (
-    <p role="status" className={cn(line, "text-foreground")}>
-      <Icon name="CircleCheck" className={cn(icon, "text-success")} />
-      <span className="min-w-0 break-words">
-        Connected. New sandboxes are created with this account.
-      </span>
-    </p>
+    <StatusLine icon="CircleCheck" tone="success">
+      Connected. New sandboxes are created with this account.
+    </StatusLine>
   );
 }
 
@@ -826,7 +888,7 @@ function MachineField({
           size="sm"
           aria-labelledby={`${labelId} ${labelId}-value`}
           aria-describedby={describedById}
-          className="w-full min-w-0 justify-between"
+          className={INLINE_TRIGGER_CLASS}
         >
           <span id={`${labelId}-value`} className="min-w-0 truncate">
             {triggerLabel}
@@ -861,13 +923,15 @@ function MachineField({
 }
 
 /**
- * Chooses the machine, team, and project for new sandboxes. In setup it
- * explains the CLI sign-in first; in edit it replaces the read-only rows in
- * place, preselected with the saved connection.
+ * The Account section while choosing the machine, team, and project. Setup
+ * explains the CLI sign-in and connects below the fields. Edit keeps the
+ * read-only layout: pickers replace the static values in place, preselected
+ * with the saved connection, and Save and Cancel replace Edit in the heading.
  */
 function ConnectForm({
   account,
   mode,
+  status,
   hosts,
   retryHosts,
   onConnected,
@@ -876,6 +940,8 @@ function ConnectForm({
 }: {
   account: SavedAccount | null;
   mode: "setup" | "edit";
+  /** The connection status shown under the heading during setup. */
+  status: ReactNode;
   hosts: Load<AccountHost[]>;
   retryHosts: () => void;
   onConnected: (account: AccountStatus) => void;
@@ -928,6 +994,9 @@ function ConnectForm({
         : `${selectedHost.name} is offline. Reconnect it to BB before connecting Vercel.`;
   const connecting = connect.status === "connecting";
   const editing = mode === "edit";
+  useEffect(() => {
+    if (editing) machineTriggerRef.current?.focus();
+  }, [editing]);
   const initialScope =
     account !== null &&
     account.hostId === hostId &&
@@ -974,6 +1043,33 @@ function ConnectForm({
       );
   };
 
+  const submitButton = (
+    <Button
+      type="submit"
+      size="sm"
+      disabled={connecting || scope === null}
+      aria-busy={connecting}
+    >
+      {connecting ? (
+        <Icon name="Spinner" className="size-3.5 animate-spin" />
+      ) : null}
+      {connecting
+        ? editing
+          ? "Saving…"
+          : "Connecting…"
+        : editing
+          ? "Save"
+          : "Connect"}
+    </Button>
+  );
+  const failure =
+    connect.status === "failed" ? (
+      <>
+        {CONNECT_FAILED_MESSAGE}
+        <FailureReason reason={connect.reason} />
+      </>
+    ) : null;
+
   return (
     <form
       noValidate
@@ -981,8 +1077,45 @@ function ConnectForm({
         editing ? "Edit the Vercel account" : "Connect the Vercel CLI"
       }
       onSubmit={submit}
-      className="space-y-4"
+      onKeyDown={(event) => {
+        if (editing && event.key === "Escape" && !connecting) onCancel();
+      }}
+      className="space-y-3"
     >
+      <SettingsHeading
+        title="Account"
+        action={
+          editing ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={connecting}
+                onClick={onCancel}
+              >
+                Cancel
+              </Button>
+              {submitButton}
+            </div>
+          ) : undefined
+        }
+      />
+      {editing ? (
+        failure === null ? (
+          <StatusLine icon="Info" tone="muted">
+            Changes apply to new sandboxes. To switch Vercel users, run{" "}
+            <code className="font-mono text-foreground">vc login</code> on the
+            machine first.
+          </StatusLine>
+        ) : (
+          <StatusLine icon="AlertCircle" tone="error" alert>
+            {failure}
+          </StatusLine>
+        )
+      ) : (
+        status
+      )}
       {editing ? null : (
         <ol className="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
           <li>
@@ -1001,10 +1134,7 @@ function ConnectForm({
         </ol>
       )}
 
-      <fieldset
-        disabled={connecting}
-        className={cn(CONNECTION_GRID, "max-w-lg items-start gap-y-2")}
-      >
+      <fieldset disabled={connecting} className={ROW_GRID_CLASS}>
         <FieldRow label="Machine" labelId={machineLabelId}>
           <MachineField
             labelId={machineLabelId}
@@ -1046,71 +1176,39 @@ function ConnectForm({
             onChoose={chooseProject}
           />
         ) : null}
+        {editing && account !== null ? (
+          <IdentityRows account={account} inList={false} />
+        ) : null}
       </fieldset>
 
-      {editing ? (
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Changes apply to new sandboxes; existing sandboxes keep the account
-          they started with. To use a different Vercel user, run{" "}
-          <code className="font-mono text-foreground">vc login</code> on the
-          machine first.
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          type="submit"
-          size="sm"
-          disabled={connecting || scope === null}
-          aria-busy={connecting}
-        >
-          {connecting ? (
-            <Icon name="Spinner" className="size-3.5 animate-spin" />
-          ) : null}
-          {connecting
-            ? editing
-              ? "Saving…"
-              : "Connecting…"
-            : editing
-              ? "Save"
-              : "Connect"}
-        </Button>
-        {editing ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={connecting}
-            onClick={onCancel}
-          >
-            Cancel
-          </Button>
-        ) : null}
-        {scope === null && hostId !== null && selectedHost?.online ? (
-          <p className="text-xs text-muted-foreground">
-            Choose a team and project first.
-          </p>
-        ) : null}
-        {connect.status === "failed" ? (
-          <p role="alert" className="text-xs text-destructive-text">
-            {CONNECT_FAILED_MESSAGE}
-            <FailureReason reason={connect.reason} />
-          </p>
-        ) : null}
-      </div>
-
       {editing ? null : (
-        <div className="max-w-prose space-y-1 text-xs leading-relaxed text-muted-foreground">
-          <p>
-            Your Vercel sign-in stays in the CLI on that machine. BB saves only
-            the machine and the account, team, and project IDs, and asks the CLI
-            for a short-lived token each time.
-          </p>
-          <p>
-            This page can't remove an access token saved by an earlier version
-            of this plugin; revoke that token in Vercel if you no longer use it.
-          </p>
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            {submitButton}
+            {scope === null && hostId !== null && selectedHost?.online ? (
+              <p className="text-xs text-muted-foreground">
+                Choose a team and project first.
+              </p>
+            ) : null}
+            {failure === null ? null : (
+              <p role="alert" className="text-xs text-destructive-text">
+                {failure}
+              </p>
+            )}
+          </div>
+          <div className="max-w-prose space-y-1 text-xs leading-relaxed text-muted-foreground">
+            <p>
+              Your Vercel sign-in stays in the CLI on that machine. BB saves
+              only the machine and the account, team, and project IDs, and asks
+              the CLI for a short-lived token each time.
+            </p>
+            <p>
+              This page can't remove an access token saved by an earlier version
+              of this plugin; revoke that token in Vercel if you no longer use
+              it.
+            </p>
+          </div>
+        </>
       )}
     </form>
   );
@@ -1373,9 +1471,14 @@ function VercelSettingsSection() {
   const readSaved = useCallback(() => rpc.call("account.saved", {}), [rpc]);
   const saved = useLoad(readSaved);
   const hosts = useAccountHosts();
-  const { state: options, retry: retryOptions } = useLaunchOptions();
-  const loaded = options.status === "ready" ? options.data : null;
   const [editing, setEditing] = useState(false);
+  // Leaving edit mode returns focus to the Edit button that opened it.
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (wasEditing.current && !editing) editButtonRef.current?.focus();
+    wasEditing.current = editing;
+  }, [editing]);
   const checkAgain = () => {
     account.retry();
     hosts.retry();
@@ -1406,62 +1509,70 @@ function VercelSettingsSection() {
     account.replace(next);
     setEditing(false);
   };
+  const status = (
+    <ConnectionStatus state={account.state} known={known} hosts={hosts.state} />
+  );
   return (
     <TooltipProvider delayDuration={300}>
       <div className="w-full min-w-0 space-y-6">
-        <section className="space-y-3">
-          <SettingsHeading
-            title="Account"
-            action={
-              <div className="flex items-center gap-2">
-                {recheckable ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={checking}
-                    onClick={checkAgain}
-                  >
-                    {checking ? (
-                      <Icon name="Spinner" className="size-3.5 animate-spin" />
-                    ) : null}
-                    Check again
-                  </Button>
-                ) : null}
-                {known?.hostId && !editing ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setEditing(true)}
-                  >
-                    Edit
-                  </Button>
-                ) : null}
-              </div>
-            }
-          />
-          <ConnectionStatus
-            state={account.state}
-            known={known}
-            hosts={hosts.state}
-          />
+        <section>
           {setup || editing ? (
             <ConnectForm
               account={known}
               mode={editing ? "edit" : "setup"}
+              status={status}
               hosts={hosts.state}
               retryHosts={hosts.retry}
               onConnected={connectionLoaded}
               onCancel={() => setEditing(false)}
               reinspect={account.retry}
             />
-          ) : known?.hostId ? (
-            <ConnectionDetails
-              account={known}
-              machineName={hostLabel(hosts.state, known.hostId)}
-            />
-          ) : null}
+          ) : (
+            <div className="space-y-3">
+              <SettingsHeading
+                title="Account"
+                action={
+                  <div className="flex items-center gap-2">
+                    {recheckable ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={checking}
+                        onClick={checkAgain}
+                      >
+                        {checking ? (
+                          <Icon
+                            name="Spinner"
+                            className="size-3.5 animate-spin"
+                          />
+                        ) : null}
+                        Check again
+                      </Button>
+                    ) : null}
+                    {known?.hostId ? (
+                      <Button
+                        ref={editButtonRef}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditing(true)}
+                      >
+                        Edit
+                      </Button>
+                    ) : null}
+                  </div>
+                }
+              />
+              {status}
+              {known?.hostId ? (
+                <ConnectionDetails
+                  account={known}
+                  machineName={hostLabel(hosts.state, known.hostId)}
+                />
+              ) : null}
+            </div>
+          )}
         </section>
 
         <LegacyAllocations
@@ -1472,65 +1583,13 @@ function VercelSettingsSection() {
         />
 
         <section className="space-y-3 border-t border-border pt-5">
-          <SettingsHeading title="New sandboxes" />
-          {options.status === "pending" ? (
-            <p role="status" className="text-xs text-muted-foreground">
-              Loading launch defaults…
-            </p>
-          ) : null}
-          {options.status === "error" ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <p role="alert" className="text-xs text-destructive-text">
-                Couldn't load launch defaults.
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={retryOptions}
-              >
-                Retry
-              </Button>
-            </div>
-          ) : null}
-          {loaded === null ? null : (
-            <dl className={cn(CONNECTION_GRID, "gap-y-1.5")}>
-              <dt className="text-muted-foreground">Default size</dt>
-              <dd className="text-foreground">
-                {sizeLabel(
-                  loaded.defaultInputs.vcpus,
-                  loaded.defaultInputs.vcpus * loaded.memoryMiBPerVcpu,
-                )}
-              </dd>
-              <dt className="text-muted-foreground">Stops after</dt>
-              <dd className="text-foreground">
-                {formatMinutes(loaded.defaultInputs.timeoutMinutes).full}
-              </dd>
-              <dt className="text-muted-foreground">Limits</dt>
-              <dd className="text-foreground">
-                {loaded.limits.minVcpus}–{loaded.limits.maxVcpus} vCPU,{" "}
-                {formatMinutes(loaded.limits.minTimeoutMinutes).full}–
-                {formatMinutes(loaded.limits.maxTimeoutMinutes).full}
-              </dd>
-              <dt className="text-muted-foreground">Image</dt>
-              <dd className="min-w-0 break-all font-mono text-foreground">
-                {loaded.image}
-              </dd>
-            </dl>
-          )}
-          <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">
-            Your Vercel plan may set lower limits. Change the defaults with
-            Default vCPUs and Default lifetime above; the composer can override
-            them per thread.
-          </p>
-        </section>
-
-        <section className="space-y-3 border-t border-border pt-5">
           <SettingsHeading title="Data and billing" />
           <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
             <li>
-              Each sandbox is a disposable BB machine. It stops for good at its
-              time limit; BB can't extend, pause, snapshot, or restore it.
+              Each sandbox is a disposable BB machine running{" "}
+              <code className="font-mono text-foreground">{IMAGE}</code>. It
+              stops for good at its time limit; BB can't extend, pause,
+              snapshot, or restore it.
             </li>
             <li>
               Uncommitted files are lost when the sandbox stops, when its

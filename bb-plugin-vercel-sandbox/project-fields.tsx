@@ -65,7 +65,7 @@ function ChoiceField({
             disabled={unavailable}
             aria-labelledby={`${id} ${id}-value`}
             aria-busy={loading}
-            className="w-full min-w-0 justify-between"
+            className={INLINE_TRIGGER_CLASS}
           >
             <span
               id={`${id}-value`}
@@ -126,6 +126,16 @@ function ChoiceField({
   );
 }
 
+// The account grid. Read-only and editable rows share one row height, and
+// a trigger's outset equals its border plus padding, so entering edit mode
+// puts each control's text exactly where the static value was.
+export const ROW_GRID_CLASS =
+  "grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm";
+export const ROW_LABEL_CLASS = "flex h-8 items-center text-muted-foreground";
+export const ROW_VALUE_CLASS = "flex min-h-8 min-w-0 flex-col justify-center";
+export const INLINE_TRIGGER_CLASS =
+  "-ml-[13px] w-[min(20rem,calc(100%+13px))] min-w-0 justify-between text-sm font-normal";
+
 /**
  * One label/control row of the connection grid. Rendered as two grid cells
  * so editable rows line up with the read-only rows they replace.
@@ -143,11 +153,11 @@ export function FieldRow({
     <>
       <Label
         id={labelId}
-        className="flex h-8 items-center text-sm font-normal text-muted-foreground"
+        className={cn(ROW_LABEL_CLASS, "text-sm font-normal")}
       >
         {label}
       </Label>
-      <div className="min-w-0 space-y-1.5">{children}</div>
+      <div className={cn(ROW_VALUE_CLASS, "gap-1.5")}>{children}</div>
     </>
   );
 }

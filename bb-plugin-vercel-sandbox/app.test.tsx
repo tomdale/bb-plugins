@@ -576,10 +576,19 @@ describe("settings section", () => {
         slot.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
       ).toBe(false),
     );
-    expect(slot.getByText("2 vCPU · 4 GiB")).toBeTruthy();
-    expect(slot.getByText("30 min")).toBeTruthy();
-    expect(slot.getByText("1–32 vCPU, 5 min–24 h")).toBeTruthy();
+    expect(within(form).getByText("Signed in as")).toBeTruthy();
+    expect(within(form).getByText("tom")).toBeTruthy();
+    fireEvent.keyDown(form, { key: "Escape" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        slot.getByRole("button", { name: "Edit" }),
+      ),
+    );
+    // Launch defaults live in the host's Configuration fields, not here.
+    expect(slot.queryByRole("heading", { name: "New sandboxes" })).toBeNull();
+    expect(slot.queryByText("2 vCPU · 4 GiB")).toBeNull();
     expect(slot.getByText(/stops for good at its time limit/)).toBeTruthy();
+    expect(slot.getByText("vercel/sandbox/universal:latest")).toBeTruthy();
     expect(
       slot.getByText(/Vercel bills your team while a sandbox runs/),
     ).toBeTruthy();
@@ -1332,12 +1341,8 @@ describe("settings section", () => {
       "account.inspect": () => {
         throw new Error("raw vendor body with token xyz");
       },
-      "launch.options": () => {
-        throw new Error("raw");
-      },
     });
     await slot.findByText(/Couldn't check the Vercel connection/);
-    await slot.findByText("Couldn't load launch defaults.");
     expect(slot.queryByText(/xyz/)).toBeNull();
   });
 });
