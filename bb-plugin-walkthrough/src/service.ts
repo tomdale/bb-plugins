@@ -185,6 +185,19 @@ export class WalkthroughService {
       updatedAt: now,
     };
     walkthrough = this.save(walkthrough, "started");
+    // Forking provisions a workspace and can take half a minute; the caller (an
+    // agent tool, or the starter) must not wait on it. The pane already has the
+    // record and shows it as getting ready.
+    void this.launch(id, threadId).catch((cause) => {
+      this.bb.log.warn(`could not launch walkthrough ${id}: ${errorText(cause)}`);
+      this.save({ ...this.get(id), status: "failed", message: `The walkthrough could not start: ${errorText(cause)}` });
+    });
+    return walkthrough;
+  }
+
+  /** Forks the helper from the user's thread (or spawns one) and sends the plan request. */
+  private async launch(id: string, threadId: string): Promise<void> {
+    let walkthrough = this.get(id);
     try {
       const worker = await this.bb.sdk.threads.fork({
         sourceThreadId: threadId,
@@ -209,19 +222,19 @@ export class WalkthroughService {
           title: `Walkthrough worker: ${walkthrough.request.slice(0, 60)}`,
           pluginMetadata: { role: WORKER_ROLE, walkthroughId: id },
         } as Parameters<typeof this.bb.sdk.threads.spawn>[0]);
-        walkthrough = this.save({
+        this.save({
           ...this.get(id),
           workerThreadId: worker.id,
           queue: [],
           inFlight: { request: { kind: "plan" }, sentAt: this.now(), afterSeq: 0 },
         });
-        return walkthrough;
+        return;
       } catch (spawnCause) {
-        return this.save({ ...this.get(id), status: "failed", message: `The walkthrough could not start: ${errorText(spawnCause)}` });
+        this.save({ ...this.get(id), status: "failed", message: `The walkthrough could not start: ${errorText(spawnCause)}` });
+        return;
       }
     }
     await this.pump(id);
-    return this.get(id);
   }
 
   /**

@@ -92,6 +92,7 @@ describe("walkthrough code routing", () => {
       sides: { old: { path: "src/file.ts", content: "old\n" }, new: { path: "src/file.ts", content: "new\n" } },
     }) });
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain another repository" });
+    await settle();
     await tool("walkthrough_plan", PLAN);
     const result = await rpc("excerpt", { walkthroughId, path: "/work/other/src/file.ts", startLine: 1, endLine: 1 });
     expect(result).toMatchObject({ outcome: "available", path: "src/file.ts", change: patch, after: expect.stringContaining(" new"), before: expect.stringContaining(" old") });
@@ -103,6 +104,7 @@ describe("walkthrough code routing", () => {
     const { rpc, tool, harness } = await setup({ readCode: () => ({ path: "src/file.ts", patch, truncated: false, sides: null }) });
     harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [] }));
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Review PR 7" });
+    await settle();
     await tool("walkthrough_plan", { ...PLAN, mode: "pr", baseRef: "abc1234", pr: { number: 7, title: "Real title", headRef: "def5678" } });
     await rpc("excerpt", { walkthroughId, path: "src/file.ts", startLine: 1, endLine: 1 });
     expect(harness.inspection.sdk.callsTo("environments.diffPatch")).toHaveLength(0);
@@ -121,6 +123,7 @@ describe("walkthrough code routing", () => {
     const { rpc, tool, harness } = await setup();
     harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [{ path: "src/file.ts", patch, truncated: false }] }));
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain this repo" });
+    await settle();
     await tool("walkthrough_plan", PLAN);
     expect(await rpc("diff", { walkthroughId, path: "/work/repo/src/file.ts" })).toMatchObject({ outcome: "available", path: "src/file.ts", patch });
     expect(harness.inspection.sdk.callsTo("environments.diffPatch")[0]?.[0]).toMatchObject({ paths: ["src/file.ts"] });
