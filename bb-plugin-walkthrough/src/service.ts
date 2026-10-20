@@ -63,6 +63,8 @@ const MAX_FULL_FILE_BYTES = 1_000_000;
 const MERGE_BASE_TTL_MS = 60_000;
 /** Parts written ahead of the one on screen. */
 const WRITE_AHEAD = 1;
+const INTERRUPTED = "The helper was stopped before it finished.";
+const HELPER_GONE = "The helper for this walkthrough is no longer running, so it can't write or answer any more.";
 
 function emptyPart(title: string, summary: string, locations: Location[]): Part {
   return { title, summary, locations, status: "pending", blocks: [], suggestions: [], message: null, discussion: [] };
@@ -258,7 +260,8 @@ export class WalkthroughService {
           input: [{ type: "text", text, mentions: [] }],
         });
       } catch (cause) {
-        this.complete(id, `The walkthrough agent could not be reached: ${errorText(cause)}`, true);
+        if (/archived/iu.test(errorText(cause))) this.helperGone(id);
+        else this.complete(id, `The walkthrough agent could not be reached: ${errorText(cause)}`, true);
       }
     });
   }
@@ -304,14 +307,19 @@ export class WalkthroughService {
     const walkthrough = this.store.byWorker(workerThreadId);
     if (walkthrough === null) return;
     if (walkthrough.inFlight !== null) {
-      const turns = await this.bb.sdk.threads.events
-        .list({ threadId: workerThreadId, afterSeq: String(walkthrough.inFlight.afterSeq), types: ["turn/completed"], limit: "1" })
-        .catch(() => null);
+      const turns = (await this.bb.sdk.threads.events
+        .list({ threadId: workerThreadId, afterSeq: String(walkthrough.inFlight.afterSeq), types: ["turn/completed"], limit: "20" })
+        .catch(() => null)) as unknown as Array<{ data?: { status?: string } }> | null;
       if (Array.isArray(turns) && turns.length === 0) {
         await this.nudgeQueued(workerThreadId);
         return;
       }
-      this.complete(walkthrough.id, lastText, false);
+      // A stopped turn ends with status "interrupted" and leaves the previous
+      // turn's final message as the thread's last text, which says nothing
+      // about this request.
+      const interrupted = Array.isArray(turns) && turns.at(-1)?.data?.status === "interrupted";
+      if (interrupted) this.complete(walkthrough.id, INTERRUPTED, true);
+      else this.complete(walkthrough.id, lastText, false);
     }
     await this.pump(walkthrough.id);
   }
@@ -329,6 +337,39 @@ export class WalkthroughService {
     } catch (cause) {
       this.bb.log.debug(`could not dispatch queued worker message: ${errorText(cause)}`);
     }
+  }
+
+  /**
+   * The helper's thread is archived or dead, which no retry can fix: settle
+   * whatever it owed and close the walkthrough so the pane stops offering
+   * actions that cannot succeed.
+   */
+  private helperGone(id: string): void {
+    const walkthrough = this.get(id);
+    if (walkthrough.status === "done" || walkthrough.status === "failed") return;
+    if (walkthrough.inFlight !== null) this.complete(id, HELPER_GONE, true);
+    this.finish(id, HELPER_GONE);
+  }
+
+  /** Marks the walkthrough done and fails every answer and part still owed. */
+  private finish(id: string, reason: string): Walkthrough {
+    const current = this.get(id);
+    const failOpen = (part: Part): Part => ({
+      ...part,
+      discussion: part.discussion.map((exchange) =>
+        exchange.status === "queued" || exchange.status === "answering" ? { ...exchange, status: "failed" as const, answer: exchange.answer || reason } : exchange,
+      ),
+      ...(part.status === "writing" ? { status: "failed" as const, message: reason } : {}),
+    });
+    return this.save({
+      ...current,
+      status: current.status === "planning" ? "failed" : "done",
+      message: current.status === "planning" ? reason : current.message,
+      queue: [],
+      inFlight: null,
+      parts: current.parts.map(failOpen),
+      wrapUp: current.wrapUp && (current.wrapUp.status === "writing" ? { ...current.wrapUp, status: "failed", message: reason } : failOpen(current.wrapUp)),
+    });
   }
 
   onWorkerFailed(workerThreadId: string, error: string | null): void {
@@ -421,7 +462,9 @@ export class WalkthroughService {
       if (!walkthrough.workerThreadId) continue;
       if (walkthrough.inFlight) {
         const thread = await this.bb.sdk.threads.get({ threadId: walkthrough.workerThreadId }).catch(() => null);
-        if (thread?.status === "idle") {
+        if (thread === null || thread.archivedAt || thread.status === "error") {
+          this.helperGone(walkthrough.id);
+        } else if (thread.status === "idle") {
           const output = await this.bb.sdk.threads.output({ threadId: walkthrough.workerThreadId }).catch(() => null);
           await this.onWorkerIdle(walkthrough.workerThreadId, typeof output === "string" ? output : null);
         }
@@ -514,7 +557,7 @@ export class WalkthroughService {
   }
 
   async close(id: string): Promise<void> {
-    const walkthrough = this.update(id, (current) => ({ ...current, status: "done", queue: [] }));
+    const walkthrough = this.finish(id, "This walkthrough was finished before the helper got to it.");
     if (walkthrough.workerThreadId) {
       const workerThreadId = walkthrough.workerThreadId;
       await this.bb.sdk.threads.stop({ threadId: workerThreadId }).catch(() => {});

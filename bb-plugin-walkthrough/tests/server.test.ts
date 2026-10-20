@@ -5,7 +5,7 @@ import plugin from "../server.ts";
 const THREAD = "thr_user";
 const WORKER = "thr_worker";
 
-async function setup(options: { forkFails?: boolean; readCode?: () => unknown } = {}) {
+async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
@@ -21,6 +21,8 @@ async function setup(options: { forkFails?: boolean; readCode?: () => unknown } 
         },
         spawn: async () => makeThreadResponse({ id: WORKER, visibility: "hidden" }),
         send: async (args) => {
+          const failure = options.sendError?.();
+          if (failure) throw failure;
           const first = args.input[0];
           sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "" });
           return {} as never;
@@ -29,7 +31,7 @@ async function setup(options: { forkFails?: boolean; readCode?: () => unknown } 
         archive: async () => ({}) as never,
         events: {
           list: async (args: { types?: readonly string[] }) =>
-            (args.types?.includes("turn/completed") ? [{ seq: 99, type: "turn/completed", data: {} }] : []) as never,
+            (args.types?.includes("turn/completed") ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }] : []) as never,
         },
         queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
       },
@@ -254,5 +256,49 @@ describe("walkthrough orchestration", () => {
     );
     expect(worker.tools.map((entry) => entry.name)).toContain("walkthrough_write_part");
     expect(worker.tools.map((entry) => entry.name)).not.toContain("walkthrough_open");
+  });
+});
+
+describe("walkthrough failure handling", () => {
+  it("fails an interrupted part with a fixed message, not the previous turn's text", async () => {
+    let status: string | undefined;
+    const { rpc, tool, idle, view } = await setup({ turnStatus: () => status });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    status = "interrupted";
+    await idle("Planned.");
+    await settle();
+    const current = await view(walkthroughId);
+    expect(current.walkthrough.parts[0]).toMatchObject({ status: "failed", message: "The helper was stopped before it finished." });
+  });
+
+  it("closes the walkthrough when the helper's thread is archived instead of retrying forever", async () => {
+    let error: Error | null = null;
+    const { rpc, tool, idle, view } = await setup({ sendError: () => error });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    error = new Error("HTTP 409: Thread is archived");
+    await idle("Planned.");
+    await settle();
+    const current = await view(walkthroughId);
+    expect(current.walkthrough).toMatchObject({ status: "done", queue: [], inFlight: null });
+    expect(current.walkthrough.parts[0]).toMatchObject({ status: "failed", message: expect.stringContaining("no longer running") });
+  });
+
+  it("fails answers and parts still owed when the user finishes the walkthrough", async () => {
+    const { rpc, tool, idle, view } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await rpc("close", { walkthroughId });
+    const current = await view(walkthroughId);
+    expect(current.walkthrough).toMatchObject({ status: "done", inFlight: null, queue: [] });
+    expect(current.walkthrough.parts[0]).toMatchObject({ status: "failed" });
   });
 });
