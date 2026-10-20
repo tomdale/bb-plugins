@@ -22,25 +22,21 @@ test("native todo tool persists per-thread state and publishes changes", async (
 });
 
 for (const event of ["thread.idle", "thread.failed", "thread.archived"] as const) {
-  test(`${event} resets all unfinished active tasks and preserves other threads and fields`, async () => {
+  test(`${event} resets all unfinished active tasks and preserves other threads`, async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
     await plugin(bb);
-    const mutate = (threadId: string, change: Record<string, unknown>) => harness.behavior.callRpc("mutate", { threadId, change });
     for (const threadId of ["ended", "other"]) {
-      for (const subject of ["First", "Second", "Done", "Deleted"]) await mutate(threadId, { action: "create", subject });
-      for (const id of [1, 2]) await mutate(threadId, { action: "update", id, status: "in_progress", activeForm: "Working", owner: "agent" });
-      await mutate(threadId, { action: "update", id: 3, status: "completed" });
-      await mutate(threadId, { action: "delete", id: 4 });
+      const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args, { threadId });
+      await call({ tasks: ["First", "Second", "Done"] });
+      await call({ start: [2], done: [3] });
     }
     const payload = { thread: makeThreadResponse({ id: "ended" }), lastAssistantText: null, error: "Failed" };
     await harness.behavior.emitThreadEvent(event, payload);
     const settled = await harness.behavior.callRpc("snapshot", { threadId: "ended" });
-    assert.deepEqual(settled.tasks.map(task => task.status), ["pending", "pending", "completed", "deleted"]);
-    assert.equal(settled.tasks[0]?.activeForm, "Working");
-    assert.equal(settled.tasks[0]?.owner, "agent");
-    assert.equal(settled.nextId, 5);
+    assert.deepEqual(settled.tasks.map(task => task.status), ["pending", "pending", "completed"]);
+    assert.equal(settled.nextId, 4);
     const other = await harness.behavior.callRpc("snapshot", { threadId: "other" });
-    assert.deepEqual(other.tasks.map(task => task.status), ["in_progress", "in_progress", "completed", "deleted"]);
+    assert.deepEqual(other.tasks.map(task => task.status), ["in_progress", "in_progress", "completed"]);
     const signals = harness.realtimeSignals.length;
     await harness.behavior.emitThreadEvent(event, payload);
     assert.equal(harness.realtimeSignals.length, signals);
@@ -74,14 +70,14 @@ test("declares, completes, and archives plans through the todo tool", async () =
   await call({ tasks: ["Third goal"] });
   assert.deepEqual((await snapshot()).tasks.map(t => t.subject), ["Third goal"]);
 
-  const archives = await harness.behavior.callRpc("listArchives", { threadId: "thread-test" });
-  assert.equal(archives.archives.length, 2);
-  assert.equal(archives.archives[0]?.tasks.length, 2); // The plan with "Next goal step 1"
-  assert.equal(archives.archives[1]?.tasks.length, 3); // The first 3-step plan
+  const archivedPlans = () => (bb.storage.database()
+    .prepare("SELECT plan_json FROM todo_plan_archives WHERE thread_id = ? ORDER BY id").all("thread-test") as Array<{ plan_json: string }>)
+    .map(row => (JSON.parse(row.plan_json) as unknown[]).length);
+  assert.deepEqual(archivedPlans(), [3, 2]); // The first 3-step plan, then the plan with "Next goal step 1"
 
   // Replacing a plan with no completed work does not archive it
   await call({ tasks: ["Fourth goal"] });
-  assert.equal((await harness.behavior.callRpc("listArchives", { threadId: "thread-test" })).archives.length, 2);
+  assert.deepEqual(archivedPlans(), [3, 2]);
   await harness.lifecycle.dispose();
 });
 
@@ -99,16 +95,21 @@ test("blank fields and unknown ids leave the plan intact", async () => {
   await harness.lifecycle.dispose();
 });
 
-test("rejects invalid dependency references without changing persisted state", async () => {
+test("reads plans saved with deleted tasks and fields the agent tool no longer sets", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);
-  await assert.rejects(
-    () => harness.behavior.callRpc("mutate", { threadId: "thread-test", change: { action: "set", tasks: [{ id: 1, subject: "Blocked", blockedBy: [99] }] } }),
-    /not found/,
-  );
+  const legacy = {
+    tasks: [
+      { id: 1, subject: "Kept", status: "completed", description: "notes", activeForm: "Keeping", owner: "assistant", metadata: {}, blockedBy: [] },
+      { id: 2, subject: "Removed", status: "deleted" },
+      { id: 3, subject: "Child", status: "pending", parentId: 1 },
+    ],
+    nextId: 4,
+  };
+  bb.storage.database().prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?)").run("thread-test", JSON.stringify(legacy));
   const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
-  assert.deepEqual(snapshot, emptySnapshot);
+  assert.deepEqual(snapshot, { tasks: [{ id: 1, subject: "Kept", status: "completed" }, { id: 3, subject: "Child", status: "pending", parentId: 1 }], nextId: 4 });
+  assert.equal(await harness.behavior.callAgentTool("todo", { add: ["Next"] }), "Plan 1/3 done\n✓ 1 Kept\n  ▶ 3 Child\n○ 4 Next");
   await harness.lifecycle.dispose();
 });
 
-const emptySnapshot = { tasks: [], nextId: 1 };

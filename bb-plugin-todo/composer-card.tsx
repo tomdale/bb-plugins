@@ -1,76 +1,51 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { experimental_Icon as Icon, useBbNavigate, useComposer, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as Icon, useComposer, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
 import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow, type CardTreeNode } from "./card.js";
 import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
-import { TODO_PANEL_ACTION_ID } from "./panel-action.js";
 import type { rpcContract } from "./server.js";
 
-const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed", deleted: "Deleted" };
+const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed" };
 
-function TodoRowContent({ row, ordered, working, subjects, ordinals }: { row: CardRow; ordered: boolean; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
-  const { task, blockers, ordinal } = row;
-  const state = rowState(row);
-  const spinning = state === "active" && working;
-  const waitsFor = blockers.map(id => `${ordinals.get(id) ?? id}. ${subjects.get(id) ?? ""}`.trim()).join(", ");
-  const text = (state === "active" && task.activeForm?.trim()) || task.subject;
+function TodoRowContent({ row, working }: { row: CardRow; working: boolean }) {
+  const { task } = row;
+  const spinning = rowState(row) === "active" && working;
   return <>
-    {ordered ? <span className="todo-row-marker todo-row-marker-ordered" aria-hidden="true">
-      <span className={`todo-row-number${spinning ? " todo-row-number-active" : ""}`}>
-        {spinning
-          ? <span className="todo-row-spinner" aria-hidden="true">
-            <span className="todo-spokes">
-              {Array.from({ length: 8 }, (_, spoke) => <i key={spoke} style={{ "--spoke": spoke } as CSSProperties} />)}
-            </span>
-          </span>
-          : <><span className="todo-row-number-value">{ordinal}</span><span className="todo-row-period">.</span></>}
-      </span>
-    </span> : <span className="todo-row-marker todo-row-marker-unordered" aria-hidden="true">
+    <span className="todo-row-marker" aria-hidden="true">
       <Icon name={rowIcon(row)} className={`todo-row-status-icon${spinning ? " animate-spin" : ""}`} />
-    </span>}
-    <span className="todo-row-text" title={text}>
-      <span className="todo-sr">{STATUS_TEXT[task.status]}{blockers.length ? `, waiting for ${waitsFor}` : ""}: </span>
-      {text}
+    </span>
+    <span className="todo-row-text" title={task.subject}>
+      <span className="todo-sr">{STATUS_TEXT[task.status]}: </span>
+      {task.subject}
     </span>
   </>;
 }
 
-function TodoRow({ row, ordered, working, subjects, ordinals }: { row: CardRow; ordered: boolean; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
+function TodoRow({ row, working }: { row: CardRow; working: boolean }) {
   const { depth } = row;
-  const state = rowState(row);
   return (
-    <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
+    <li className={`todo-row todo-row-${rowState(row)}`} data-depth={depth || undefined}
       style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-      <TodoRowContent row={row} ordered={ordered} working={working} subjects={subjects} ordinals={ordinals} />
+      <TodoRowContent row={row} working={working} />
     </li>
   );
 }
 
-function TodoTreeItem({ node, ordered, working, subjects, ordinals }: { node: CardTreeNode; ordered: boolean; working: boolean; subjects: Map<number, string>; ordinals: Map<number, number> }) {
+function TodoTreeItem({ node, working }: { node: CardTreeNode; working: boolean }) {
   const { row, children } = node;
-  const state = rowState(row);
-  const depth = row.depth;
-  if (!children.length) {
-    return (
-      <li className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
-        style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-        <TodoRowContent row={row} ordered={ordered} working={working} subjects={subjects} ordinals={ordinals} />
-      </li>
-    );
-  }
+  if (!children.length) return <TodoRow row={row} working={working} />;
+  const { depth } = row;
   return (
     <li className="todo-item-group" data-task-id={row.task.id}>
-      <div className={`todo-row todo-row-${state}`} data-depth={depth || undefined}
+      <div className={`todo-row todo-row-${rowState(row)}`} data-depth={depth || undefined}
         style={depth ? { "--todo-depth": depth } as CSSProperties : undefined}>
-        <TodoRowContent row={row} ordered={ordered} working={working} subjects={subjects} ordinals={ordinals} />
+        <TodoRowContent row={row} working={working} />
       </div>
       <ul className="todo-subtasks" aria-label={`Subtasks of #${row.task.id}`}>
-        {children.map(child => (
-          <TodoTreeItem key={child.row.task.id} node={child} ordered={ordered} working={working} subjects={subjects} ordinals={ordinals} />
-        ))}
+        {children.map(child => <TodoTreeItem key={child.row.task.id} node={child} working={working} />)}
       </ul>
     </li>
   );
@@ -84,14 +59,13 @@ function TodoTreeItem({ node, ordered, working, subjects, ordinals }: { node: Ca
  * scroll fade gradients when overflowing.
  *
  * When the thread has room, the card instead becomes a lane in the thread's
- * left gutter, vertically centered: always the full list, with no frame, count, collapse, or edit
- * controls, and a persistent "Todos" link that opens the Todos panel. The lane
- * is the same component and state as the banner, so returning to the narrow
- * layout restores the banner exactly as the user left it.
+ * left gutter, vertically centered: always the full list, with no frame, count,
+ * or collapse control. The lane is the same component and state as the banner,
+ * so returning to the narrow layout restores the banner exactly as the user
+ * left it.
  */
 export function TodoCard() {
   const composer = useComposer();
-  const navigate = useBbNavigate();
   const rpc = useRpc<typeof rpcContract>();
   const threadId = composer.scope.kind === "thread" || composer.scope.kind === "queued-message" ? composer.scope.threadId : null;
   const { values: settings } = useSettings();
@@ -119,8 +93,6 @@ export function TodoCard() {
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
 
   const card = useMemo(() => buildCardView(tasksForRunState(state.tasks, composer.isRunning)), [state.tasks, composer.isRunning]);
-  const subjects = useMemo(() => new Map(state.tasks.map(task => [task.id, task.subject])), [state.tasks]);
-  const ordinals = useMemo(() => new Map(card.rows.map(row => [row.task.id, row.ordinal])), [card.rows]);
   const tasksFingerprint = JSON.stringify(state.tasks);
 
   useEffect(() => {
@@ -167,7 +139,6 @@ export function TodoCard() {
   }, [showAll, gutter, useTwoColumns]);
 
   const working = composer.isRunning && !card.allComplete;
-  const canEdit = composer.scope.kind === "thread";
   const hasInProgress = card.collapsedRows.length > 0;
   const showCountInActions = expanded || hasInProgress;
   const displayRows = showAll ? card.rows : card.collapsedRows;
@@ -277,29 +248,12 @@ export function TodoCard() {
   return frame(card.allComplete ? "todo-card-done" : "", (
     <div className="todo-card-inner">
       {error && <p role="alert" className="todo-error">Couldn't refresh todos: {error}</p>}
-      {gutter && canEdit && (
-        <div className="todo-gutter-header">
-          <button type="button" className="todo-destination" aria-label="Open Todos panel" onClick={() => navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID })}>
-            <Icon name="ListTodo" className="todo-destination-icon" aria-hidden="true" />
-            Todos
-          </button>
-        </div>
-      )}
       <div ref={contentRef} className="todo-card-content" data-transitioning={contentTransitioning ? "" : undefined}>
         {showAll ? (
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
             <ul ref={listRef} id={listId} className={listClassName} style={listStyle} onScroll={updateListLayout} aria-label="All todos">
-              {card.roots.map(node => (
-                <TodoTreeItem
-                  key={node.row.task.id}
-                  node={node}
-                  ordered={card.isOrdered}
-                  working={working}
-                  subjects={subjects}
-                  ordinals={ordinals}
-                />
-              ))}
+              {card.roots.map(node => <TodoTreeItem key={node.row.task.id} node={node} working={working} />)}
             </ul>
             {scrollFade.bottom && <div className="todo-scroll-fade todo-scroll-fade-bottom" data-fade="bottom" aria-hidden="true" />}
           </div>
@@ -307,16 +261,7 @@ export function TodoCard() {
           <div className="todo-list-wrapper">
             {scrollFade.top && <div className="todo-scroll-fade todo-scroll-fade-top" data-fade="top" aria-hidden="true" />}
             <ul ref={listRef} id={listId} className={listClassName} onScroll={updateListLayout} aria-label="Active todos">
-              {card.collapsedRows.map(row => (
-                <TodoRow
-                  key={row.task.id}
-                  row={row}
-                  ordered={card.isOrdered}
-                  working={working}
-                  subjects={subjects}
-                  ordinals={ordinals}
-                />
-              ))}
+              {card.collapsedRows.map(row => <TodoRow key={row.task.id} row={row} working={working} />)}
             </ul>
             {scrollFade.bottom && <div className="todo-scroll-fade todo-scroll-fade-bottom" data-fade="bottom" aria-hidden="true" />}
           </div>
@@ -349,20 +294,6 @@ export function TodoCard() {
             )}
             <Icon name={expanded ? "ChevronUp" : "ChevronDown"} className="todo-chevron" aria-hidden="true" />
           </button>
-          {canEdit && (
-            <button
-              type="button"
-              className="todo-edit"
-              aria-label="Edit todos"
-              title="Edit todos"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate.openThreadPanel({ actionId: TODO_PANEL_ACTION_ID });
-              }}
-            >
-              <Icon name="Edit" aria-hidden="true" />
-            </button>
-          )}
         </div>}
       </div>
     </div>

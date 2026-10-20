@@ -2,7 +2,6 @@
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { afterEach, expect, it, vi } from "vitest";
-import { apply, type Input, type State } from "./model.js";
 
 const subject = "Plan the release";
 const idleSnapshot = () => ({ tasks: [{ id: 1, subject, status: "pending" as const }], nextId: 2 });
@@ -52,173 +51,11 @@ async function mount(
   return slot;
 }
 
-/** An in-memory server that runs the real reducer, so panel edits are validated like production. */
-function todoServer(initial: State) {
-  let state = initial;
-  return {
-    get state() { return state; },
-    rpc: {
-      snapshot: () => state,
-      mutate: ({ change }: { change: Input }) => { state = apply(state, change).state; return state; },
-    },
-  };
-}
-
-async function mountPanel(initial: State) {
+it("registers only the composer banner", async () => {
   const app = await loadPluginApp(() => import("./app.js"));
-  const panel = app.threadPanelActions.find(action => action.id === "todos")!;
-  const server = todoServer(initial);
-  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, { rpc: server.rpc });
-  return { slot, server };
-}
-
-it("registers the Todos panel and composer banner without a thread header action", async () => {
-  const app = await loadPluginApp(() => import("./app.js"));
-  expect(app.threadPanelActions.find(action => action.id === "todos")?.layout).toBe("flush");
-  expect(app.threadHeaderActions.map(action => action.id)).not.toContain("todos");
+  expect(app.threadPanelActions).toEqual([]);
+  expect(app.threadHeaderActions).toEqual([]);
   expect(app.composerCustomizations[0]?.banners?.[0]?.chrome).toBe("bare");
-});
-
-it("adds todos from the panel and shows an empty state before the first one", async () => {
-  const { slot, server } = await mountPanel({ tasks: [], nextId: 1 });
-  await slot.findByText("No todos in this thread");
-  const input = slot.getByLabelText("New todo");
-  fireEvent.change(input, { target: { value: "  Write the report  " } });
-  fireEvent.submit(input.closest("form")!);
-  await waitFor(() => expect(server.state.tasks).toEqual([{ id: 1, subject: "Write the report", status: "pending" }]));
-  expect((slot.getByLabelText("Subject for #1") as HTMLInputElement).value).toBe("Write the report");
-  expect((input as HTMLInputElement).value).toBe("");
-  slot.lifecycle.unmount();
-});
-
-it("renders hierarchy and blockers in the panel and edits subjects on commit", async () => {
-  const { slot, server } = await mountPanel({ tasks: [
-    { id: 1, subject: "Parent", status: "pending" },
-    { id: 2, subject: "Child", status: "pending", parentId: 1, blockedBy: [3] },
-    { id: 3, subject: "Prerequisite", status: "in_progress" },
-  ], nextId: 4 });
-  const subtasks = await slot.findByRole("list", { name: "Subtasks of #1" });
-  expect(within(subtasks).getByLabelText("Subject for #2")).toBeTruthy();
-  expect(slot.container.querySelectorAll(".todo-editor-marker:not(.todo-editor-marker-unordered)")).toHaveLength(3);
-  expect(slot.container.querySelector(".todo-editor-number:not(.todo-editor-number-active)")?.textContent).toBe("1.");
-  expect(slot.container.querySelectorAll(".todo-editor-number-active .todo-editor-spokes i")).toHaveLength(8);
-  expect(slot.container.querySelector(".todo-editor-period")?.previousSibling?.textContent).toBe("1");
-  expect(slot.container.querySelector(".todo-editor-marker-unordered")).toBeNull();
-  expect(slot.container.textContent).not.toContain("depends on");
-  expect(slot.getByRole("status").textContent).toContain("0 of 3 complete");
-  const subject = slot.getByLabelText("Subject for #1");
-  fireEvent.change(subject, { target: { value: "Renamed parent" } });
-  fireEvent.keyDown(subject, { key: "Enter" });
-  await waitFor(() => expect(server.state.tasks[0]?.subject).toBe("Renamed parent"));
-  fireEvent.change(subject, { target: { value: "   " } });
-  fireEvent.blur(subject);
-  expect((subject as HTMLInputElement).value).toBe("Renamed parent");
-  fireEvent.change(subject, { target: { value: "Discarded" } });
-  fireEvent.keyDown(subject, { key: "Escape" });
-  expect((subject as HTMLInputElement).value).toBe("Renamed parent");
-  slot.lifecycle.unmount();
-});
-
-it("summarizes concurrent tasks in the Todos panel", async () => {
-  const { slot } = await mountPanel({ tasks: [
-    { id: 1, subject: "First", status: "in_progress" },
-    { id: 2, subject: "Second", status: "in_progress" },
-  ], nextId: 3 });
-  await slot.findByRole("status");
-  expect(slot.getByRole("status").textContent).toContain("2 todos in progress");
-  expect(slot.container.querySelectorAll(".todo-editor-marker-unordered")).toHaveLength(2);
-  expect(slot.container.querySelector(".todo-editor-number")).toBeNull();
-  slot.lifecycle.unmount();
-});
-
-it("edits dependencies and details from the disclosure", async () => {
-  const { slot, server } = await mountPanel({ tasks: [
-    { id: 1, subject: "First", status: "pending" },
-    { id: 2, subject: "Second", status: "pending", blockedBy: [1] },
-  ], nextId: 3 });
-  const toggle = await slot.findByRole("button", { name: "Show details for #2" });
-  fireEvent.click(toggle);
-  expect(toggle.getAttribute("aria-expanded")).toBe("true");
-  const details = slot.getByRole("group", { name: "Details for #2" });
-  fireEvent.click(within(details).getByRole("button", { name: "Remove blocker #1" }));
-  await waitFor(() => expect(server.state.tasks[1]?.blockedBy).toBeUndefined());
-  fireEvent.change(within(details).getByLabelText("Add blocker for #2"), { target: { value: "1" } });
-  await waitFor(() => expect(server.state.tasks[1]?.blockedBy).toEqual([1]));
-  const owner = within(details).getByLabelText("Owner");
-  fireEvent.change(owner, { target: { value: "opus" } });
-  fireEvent.blur(owner);
-  await waitFor(() => expect(server.state.tasks[1]?.owner).toBe("opus"));
-  slot.lifecycle.unmount();
-});
-
-it("reorders and nests tasks with keyboard shortcuts on the subject field", async () => {
-  const { slot, server } = await mountPanel({ tasks: [
-    { id: 1, subject: "First", status: "pending" },
-    { id: 2, subject: "Second", status: "pending" },
-  ], nextId: 3 });
-  const second = await slot.findByLabelText("Subject for #2");
-  fireEvent.keyDown(second, { key: "ArrowUp", altKey: true });
-  await waitFor(() => expect(server.state.tasks.map(task => task.id)).toEqual([2, 1]));
-  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
-  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "ArrowRight", altKey: true });
-  expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBeUndefined();
-  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "]", ...mod });
-  await waitFor(() => expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBe(2));
-  await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("Subject for #1"));
-  fireEvent.keyDown(await slot.findByLabelText("Subject for #1"), { key: "[", ...mod });
-  await waitFor(() => expect(server.state.tasks.find(task => task.id === 1)?.parentId).toBeUndefined());
-  slot.lifecycle.unmount();
-});
-
-it("shows a rejected edit as an alert without losing the list", async () => {
-  const app = await loadPluginApp(() => import("./app.js"));
-  const panel = app.threadPanelActions.find(action => action.id === "todos")!;
-  const slot = renderSlot(panel, { threadId: "thread-a", params: null }, { rpc: {
-    snapshot: () => ({ tasks: [{ id: 1, subject: "Only", status: "pending" }], nextId: 2 }),
-    mutate: () => { throw new Error("subject cannot be empty"); },
-  } });
-  const subject = await slot.findByLabelText("Subject for #1");
-  fireEvent.change(subject, { target: { value: "Next" } });
-  fireEvent.blur(subject);
-  expect((await slot.findByRole("alert")).textContent).toContain("subject cannot be empty");
-  fireEvent.click(slot.getByRole("button", { name: "Dismiss" }));
-  expect(slot.queryByRole("alert")).toBeNull();
-  expect(slot.getByLabelText("Subject for #1")).toBeTruthy();
-  slot.lifecycle.unmount();
-});
-
-it("opens the panel from the composer card's edit button", async () => {
-  const slot = await mount();
-  fireEvent.click(await slot.findByRole("button", { name: "Edit todos" }));
-  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
-  slot.lifecycle.unmount();
-});
-
-it("titles a running card with the active task's working label", async () => {
-  const app = await loadPluginApp(() => import("./app.js"));
-  const banner = app.composerCustomizations[0]!.banners![0]!;
-  const slot = renderSlot(banner, {}, {
-    composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
-    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "in_progress", activeForm: "Planning the release" }, { id: 2, subject: "Ship", status: "pending", blockedBy: [1] }], nextId: 3 }) },
-  });
-  const toggle = await slot.findByRole("button", { name: "Show all 2 todos" });
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(slot.getByText("Planning the release")).toBeTruthy();
-  expect(slot.container.querySelectorAll(".todo-row-marker-ordered .todo-row-number-active .todo-spokes i")).toHaveLength(8);
-  const spinner = slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active .todo-row-spinner");
-  expect(spinner?.classList.contains("todo-row-spinner")).toBe(true);
-  expect(spinner?.querySelector(".todo-spokes")).toBeTruthy();
-  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-period")).toBeNull();
-  expect(slot.container.querySelector(".todo-row-marker-ordered .todo-row-number-active")).toBeTruthy();
-  slot.lifecycle.unmount();
-});
-
-it("omits the edit button in queued-message composers, which have no side panel", async () => {
-  const slot = await mount();
-  await slot.behavior.setComposerScope({ kind: "queued-message", threadId: "thread-a", queuedMessageId: "queue-1" });
-  await slot.findByText("0 of 1 todos done");
-  expect(slot.queryByRole("button", { name: "Edit todos" })).toBeNull();
-  slot.lifecycle.unmount();
 });
 
 it("uses the left-side gutter beside the message column when it fits", async () => {
@@ -271,7 +108,7 @@ it("measures the gutter from the inset prose column even when a user-message col
   slot.lifecycle.unmount();
 });
 
-it("shows the gutter lane as the full list with only a Todos link as its control", async () => {
+it("shows the gutter lane as the full list with no controls", async () => {
   const slot = await mount(
     () => ({ tasks: [{ id: 1, subject: "Plan the release", status: "completed" }, { id: 2, subject, status: "pending" }], nextId: 3 }),
     {},
@@ -283,17 +120,10 @@ it("shows the gutter lane as the full list with only a Todos link as its control
   expect(within(lane).getAllByRole("listitem")).toHaveLength(2);
   expect(lane.querySelector(".todo-count")).toBeNull();
   expect(lane.querySelector(".todo-view-toggle")).toBeNull();
-  expect(lane.querySelector(".todo-edit")).toBeNull();
-  expect(within(lane).getAllByRole("button")).toHaveLength(1);
-  // Clicking the lane's rows must not collapse it, and the link opens the Todos panel.
+  expect(within(lane).queryAllByRole("button")).toHaveLength(0);
+  // Clicking the lane's rows must not collapse it.
   fireEvent.click(within(lane).getAllByRole("listitem")[0]!);
   expect(lane.getAttribute("data-state")).toBe("expanded");
-  const link = within(lane).getByRole("button", { name: "Open Todos panel" });
-  // The list icon and the "Todos" label are inside one button, left to right.
-  expect(link.firstElementChild?.getAttribute("data-icon")).toBe("ListTodo");
-  expect(link.textContent).toBe("Todos");
-  fireEvent.click(link);
-  expect(slot.inspection.navigateCalls).toEqual([{ method: "openThreadPanel", options: { actionId: "todos" } }]);
   slot.lifecycle.unmount();
 });
 
@@ -324,7 +154,7 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   const slot = await mount(() => ({ tasks: [
     { id: 1, subject: "Done", status: "completed" },
     { id: 2, subject: "Next", status: "pending" },
-    { id: 3, subject: "Then", status: "pending", blockedBy: [2] },
+    { id: 3, subject: "Then", status: "pending" },
     { id: 4, subject: "Later", status: "pending" },
   ], nextId: 5 }));
   const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
@@ -336,20 +166,10 @@ it("prints 'X of Y todos done' with circle progress indicator when no tasks are 
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Next")).toBeTruthy();
   expect(slot.getByText("Later")).toBeTruthy();
-  // Blockers are announced to screen readers but not drawn on the row.
-  expect(slot.container.querySelector(".todo-row-meta")).toBeNull();
-  expect(slot.container.textContent).not.toContain("depends on");
-  expect(slot.container.textContent).toContain("waiting for 2. Next");
-  expect(slot.container.querySelector(".todo-row-number")?.textContent).toBe("1.");
-  expect(slot.container.querySelector(".todo-row-period")?.previousSibling?.textContent).toBe("1");
-  expect(slot.container.querySelectorAll(".todo-row-marker-ordered")).toHaveLength(4);
-  expect(slot.container.querySelectorAll(".todo-row-icon")).toHaveLength(0);
-  expect(slot.container.querySelector(".todo-row-marker-ordered")?.classList.contains("todo-row-marker-ordered")).toBe(true);
   const completedMarker = slot.container.querySelector(".todo-row-completed .todo-row-marker")!;
-  expect(completedMarker.classList.contains("todo-row-marker-ordered")).toBe(true);
+  expect(slot.container.querySelectorAll(".todo-row-marker")).toHaveLength(4);
   expect(getComputedStyle(completedMarker).textDecorationLine).not.toContain("line-through");
   expect(slot.container.querySelector(".todo-row-completed .todo-row-text")?.textContent).toContain("Done");
-  expect(slot.container.querySelector(".todo-row-completed .todo-row-text")?.classList.contains("todo-row-text")).toBe(true);
   // In expanded state, toggle button collapses it back
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getByText("1 of 4 todos done")).toBeTruthy();
@@ -370,18 +190,13 @@ it("keeps all active todos visible when a running card is collapsed", async () =
   const toggle = await slot.findByRole("button", { name: "Show all 4 todos" });
   expect(toggle.getAttribute("aria-expanded")).toBe("false");
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
-  expect(slot.container.querySelectorAll(".todo-row-marker-unordered")).toHaveLength(3);
   expect(slot.container.querySelectorAll(".todo-row-status-icon")).toHaveLength(3);
-  expect(slot.container.querySelector(".todo-row-marker-unordered")?.classList.contains("todo-row-marker-unordered")).toBe(true);
-  expect(slot.container.querySelector(".todo-row-number")).toBeNull();
-  expect(slot.container.querySelectorAll(".todo-row-icon")).toHaveLength(0);
   expect(slot.container.querySelectorAll(".todo-row-marker")).toHaveLength(3);
   expect(slot.queryByText("Waiting")).toBeNull();
   fireEvent.click(toggle);
   expect(slot.getAllByRole("listitem")).toHaveLength(4);
   expect(slot.getByText("Waiting")).toBeTruthy();
-  expect(slot.container.querySelectorAll(".todo-row-marker-unordered")).toHaveLength(4);
-  expect(slot.container.querySelector(".todo-row-number")).toBeNull();
+  expect(slot.container.querySelectorAll(".todo-row-marker")).toHaveLength(4);
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   expect(slot.getAllByRole("listitem")).toHaveLength(3);
   slot.lifecycle.unmount();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtime, useRealtimeConnectionState, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "./server.js";
-import { emptyState, type Input, type State } from "./model.js";
+import { emptyState, type State } from "./model.js";
 
 export interface TodoList {
   state: State;
@@ -9,9 +9,6 @@ export interface TodoList {
   loaded: boolean;
   error: string | null;
   refresh: () => void;
-  /** Applies one reducer change; resolves false and records the error when the server rejects it. */
-  mutate: (change: Input) => Promise<boolean>;
-  dismissError: () => void;
 }
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
@@ -48,19 +45,5 @@ export function useTodoList(threadId: string | null): TodoList {
   useRealtime("todo-changed", payload => {
     if (payload && typeof payload === "object" && "threadId" in payload && payload.threadId === threadId) refresh();
   });
-  const mutate = useCallback(async (change: Input) => {
-    if (!threadId) return false;
-    const request = ++generation.current;
-    try {
-      const next = await rpc.call("mutate", { threadId, change });
-      if (generation.current === request) { setState(next); setLoaded(true); }
-      setError(null);
-      return true;
-    } catch (cause) {
-      setError(message(cause));
-      return false;
-    }
-  }, [rpc, threadId]);
-  const dismissError = useCallback(() => setError(null), []);
-  return { state, loaded, error, refresh, mutate, dismissError };
+  return { state, loaded, error, refresh };
 }

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { agentInput, applyAgentCall, renderPlan } from "./agent.ts";
-import { apply, emptyState, type State } from "./model.ts";
+import { emptyState, setStatus, type State } from "./model.ts";
 
 const call = (state: State, args: Record<string, unknown>) => applyAgentCall(state, agentInput.parse(args));
 const plan = (...subjects: string[]) => call(emptyState(), { tasks: subjects }).state;
@@ -36,21 +36,13 @@ test("an explicit start in the same call suppresses the automatic one", () => {
   assert.deepEqual(statuses(call(plan("A", "B", "C"), { done: [1], start: [3] }).state), ["completed", "pending", "in_progress"]);
 });
 
-test("the automatic start skips tasks with unfinished blockers", () => {
-  let state = plan("A", "B", "C");
-  state = apply(state, { action: "update", id: 2, addBlockedBy: [3] }).state;
-  const next = call(state, { done: [1] });
-  assert.deepEqual(statuses(next.state), ["completed", "pending", "in_progress"]);
-  assert.match(renderPlan(state), /○ 2 B \(waits on #3\)/);
-});
-
 test("start resumes pending work and reports completed tasks", () => {
   let state = plan("A", "B");
   state = call(state, { done: [1] }).state;
   const reply = call(state, { start: [1] });
   assert.match(reply.message, /^#1 is already completed\n/);
   assert.equal(reply.changed, false);
-  const paused = apply(state, { action: "update", id: 2, status: "pending" }).state;
+  const paused = setStatus(state, 2, "pending");
   assert.deepEqual(statuses(call(paused, { start: [2] }).state), ["completed", "in_progress"]);
 });
 
@@ -66,12 +58,6 @@ test("unknown and repeated ids are reported while the rest applies", () => {
   const reply = call(plan("A", "B"), { done: [1, 1, 7], start: [8] });
   assert.deepEqual(statuses(reply.state), ["completed", "in_progress"]);
   assert.match(reply.message, /^No task #7, #8\nPlan 1\/2 done/);
-});
-
-test("deleted tasks are unknown and hidden from the plan", () => {
-  const state = apply(plan("A", "B"), { action: "delete", id: 2 }).state;
-  const reply = call(state, { done: [2] });
-  assert.match(reply.message, /^No task #2\nPlan 0\/1 done\n▶ 1 A$/);
 });
 
 test("an empty call reads the plan without changing it", () => {

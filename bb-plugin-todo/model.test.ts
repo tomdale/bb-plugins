@@ -1,102 +1,39 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { apply, emptyState, type State } from "./model.ts";
-const mutate = (state: State, input: Parameters<typeof apply>[1]) => apply(state, input).state;
-test("creates hierarchy and blocking dependencies, then completes in sequence", () => {
-  let state = mutate(emptyState(), { action: "create", subject: "Plan" });
-  state = mutate(state, { action: "create", subject: "Build", parentId: 1 });
-  state = mutate(state, { action: "create", subject: "Verify", parentId: 1, blockedBy: [2] });
-  assert.deepEqual(state.tasks[2]?.blockedBy, [2]);
-  assert.deepEqual(state.tasks.map(t => t.parentId), [undefined, 1, 1]);
-  assert.throws(() => mutate(state, { action: "update", id: 2, addBlockedBy: [3] }), /cycle/);
-  assert.throws(() => mutate(state, { action: "update", id: 1, parentId: 3 }), /cycle/);
-  state = mutate(state, { action: "update", id: 2, status: "in_progress" });
-  state = mutate(state, { action: "update", id: 1, status: "in_progress" });
-  assert.deepEqual(state.tasks.filter(task => task.status === "in_progress").map(task => task.id), [1, 2]);
-  state = mutate(state, { action: "update", id: 2, status: "completed" });
-  assert.equal(state.tasks[1]?.status, "completed");
-  assert.throws(() => mutate(state, { action: "update", id: 2, status: "pending" }), /illegal transition/);
-  state = mutate(state, { action: "delete", id: 1 });
-  assert.equal(state.tasks[1]?.parentId, 1);
-  assert.equal(state.tasks[2]?.parentId, 1);
-});
-test("moves a sibling with its descendants", () => {
-  let state = emptyState();
-  for (const [subject, parentId] of [["Root", undefined], ["First", 1], ["Child", 2], ["Second", 1]] as const) {
-    state = mutate(state, { action: "create", subject, parentId });
-  }
-  state = mutate(state, { action: "update", id: 4, move: "up" });
-  assert.deepEqual(state.tasks.map(task => task.id), [1, 4, 2, 3]);
-  state = mutate(state, { action: "update", id: 4, move: "down" });
-  assert.deepEqual(state.tasks.map(task => task.id), [1, 2, 3, 4]);
-});
+import { addTask, emptyState, newPlan, ordered, setStatus } from "./model.ts";
 
-test("moves a subtree past interleaved siblings and retains tombstones", () => {
-  let state = emptyState();
-  state = mutate(state, { action: "create", subject: "Root" });
-  state = mutate(state, { action: "create", subject: "First", parentId: 1 });
-  state = mutate(state, { action: "create", subject: "Second", parentId: 1 });
-  state = mutate(state, { action: "create", subject: "Child of first", parentId: 2 });
-  state = mutate(state, { action: "create", subject: "Third", parentId: 1 });
-  state = mutate(state, { action: "create", subject: "Old" });
-  state = mutate(state, { action: "delete", id: 6 });
-  state = mutate(state, { action: "update", id: 2, move: "down" });
-  assert.deepEqual(state.tasks.map(task => task.id), [1, 3, 2, 4, 5, 6]);
-});
-
-test("set declaratively defines and replaces plan with local IDs and dependencies", () => {
-  let state = mutate(emptyState(), {
-    action: "set",
-    tasks: [
-      { id: 10, subject: "Plan", status: "completed" },
-      { id: 20, subject: "Build", status: "in_progress", activeForm: "Building", parentId: 10 },
-      { id: 30, subject: "Verify", blockedBy: [20], parentId: 10 },
-    ],
-  });
-  assert.deepEqual(state.tasks.map(t => ({ id: t.id, subject: t.subject, status: t.status, parentId: t.parentId, blockedBy: t.blockedBy })), [
-    { id: 1, subject: "Plan", status: "completed", parentId: undefined, blockedBy: undefined },
-    { id: 2, subject: "Build", status: "in_progress", parentId: 1, blockedBy: undefined },
-    { id: 3, subject: "Verify", status: "pending", parentId: 1, blockedBy: [2] },
+test("a new plan numbers tasks in order and starts the first", () => {
+  const state = newPlan(["A", "B", "C"]);
+  assert.deepEqual(state.tasks, [
+    { id: 1, subject: "A", status: "in_progress" },
+    { id: 2, subject: "B", status: "pending" },
+    { id: 3, subject: "C", status: "pending" },
   ]);
   assert.equal(state.nextId, 4);
-
-  // Replaces entire plan cleanly with new local IDs
-  state = mutate(state, {
-    action: "set",
-    tasks: [
-      { subject: "Fresh goal A" },
-      { subject: "Fresh goal B" },
-    ],
-  });
-  assert.deepEqual(state.tasks.map(t => t.id), [1, 2]);
-  assert.equal(state.tasks[0]?.subject, "Fresh goal A");
-  assert.equal(state.nextId, 3);
-
-  // Validates cycles in set
-  assert.throws(() => mutate(state, {
-    action: "set",
-    tasks: [
-      { id: 1, subject: "A", blockedBy: [2] },
-      { id: 2, subject: "B", blockedBy: [1] },
-    ],
-  }), /cycle/);
-  assert.throws(() => mutate(state, {
-    action: "set",
-    tasks: [
-      { id: 1, subject: "A", parentId: 2 },
-      { id: 2, subject: "B", parentId: 1 },
-    ],
-  }), /cycle/);
-
-  // Empty set clears
-  state = mutate(state, { action: "set", tasks: [] });
-  assert.deepEqual(state, emptyState());
+  assert.deepEqual(newPlan([]), emptyState());
 });
 
-test("metadata merges and clear resets ids", () => {
-  let state = mutate(emptyState(), { action: "create", subject: "One", metadata: { a: 1, b: 2 } });
-  state = mutate(state, { action: "update", id: 1, metadata: { a: null, b: 3 } });
-  assert.deepEqual(state.tasks[0]?.metadata, { b: 3 });
-  state = mutate(state, { action: "clear" });
-  assert.deepEqual(state, emptyState());
+test("added tasks take the next id and may name a parent", () => {
+  let state = addTask(newPlan(["A"]), "B");
+  state = addTask(state, "B1", 2);
+  assert.deepEqual(state.tasks.map(task => [task.id, task.parentId]), [[1, undefined], [2, undefined], [3, 2]]);
+  assert.equal(state.nextId, 4);
+});
+
+test("setStatus changes one task and leaves the original state untouched", () => {
+  const before = newPlan(["A", "B"]);
+  const after = setStatus(before, 2, "completed");
+  assert.deepEqual(after.tasks.map(task => task.status), ["in_progress", "completed"]);
+  assert.deepEqual(before.tasks.map(task => task.status), ["in_progress", "pending"]);
+});
+
+test("display order puts each task before its subtasks and promotes orphans to roots", () => {
+  const tasks = [
+    { id: 1, subject: "Root", status: "pending" as const },
+    { id: 2, subject: "Second root", status: "pending" as const },
+    { id: 3, subject: "Child", status: "pending" as const, parentId: 1 },
+    { id: 4, subject: "Grandchild", status: "pending" as const, parentId: 3 },
+    { id: 5, subject: "Orphan", status: "pending" as const, parentId: 9 },
+  ];
+  assert.deepEqual(ordered(tasks).map(task => task.id), [1, 3, 4, 2, 5]);
 });

@@ -1,104 +1,52 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoExpanded, buildCardView, collapsedSummary, currentLabel, rowIcon, rowState, tasksForRunState } from "./card.ts";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
 
-test("flat task lists preserve explicit order without ids", () => {
-  const view = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "in_progress"), task(4, "deleted"), task(5, "pending")]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 0], [3, 3, 0], [5, 4, 0]]);
+test("flat task lists preserve explicit order", () => {
+  const view = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "in_progress"), task(4, "pending")]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 0], [3, 0], [4, 0]]);
   assert.equal(view.total, 4);
   assert.equal(view.completed, 1);
-  assert.equal(currentLabel(view), "Task 3");
-});
-
-test("header prefers activeForm and drops the current task once everything is complete", () => {
-  assert.equal(currentLabel(buildCardView([task(1, "in_progress", { activeForm: "Porting styles" }), task(2, "pending")])), "Porting styles");
-  const done = buildCardView([task(1, "completed"), task(2, "completed"), task(3, "deleted")]);
-  assert.equal(done.allComplete, true);
-  assert.equal(currentLabel(done), null);
+  assert.equal(view.allComplete, false);
+  assert.deepEqual(view.collapsedRows.map(row => row.task.id), [3]);
 });
 
 test("nests parent tasks and promotes orphans without inventing structure", () => {
   const view = buildCardView([
     task(1, "pending"), task(2, "completed", { parentId: 1 }), task(3, "in_progress", { parentId: 1 }),
-    task(4, "pending", { parentId: 3 }), task(5, "pending", { parentId: 9 }), task(6, "pending", { parentId: 7 }), task(7, "deleted"),
+    task(4, "pending", { parentId: 3 }), task(5, "pending", { parentId: 9 }),
   ]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 1], [3, 3, 1], [4, 4, 2], [5, 5, 0], [6, 6, 0]]);
+  assert.deepEqual(view.rows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 1], [3, 1], [4, 2], [5, 0]]);
+  assert.deepEqual(view.roots.map(node => node.row.task.id), [1, 5]);
+  assert.deepEqual(view.roots[0]!.children.map(node => node.row.task.id), [2, 3]);
+  assert.deepEqual(view.roots[0]!.children[1]!.children.map(node => node.row.task.id), [4]);
 });
 
-test("keeps parent cycles visible", () => {
-  const view = buildCardView([task(1, "pending", { parentId: 2 }), task(2, "pending", { parentId: 1 })]);
-  assert.deepEqual(view.rows.map(row => [row.task.id, row.ordinal, row.depth]), [[1, 1, 0], [2, 2, 1]]);
+test("collapsed rows list in-progress tasks flat, whatever their depth", () => {
+  const view = buildCardView([task(1, "in_progress"), task(2, "in_progress", { parentId: 1 }), task(3, "pending")]);
+  assert.deepEqual(view.collapsedRows.map(row => [row.task.id, row.depth]), [[1, 0], [2, 0]]);
 });
 
-test("labels only unfinished, visible blockers on pending tasks", () => {
-  const view = buildCardView([
-    task(1, "completed"), task(2, "in_progress"), task(3, "deleted"),
-    task(4, "pending", { blockedBy: [1, 2, 3, 99, 4] }), task(5, "in_progress", { blockedBy: [2] }),
-  ]);
-  assert.deepEqual(view.rows.find(row => row.task.id === 4)?.blockers, [2]);
-  assert.deepEqual(view.rows.find(row => row.task.id === 5)?.blockers, []);
+test("summarizes progress and detects a finished plan", () => {
+  const partial = buildCardView([task(1, "completed"), task(2, "pending")]);
+  assert.equal(collapsedSummary(partial), "1 of 2 todos done");
+  const done = buildCardView([task(1, "completed"), task(2, "completed")]);
+  assert.equal(done.allComplete, true);
+  assert.equal(collapsedSummary(done), "All todos complete");
+  assert.equal(buildCardView([]).allComplete, false);
 });
 
-test("maps row state to the circle-family status icons", () => {
-  const view = buildCardView([task(1, "in_progress"), task(2, "pending"), task(3, "completed"), task(4, "pending", { blockedBy: [2] })]);
-  assert.deepEqual(view.rows.map(rowState), ["active", "pending", "completed", "blocked"]);
-  assert.deepEqual(view.rows.map(rowIcon), ["Spinner", "Circle", "CircleCheck", "Lock"]);
+test("an idle thread shows in-progress tasks as pending", () => {
+  const tasks = [task(1, "in_progress"), task(2, "completed")];
+  assert.deepEqual(tasksForRunState(tasks, true).map(t => t.status), ["in_progress", "completed"]);
+  assert.deepEqual(tasksForRunState(tasks, false).map(t => t.status), ["pending", "completed"]);
 });
 
-test("treats an idle snapshot's in-progress task as pending, but preserves it while running", () => {
-  const snapshot = [task(1, "in_progress"), task(2, "pending")];
-  const idle = buildCardView(tasksForRunState(snapshot, false));
-  assert.equal(idle.current, undefined);
-  assert.equal(idle.rows[0]?.task.status, "pending");
-  assert.equal(rowIcon(idle.rows[0]!), "Circle");
-
-  const running = buildCardView(tasksForRunState(snapshot, true));
-  assert.equal(running.current?.id, 1);
-  assert.equal(rowIcon(running.rows[0]!), "Spinner");
-});
-
-test("collapsed rows show every active task, and empty when none are in progress", () => {
-  const tasks = [task(1, "completed"), task(2, "pending"), task(3, "in_progress", { parentId: 2 }), task(4, "in_progress"), task(5, "in_progress"), task(6, "pending"), task(7, "pending"), task(8, "deleted")];
-  const active = buildCardView(tasks);
-  assert.deepEqual(active.collapsedRows.map(row => [row.task.id, row.depth]), [[3, 0], [4, 0], [5, 0]]);
-  const idle = buildCardView(tasksForRunState(tasks, false));
-  assert.deepEqual(idle.collapsedRows, []);
-
-  const completed = buildCardView([task(1, "completed"), task(2, "completed"), task(3, "completed"), task(4, "deleted")]);
-  assert.deepEqual(completed.collapsedRows, []);
-  assert.equal(collapsedSummary(completed), "All todos complete");
-
-  const partial = buildCardView([task(1, "completed"), task(2, "pending"), task(3, "pending")]);
-  assert.deepEqual(partial.collapsedRows, []);
-  assert.equal(collapsedSummary(partial), "1 of 3 todos done");
-});
-
-test("builds hierarchical tree nodes for root tasks and their subtasks", () => {
-  const view = buildCardView([
-    task(1, "completed"),
-    task(2, "in_progress"),
-    task(3, "pending", { parentId: 2 }),
-    task(4, "pending", { parentId: 3 }),
-    task(5, "pending"),
-  ]);
-  assert.equal(view.roots.length, 3); // 1, 2, 5
-  assert.equal(view.roots[0]?.row.task.id, 1);
-  assert.equal(view.roots[0]?.children.length, 0);
-  assert.equal(view.roots[1]?.row.task.id, 2);
-  assert.equal(view.roots[1]?.children.length, 1);
-  assert.equal(view.roots[1]?.children[0]?.row.task.id, 3);
-  assert.equal(view.roots[1]?.children[0]?.children.length, 1);
-  assert.equal(view.roots[1]?.children[0]?.children[0]?.row.task.id, 4);
-  assert.equal(view.roots[2]?.row.task.id, 5);
-});
-
-test("opens automatically only while running with a task in progress", () => {
-  const working = buildCardView([task(1, "in_progress"), task(2, "pending")]);
-  assert.equal(autoExpanded(working, true), true);
-  assert.equal(autoExpanded(working, false), false);
-  assert.equal(autoExpanded(buildCardView([task(1, "pending"), task(2, "pending")]), true), false);
-  assert.equal(autoExpanded(buildCardView([task(1, "completed"), task(2, "completed")]), true), false);
+test("row state and icon follow the task status", () => {
+  const row = (status: Task["status"]) => ({ task: task(1, status), depth: 0 });
+  assert.deepEqual(["pending", "in_progress", "completed"].map(status => rowState(row(status as Task["status"]))), ["pending", "active", "completed"]);
+  assert.deepEqual(["pending", "in_progress", "completed"].map(status => rowIcon(row(status as Task["status"]))), ["Circle", "Spinner", "CircleCheck"]);
 });
