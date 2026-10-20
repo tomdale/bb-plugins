@@ -2,12 +2,13 @@
 // A contents rail, one part at a time in a serif reading column, a
 // conversation under each part, and a drawer for notes and the review draft.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
+import { UrlLink, useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { NOTE_KIND_LABEL, parseCommand, shortRef } from "../model.ts";
+import { comparedWith, NOTE_KIND_LABEL, parseCommand } from "../model.ts";
 import { PAGE_PATH, PANEL_ACTION_ID, type Block, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
 import { CodeExcerpt } from "./code.tsx";
 import { errorMessage, useThreadWalkthroughs, useWalkthrough, useWidth, type WalkthroughRpc } from "./hooks.ts";
@@ -154,7 +155,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
           <h1 className="truncate text-sm font-medium">{walkthrough.title}</h1>
           <p className="truncate text-xs text-muted-foreground">
             {progress(walkthrough, wrapUpShown)}
-            {walkthrough.parts.length > 0 ? ` · ${walkthrough.mode === "pr" && walkthrough.pr ? `PR #${walkthrough.pr.number}` : "your changes"} compared with ${shortRef(walkthrough.baseRef)}` : ""}
+            {walkthrough.parts.length > 0 ? <> · <Subject walkthrough={walkthrough} /></> : null}
             {activity(walkthrough) ? <span className="ml-2 animate-pulse">{activity(walkthrough)}</span> : null}
           </p>
         </div>
@@ -184,17 +185,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
             Thread
           </Button>
         )}
-        {walkthrough.status !== "done" ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="Close this walkthrough"
-            onClick={() => call(() => rpc.call("close", { walkthroughId: walkthrough.id }))}
-          >
-            <Icon name="X" className="size-3.5" aria-hidden />
-          </Button>
-        ) : null}
+        {walkthrough.status !== "done" ? <FinishButton walkthrough={walkthrough} onFinish={() => call(() => rpc.call("close", { walkthroughId: walkthrough.id }))} /> : null}
       </header>
 
       <div className="relative flex min-h-0 flex-1">
@@ -229,6 +220,67 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** What the walkthrough is about: the PR it reviews, or the base the changes are measured against. */
+function Subject({ walkthrough }: { walkthrough: Walkthrough }) {
+  const { pr } = walkthrough;
+  if (walkthrough.mode !== "pr" || !pr) return <>your changes {comparedWith(walkthrough)}</>;
+  // `pr.title` is GitHub's; the walkthrough's own title is the helper's paraphrase.
+  const label = `#${pr.number} ${pr.title ?? walkthrough.title}`;
+  if (!pr.url) return <>PR {label}</>;
+  return (
+    <UrlLink href={pr.url} className="underline-offset-2 hover:underline" title="Open the pull request on GitHub">
+      {label}
+    </UrlLink>
+  );
+}
+
+/** Finishing stops the helper for good, so it asks first unless the walkthrough is already fully written and wrapped up. */
+function FinishButton({ walkthrough, onFinish }: { walkthrough: Walkthrough; onFinish: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const unwritten = walkthrough.parts.filter((part) => part.status !== "ready").length;
+  const needsConfirm = unwritten > 0 || walkthrough.status !== "wrapping-up";
+  const title = "Finish this walkthrough: stops the helper agent. You can still read what is written.";
+  return (
+    <>
+      {/* A plain button: `Button` does not accept `title`. */}
+      <button
+        type="button"
+        aria-label="Finish this walkthrough"
+        title={title}
+        onClick={() => (needsConfirm ? setConfirming(true) : onFinish())}
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        <Icon name="X" className="size-3.5" aria-hidden />
+      </button>
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Finish this walkthrough?</DialogTitle>
+            <DialogDescription>
+              This stops the helper agent, so no more parts are written and you can’t ask it more questions. You can still read what is already written.
+              {unwritten > 0 ? ` ${unwritten === 1 ? "One part has" : `${unwritten} parts have`} not been written yet.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>
+              Keep reading
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setConfirming(false);
+                onFinish();
+              }}
+            >
+              Finish walkthrough
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

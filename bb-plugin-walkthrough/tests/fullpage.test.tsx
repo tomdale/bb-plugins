@@ -145,3 +145,28 @@ describe("wrap-up", () => {
     await slot.findByText("That is the change.");
   });
 });
+
+describe("header", () => {
+  const view = (overrides: Partial<Walkthrough>) => ({ get: () => ({ view: { walkthrough: walkthrough(overrides), notes: [] } }), close: () => ({ ok: true }) });
+
+  it("links a PR walkthrough to its pull request under GitHub's title", async () => {
+    const slot = await mountPage("wt_1", view({ mode: "pr", baseRef: "c884aad (PR base on main)", pr: { number: 2, url: "https://github.com/o/r/pull/2", title: "The real PR title" } }));
+    const link = await slot.findByRole("link", { name: "#2 The real PR title" });
+    expect(link.getAttribute("href")).toBe("https://github.com/o/r/pull/2");
+    expect(slot.queryByText(/PR base on main/u)).toBeNull();
+  });
+
+  it("names the start of history instead of the empty tree", async () => {
+    const slot = await mountPage("wt_1", view({ baseRef: "4b825dc642cb6eb9a060e54bf8d69288fbee4904" }));
+    await slot.findByText(/everything since the start of history/u);
+  });
+
+  it("asks before finishing a walkthrough that is still being read", async () => {
+    const slot = await mountPage("wt_1", view({}));
+    expect(slot.queryByRole("button", { name: "Close this walkthrough" })).toBeNull();
+    fireEvent.click(await slot.findByRole("button", { name: "Finish this walkthrough" }));
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "close")).toEqual([]);
+    fireEvent.click(await slot.findByRole("button", { name: "Finish walkthrough" }));
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "close")).toHaveLength(1);
+  });
+});
