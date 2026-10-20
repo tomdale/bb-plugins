@@ -352,6 +352,12 @@ const EVENT_LABEL: Record<ReviewEvent, string> = {
   APPROVE: "Approve",
 };
 
+/** "owner/repo#12" for a GitHub pull request URL; the URL itself for anything else. */
+export function prLabel(url: string, number: number): string {
+  const match = /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\/pull\//u.exec(url);
+  return match ? `${match[1]}#${number}` : url;
+}
+
 export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc: WalkthroughRpc }) {
   const review = walkthrough.review;
   const [confirming, setConfirming] = useState(false);
@@ -419,6 +425,9 @@ export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc:
           </Button>
         ) : null}
       </div>
+      {review.status === "draft" ? (
+        <p className="text-xs text-muted-foreground">To change the draft, ask in the walkthrough: “drop the third comment”.</p>
+      ) : null}
       <section className="space-y-1">
         <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Review body</h3>
         <div className="rounded-md border border-border px-3 py-2 text-sm">
@@ -466,6 +475,17 @@ export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc:
               The agent submits the body and {review.comments.length} inline comments exactly as drafted.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1 text-sm">
+            {walkthrough.pr?.url ? (
+              <p>
+                <UrlLink href={walkthrough.pr.url} className="break-all underline underline-offset-2">
+                  {prLabel(walkthrough.pr.url, walkthrough.pr.number)}
+                </UrlLink>
+                {walkthrough.pr.title ? <span className="text-muted-foreground"> · {walkthrough.pr.title}</span> : null}
+              </p>
+            ) : null}
+            <p className="font-medium">This posts publicly to GitHub as your gh account.</p>
+          </div>
           <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Review event">
             {(Object.keys(EVENT_LABEL) as ReviewEvent[]).map((candidate) => (
               <button

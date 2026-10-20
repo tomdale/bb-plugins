@@ -258,3 +258,16 @@ describe("note composer", () => {
     expect(inputs.map((input) => input.location)).toEqual([{ path: "src/a.ts", startLine: 3, endLine: 9 }, null]);
   });
 });
+
+describe("review drawer", () => {
+  it("says where a post goes and how to change the draft", async () => {
+    const review = { body: "Looks good.", event: "COMMENT" as const, comments: [], status: "draft" as const, url: null, updatedAt: 0 };
+    const pr = { number: 2, url: "https://github.com/o/r/pull/2", title: "The real PR title" };
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: walkthrough({ mode: "pr", pr, review }), notes: [] } }) });
+    fireEvent.click(await slot.findByRole("button", { name: "Review" }));
+    await slot.findByText(/ask in the walkthrough/u);
+    fireEvent.click(await slot.findByRole("button", { name: /Post…/u }));
+    await slot.findByText("This posts publicly to GitHub as your gh account.");
+    expect((await slot.findByRole("link", { name: "o/r#2" })).getAttribute("href")).toBe(pr.url);
+  });
+});

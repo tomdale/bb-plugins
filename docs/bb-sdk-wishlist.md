@@ -553,3 +553,16 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** `useBbNavigate().openWindow({ pluginId, path, subPath })`
   that opens a BB window (a popup in browsers) at a plugin route, a way to open
   a nav panel in a split pane, and a `navPanel` option to omit its sidebar row.
+
+## Link to a plugin page or thread panel from a list row
+
+- **Status:** not filed
+- **Observed:** BB 0.46.1, Plugin SDK 0.5.29
+- **Use case:** Walkthrough's sidebar list and "Earlier walkthroughs" starter list
+  should be real links, so a row can open in a new tab or copy its address.
+- **Limit:** `useBbNavigate` exposes only imperative `toPluginPanel` and
+  `openThreadPanel`; the SDK has no function that returns an `href` for a plugin
+  nav panel route or a thread panel, and no link component for them.
+- **Workaround:** each row is a `<button>` that calls `toPluginPanel` or `openThreadPanel`.
+- **Possible API:** `useBbNavigate().hrefForPluginPanel(path, { subPath })`, or a
+  `PluginLink` component that renders an anchor and handles modified clicks.

@@ -20,16 +20,23 @@ you read.
 - **Full page:** the expand button in the pane header opens the walkthrough as
   a page of the BB window, without the thread beside it; **Thread** in its
   header returns. The **Walkthroughs** sidebar entry lists recent walkthroughs
-  from every thread and opens any of them as the same page.
+  from every thread and opens any of them as the same page; each row shows its
+  status, part progress, and start time.
+- **Finish:** the **X** in the header finishes the walkthrough and stops the
+  helper agent (you can still read it afterwards). It asks first unless every
+  part is written and the walkthrough is wrapping up.
 - **Ask:** every part ends with a conversation. Suggested questions get you
   started; ask anything in your own words. `.todo …` or `.question …` in the
   box saves a note instead.
 - **Note:** select any text or code and choose **Leave a note**, or use the
-  Notes drawer. Notes can point at a file and line range, and are mirrored to
+  Notes drawer (**Esc** closes it). A note from a selection in a code excerpt
+  points at that excerpt's file and lines; the File menu offers the current
+  part's excerpts first. Notes can point at a file and line range, and are mirrored to
   `.agent/review-notes/<walkthrough id>.md` in the workspace (the folder ignores itself in Git).
 - **Wrap up:** the helper answers recorded questions, reports what is still
   open, and offers follow-ups. In PR reviews it drafts a review on request;
-  the Review drawer previews it and **Post…** asks the helper to submit it.
+  the Review drawer previews it and **Post…** asks the helper to submit it,
+  publicly, as your `gh` account. To change the draft, ask in the walkthrough.
   Nothing reaches GitHub without that explicit step.
 - **Hand off:** **Send open notes to my thread** posts the open todos and
   questions, with their parts, quotes, and files, to your thread's own agent.
