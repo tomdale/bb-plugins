@@ -25,13 +25,28 @@ async function repository() {
   await writeFile(path, "export const value = 2;\n");
   git("commit", "--quiet", "-am", "change");
   const harness = experimental_createHostEntryHarness(hostEntry);
-  const read = (overrides: { path?: string; baseRef?: string; includeUncommitted?: boolean; withFullFile?: boolean } = {}) => harness.experimental_call("readCode", {
+  const read = (overrides: { path?: string; baseRef?: string; headRef?: string; includeUncommitted?: boolean; withFullFile?: boolean } = {}) => harness.experimental_call("readCode", {
     path, baseRef, includeUncommitted: true, withFullFile: true, ...overrides,
   });
   return { root, path, git, read, harness };
 }
 
 describe("host code loading", () => {
+  it("reads a pinned head commit instead of the checkout, whatever HEAD and the working tree hold", async () => {
+    const { read, path, git, harness } = await repository();
+    try {
+      const head = git("rev-parse", "HEAD");
+      await writeFile(path, "export const value = 3;\n");
+      git("commit", "--quiet", "-am", "later");
+      await writeFile(path, "export const value = 4;\n");
+      const result = await read({ headRef: head });
+      expect(result.patch).toContain("+export const value = 2;");
+      expect(result.patch).not.toContain("value = 3");
+      expect(result.sides?.new.content).toBe("export const value = 2;\n");
+      await expect(read({ headRef: "0".repeat(40) })).rejects.toThrow();
+    } finally { await harness.experimental_dispose(); }
+  });
+
   it("resolves the excerpt's repository and returns a real patch and both revisions", async () => {
     const { read, harness } = await repository();
     try {

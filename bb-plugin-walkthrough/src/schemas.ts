@@ -166,7 +166,7 @@ export const walkthroughSchema = z
     baseRef: z.string(),
     includeUncommitted: z.boolean(),
     pr: z
-      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable() })
+      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable(), headRef: z.string().nullable().default(null) })
       .strict()
       .nullable(),
     /** Prose (Markdown) shown before the first part. */

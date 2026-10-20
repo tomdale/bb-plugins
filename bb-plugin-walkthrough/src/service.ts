@@ -39,7 +39,7 @@ export interface PlanInput {
   title: string;
   baseRef: string;
   includeUncommitted?: boolean | undefined;
-  pr?: { number: number; url?: string | undefined; title?: string | undefined } | undefined;
+  pr?: { number: number; url?: string | undefined; title?: string | undefined; headRef?: string | undefined } | undefined;
   introduction: string;
   parts: Array<{ title: string; summary: string; locations: Location[] }>;
 }
@@ -617,7 +617,10 @@ export class WalkthroughService {
       title: input.title,
       baseRef: input.baseRef,
       includeUncommitted: input.includeUncommitted ?? input.mode === "local",
-      pr: input.mode === "pr" && input.pr ? { number: input.pr.number, url: input.pr.url || null, title: input.pr.title || null } : null,
+      pr:
+        input.mode === "pr" && input.pr
+          ? { number: input.pr.number, url: input.pr.url || null, title: input.pr.title || null, headRef: input.pr.headRef || null }
+          : null,
       introduction: input.introduction,
       parts: input.parts.map((part) => emptyPart(part.title, part.summary, part.locations)),
       status: "reading",
@@ -790,11 +793,17 @@ export class WalkthroughService {
 
   private async loadCode(walkthrough: Walkthrough, path: string, withFullFile: boolean): Promise<CodeSnapshot> {
     const relative = workspaceRelativePath(path, walkthrough.workspacePath);
-    if (relative === null) {
-      if (!isAbsolutePath(path) || walkthrough.hostId === null) throw new WalkthroughError("This code path has no known workspace or host.");
+    const headRef = walkthrough.pr?.headRef ?? undefined;
+    // A PR's code lives at its head commit, which the checkout may not be on;
+    // reading the checkout instead would show another revision's code under
+    // this PR's prose. The host entry reads the commit itself.
+    const onHost = headRef !== undefined && walkthrough.hostId !== null && walkthrough.workspacePath !== null;
+    if (relative === null || onHost) {
+      const hostPath = relative !== null ? `${walkthrough.workspacePath}/${relative}` : path;
+      if (!isAbsolutePath(hostPath) || walkthrough.hostId === null) throw new WalkthroughError("This code path has no known workspace or host.");
       return this.codeHost.call(
         "readCode",
-        { path, baseRef: walkthrough.baseRef, includeUncommitted: walkthrough.includeUncommitted, withFullFile },
+        { path: hostPath, baseRef: walkthrough.baseRef, ...(headRef ? { headRef } : {}), includeUncommitted: walkthrough.includeUncommitted, withFullFile },
         { hostId: walkthrough.hostId },
       );
     }

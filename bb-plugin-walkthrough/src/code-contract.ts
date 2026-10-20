@@ -12,7 +12,16 @@ export type CodeSnapshot = z.infer<typeof codeSnapshotSchema>;
 
 export const codeHostContract = defineRpcContract({
   readCode: {
-    input: z.object({ path: z.string().min(1), baseRef: z.string().min(1), includeUncommitted: z.boolean(), withFullFile: z.boolean() }).strict(),
+    input: z
+      .object({
+        path: z.string().min(1),
+        baseRef: z.string().min(1),
+        /** Read this commit instead of the checkout: a PR head, which the working tree may not be. */
+        headRef: z.string().min(1).optional(),
+        includeUncommitted: z.boolean(),
+        withFullFile: z.boolean(),
+      })
+      .strict(),
     output: codeSnapshotSchema,
   },
 });

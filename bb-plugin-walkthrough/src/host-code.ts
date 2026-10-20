@@ -7,7 +7,7 @@ const MAX_BYTES = 1_000_000;
 
 /** Read the repository named by an absolute excerpt, not the conversation's cwd. */
 export async function readCode(
-  input: { path: string; baseRef: string; includeUncommitted: boolean; withFullFile: boolean },
+  input: { path: string; baseRef: string; headRef?: string | undefined; includeUncommitted: boolean; withFullFile: boolean },
   signal: AbortSignal,
 ): Promise<CodeSnapshot> {
   if (!isAbsolute(input.path)) throw new Error("Code paths on the host must be absolute.");
@@ -22,8 +22,11 @@ export async function readCode(
   const path = relative(root, absolute).split("\\").join("/");
   if (!path || path.startsWith("../") || isAbsolute(path)) throw new Error("The code path must be inside its repository.");
   const baseCommit = (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.baseRef}^{commit}`])).trim();
-  const base = (await git(root, ["merge-base", baseCommit, "HEAD"])).trim();
-  const patch = await git(root, ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3", base, ...(input.includeUncommitted ? [] : ["HEAD"]), "--", path]);
+  // A pinned head (a PR's) replaces both HEAD and the working tree.
+  const head = input.headRef ? (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.headRef}^{commit}`])).trim() : "HEAD";
+  const base = (await git(root, ["merge-base", baseCommit, head])).trim();
+  const includeUncommitted = input.includeUncommitted && !input.headRef;
+  const patch = await git(root, ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3", base, ...(includeUncommitted ? [] : [head]), "--", path]);
   const show = async (ref: string): Promise<string | null> => {
     // Missing sides are expected for added and deleted files; other failures must surface.
     const exists = await git(root, ["ls-tree", "--name-only", ref, "--", path]);
@@ -31,7 +34,7 @@ export async function readCode(
   };
   const old = await show(base);
   let current: string | null;
-  if (input.includeUncommitted) {
+  if (includeUncommitted) {
     try {
       signal.throwIfAborted();
       const file = await open(input.path, "r");
@@ -57,7 +60,7 @@ export async function readCode(
       current = null;
     }
   } else {
-    current = await show("HEAD");
+    current = await show(head);
   }
   if (old?.includes("\0") || current?.includes("\0")) throw new Error("Binary files cannot be shown as code excerpts.");
   if (old === null && current === null) throw new Error(`No file at ${input.path} in the selected revisions.`);

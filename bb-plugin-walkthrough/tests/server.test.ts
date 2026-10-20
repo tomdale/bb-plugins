@@ -99,6 +99,24 @@ describe("walkthrough code routing", () => {
     expect(harness.experimental_hostRpcCalls).toMatchObject([{ hostId: "host_1", method: "readCode", input: { path: "/work/other/src/file.ts", baseRef: "origin/main", includeUncommitted: true, withFullFile: true } }]);
   });
 
+  it("reads a PR walkthrough's code at its head commit through the host, not the checkout", async () => {
+    const { rpc, tool, harness } = await setup({ readCode: () => ({ path: "src/file.ts", patch, truncated: false, sides: null }) });
+    harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [] }));
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Review PR 7" });
+    await tool("walkthrough_plan", { ...PLAN, mode: "pr", baseRef: "abc1234", pr: { number: 7, title: "Real title", headRef: "def5678" } });
+    await rpc("excerpt", { walkthroughId, path: "src/file.ts", startLine: 1, endLine: 1 });
+    expect(harness.inspection.sdk.callsTo("environments.diffPatch")).toHaveLength(0);
+    expect(harness.experimental_hostRpcCalls).toMatchObject([
+      { method: "readCode", input: { path: "/work/repo/src/file.ts", baseRef: "abc1234", headRef: "def5678", includeUncommitted: false } },
+    ]);
+  });
+
+  it("rejects a base ref with commentary", async () => {
+    const { rpc, tool } = await setup();
+    await rpc("start", { threadId: THREAD, request: "" });
+    await expect(tool("walkthrough_plan", { ...PLAN, baseRef: "c884aad (PR base on main)" })).rejects.toThrow(/bare git ref/u);
+  });
+
   it("normalizes an absolute in-workspace path for the environment diff API", async () => {
     const { rpc, tool, harness } = await setup();
     harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [{ path: "src/file.ts", patch, truncated: false }] }));

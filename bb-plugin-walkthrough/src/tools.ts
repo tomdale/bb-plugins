@@ -73,10 +73,29 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
       .object({
         mode: modeSchema.describe("pr for a GitHub PR review, local otherwise."),
         title: z.string().trim().min(1).max(200).describe('Short and human, e.g. "Read aloud plugin" or "PR #123: Retry uploads".'),
-        baseRef: z.string().trim().min(1).max(256).describe("The ref you compared against, such as origin/main."),
+        baseRef: z
+          .string()
+          .trim()
+          .min(1)
+          .max(256)
+          .regex(/^\S+$/u, "baseRef must be a bare git ref or commit sha, with no commentary")
+          .describe(
+            "The ref or commit sha the change is measured from, with no commentary: origin/main for a branch; in PR mode the commit the PR's diff starts at (for a merged PR, the commit before its first change, not the base branch tip).",
+          ),
         includeUncommitted: z.boolean().optional().describe("Whether uncommitted changes are part of what you explain."),
         pr: z
-          .object({ number: z.number().int().positive(), url: z.string().max(2048).optional(), title: z.string().max(500).optional() })
+          .object({
+            number: z.number().int().positive(),
+            url: z.string().max(2048).optional(),
+            title: z.string().max(500).optional().describe("The PR's real title, verbatim."),
+            headRef: z
+              .string()
+              .trim()
+              .regex(/^\S+$/u)
+              .max(256)
+              .optional()
+              .describe("The PR head commit sha (gh pr view --json headRefOid). Excerpts are read from it, whatever the checkout has. If it is not in the local repo, fetch it first: git fetch origin pull/<number>/head."),
+          })
           .strict()
           .optional()
           .describe("PR mode only."),
