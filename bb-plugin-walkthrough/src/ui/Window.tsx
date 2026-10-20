@@ -47,9 +47,13 @@ function Index() {
           <ul className="space-y-1">
             {walkthroughs.map((walkthrough) => (
               <li key={walkthrough.id}>
-                <button type="button" onClick={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })} className="text-left text-sm hover:underline">
-                  {label(walkthrough)}
-                  <span className="ml-2 text-xs text-muted-foreground">{walkthrough.status === "done" ? "finished" : walkthrough.status}</span>
+                <button
+                  type="button"
+                  onClick={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}
+                  className="flex w-full items-baseline gap-2 text-left text-sm hover:underline"
+                >
+                  <span className="min-w-0 truncate">{label(walkthrough)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{walkthrough.status === "done" ? "finished" : walkthrough.status}</span>
                 </button>
               </li>
             ))}
