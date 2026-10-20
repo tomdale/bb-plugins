@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useRpc, type PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { vercelRpcContract } from "./rpc.js";
+import type { Plan } from "./plans.js";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -24,6 +25,8 @@ export type ProjectChoice = {
   projectId: string;
   teamName: string;
   projectName: string;
+  /** The team's plan from its listing, or null when Vercel didn't say. */
+  teamPlan: Plan | null;
 };
 /**
  * The team and project currently picked. `choice` is set only once both
@@ -253,6 +256,7 @@ export function ProjectFields({
               projectId: project.id,
               teamName: team.name,
               projectName: project.name,
+              teamPlan: team.plan ?? null,
             }
           : null,
     });

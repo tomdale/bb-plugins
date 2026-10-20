@@ -1,6 +1,10 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { resolvedInputsSchema, vcpusSchema } from "./configuration.js";
+import {
+  planSchema,
+  resolvedInputsSchema,
+  vcpusSchema,
+} from "./configuration.js";
 import {
   accountInspectionSchema,
   savedAccountSchema,
@@ -19,25 +23,32 @@ export const stateSchema = z.enum([
   "snapshotting",
   "missing",
 ]);
+const launchOptionsSchema = z
+  .object({
+    image: z.string(),
+    defaultInputs: resolvedInputsSchema,
+    /** The connected team's plan, when known, which caps the choices. */
+    plan: planSchema.nullable(),
+    limits: z
+      .object({
+        minVcpus: z.number(),
+        maxVcpus: z.number(),
+        allowedVcpus: z.array(vcpusSchema),
+        minTimeoutMinutes: z.number(),
+        maxTimeoutMinutes: z.number(),
+      })
+      .strict(),
+    memoryMiBPerVcpu: z.number(),
+  })
+  .strict();
 export const vercelRpcContract = defineRpcContract({
   "launch.options": {
     input: z.object({}).strict(),
-    output: z
-      .object({
-        image: z.string(),
-        defaultInputs: resolvedInputsSchema,
-        limits: z
-          .object({
-            minVcpus: z.number(),
-            maxVcpus: z.number(),
-            allowedVcpus: z.array(vcpusSchema),
-            minTimeoutMinutes: z.number(),
-            maxTimeoutMinutes: z.number(),
-          })
-          .strict(),
-        memoryMiBPerVcpu: z.number(),
-      })
-      .strict(),
+    output: launchOptionsSchema,
+  },
+  "launch.defaults.set": {
+    input: resolvedInputsSchema,
+    output: launchOptionsSchema,
   },
   "account.teams": {
     input: accountHostInputSchema,

@@ -20,6 +20,7 @@ import {
   accountConnectInputSchema,
   accountNameSchema,
   connectionSchema,
+  teamPlanSchema,
   type Connection,
 } from "./auth-contract.js";
 import { z } from "zod";
@@ -27,11 +28,14 @@ import {
   allowedVcpus,
   launchInputsSchema,
   resolveLaunchDefaults,
+  resolvedInputsSchema,
   SafeError,
   safeMessage,
-  SETTING_DESCRIPTORS,
+  type LaunchInputs,
+  type Plan,
 } from "./configuration.js";
 import { IMAGE, PROVIDER_ID } from "./provider-id.js";
+import { capToPlan } from "./plans.js";
 import { vercelRpcContract } from "./rpc.js";
 
 // Display labels saved beside the pinned connection; each applies only while
@@ -43,11 +47,17 @@ const connectionNamesSchema = z.object({
   projectName: z.string().nullable(),
   accountId: z.string().nullable().default(null),
   accountName: accountNameSchema.default(null),
+  teamPlan: teamPlanSchema.catch(null).default(null),
 });
 
 export function createVercelSandboxPlugin() {
   return async (bb: BbPluginApi) => {
-    const settings = bb.settings.define(SETTING_DESCRIPTORS);
+    // Launch defaults live in plugin storage rather than host settings, so
+    // the Settings page can offer only what the selected team's plan allows.
+    const launchDefaults = async () =>
+      resolveLaunchDefaults(
+        await bb.storage.kv.get<unknown>("launch-defaults"),
+      );
     const allocations = await allocationStore(bb);
     const lifetime = new AbortController();
     bb.onDispose(() => lifetime.abort());
@@ -78,12 +88,26 @@ export function createVercelSandboxPlugin() {
       assertScope(resource, current);
       return remote.forResource(current, resource);
     };
+    // Stored defaults are capped at the connected team's plan, so switching
+    // to a team on a smaller plan launches at its maximum instead of failing;
+    // switching back restores the stored choice.
+    const effectiveDefaults = async (connection: Connection | null) => {
+      const plan = connection
+        ? ((await savedLabels(connection))?.teamPlan ?? null)
+        : null;
+      return { plan, defaults: capToPlan(await launchDefaults(), plan) };
+    };
     const launchOptions = async () => {
-      const raw = await settings.get();
-      const defaults = resolveLaunchDefaults(raw);
+      const stored = connectionSchema.safeParse(
+        await bb.storage.kv.get<unknown>("cli-connection"),
+      );
+      const { plan, defaults } = await effectiveDefaults(
+        stored.success ? stored.data : null,
+      );
       return {
         image: IMAGE,
         defaultInputs: defaults,
+        plan,
         limits: {
           minVcpus: 1,
           maxVcpus: 32,
@@ -93,6 +117,13 @@ export function createVercelSandboxPlugin() {
         },
         memoryMiBPerVcpu: 2048,
       };
+    };
+    const setLaunchDefaults = async (input: LaunchInputs) => {
+      await bb.storage.kv.set(
+        "launch-defaults",
+        resolvedInputsSchema.parse(input),
+      );
+      return launchOptions();
     };
     const savedLabels = async (connection: Connection) => {
       const saved = connectionNamesSchema.safeParse(
@@ -109,6 +140,8 @@ export function createVercelSandboxPlugin() {
           saved.data.accountId === connection.accountId
             ? saved.data.accountName
             : null,
+        teamPlan:
+          saved.data.teamId === connection.teamId ? saved.data.teamPlan : null,
       };
     };
     // The saved connection and its labels, read without contacting the
@@ -128,6 +161,7 @@ export function createVercelSandboxPlugin() {
         projectId: connection?.projectId ?? null,
         teamName: labels?.teamName ?? null,
         projectName: labels?.projectName ?? null,
+        teamPlan: labels?.teamPlan ?? null,
       };
     };
     const accountResult = async (
@@ -144,6 +178,7 @@ export function createVercelSandboxPlugin() {
       return {
         teamName: labels?.teamName ?? null,
         projectName: labels?.projectName ?? null,
+        teamPlan: labels?.teamPlan ?? null,
         available,
         message,
         hostId: connection?.hostId ?? null,
@@ -171,6 +206,7 @@ export function createVercelSandboxPlugin() {
       resolved: {
         teamName: string | null;
         projectName: string | null;
+        teamPlan: Plan | null;
         accountName: string | null;
       },
     ) => {
@@ -178,12 +214,14 @@ export function createVercelSandboxPlugin() {
       const next = {
         teamName: resolved.teamName ?? same?.teamName ?? null,
         projectName: resolved.projectName ?? same?.projectName ?? null,
+        teamPlan: resolved.teamPlan ?? same?.teamPlan ?? null,
         // A verified identity is authoritative, including no username.
         accountName: resolved.accountName,
       };
       if (
         same?.teamName === next.teamName &&
         same.projectName === next.projectName &&
+        same.teamPlan === next.teamPlan &&
         same.accountName === next.accountName
       )
         return;
@@ -198,13 +236,12 @@ export function createVercelSandboxPlugin() {
       let connection: Connection | null = null;
       try {
         connection = await currentConnection();
-        const { accountName, teamName, projectName } = await remote.inspect(
-          connection,
-          operationSignal(signal, 60_000),
-        );
+        const { accountName, teamName, projectName, teamPlan } =
+          await remote.inspect(connection, operationSignal(signal, 60_000));
         await rememberNames(connection, {
           teamName,
           projectName,
+          teamPlan,
           accountName,
         });
         return accountResult(
@@ -265,6 +302,7 @@ export function createVercelSandboxPlugin() {
           projectId: connection.projectId,
           teamName: input.teamName,
           projectName: input.projectName,
+          teamPlan: input.teamPlan,
           accountId: connection.accountId,
           accountName,
         });
@@ -343,6 +381,7 @@ export function createVercelSandboxPlugin() {
           throw new Error(safeMessage(error));
         }
       },
+      "launch.defaults.set": (input) => setLaunchDefaults(input),
       "account.teams": async (input) => {
         const host = await bb.sdk.hosts.get({ hostId: input.hostId });
         if (host.type !== "persistent")
@@ -493,6 +532,44 @@ export function createVercelSandboxPlugin() {
                     null,
                     input.options.json ? undefined : 2,
                   ),
+                };
+              });
+            },
+          }),
+          "launch defaults": cliCommand({
+            summary: "Set the default size and lifetime of new sandboxes",
+            options: {
+              ...jsonOption,
+              vcpus: {
+                type: "string",
+                description: "Default vCPUs: 1 or an even count up to 32",
+              },
+              "timeout-minutes": {
+                type: "string",
+                description: "Default lifetime in whole minutes, 5–1440",
+              },
+            },
+            run(input) {
+              return guarded(async () => {
+                const current = await launchDefaults();
+                const { vcpus, "timeout-minutes": timeout } = input.options;
+                const parsed = resolvedInputsSchema.safeParse({
+                  vcpus: vcpus === undefined ? current.vcpus : Number(vcpus),
+                  timeoutMinutes:
+                    timeout === undefined
+                      ? current.timeoutMinutes
+                      : Number(timeout),
+                });
+                if (!parsed.success)
+                  throw new SafeError(
+                    "Choose 1 vCPU or an even count up to 32 and 5–1440 whole minutes.",
+                  );
+                const result = await setLaunchDefaults(parsed.data);
+                return {
+                  exitCode: 0,
+                  stdout: input.options.json
+                    ? JSON.stringify(result)
+                    : `New sandboxes default to ${result.defaultInputs.vcpus} vCPU and ${result.defaultInputs.timeoutMinutes} minutes.`,
                 };
               });
             },
@@ -649,9 +726,8 @@ export function createVercelSandboxPlugin() {
       async validate({ inputs }) {
         try {
           launchInputsSchema.parse(inputs);
-          const raw = await settings.get();
           await currentConnection();
-          resolveLaunchDefaults(raw);
+          await launchDefaults();
           return { action: "accept" };
         } catch (error) {
           return {
@@ -668,7 +744,6 @@ export function createVercelSandboxPlugin() {
           try {
             lifetime.signal.throwIfAborted();
             context.signal.throwIfAborted();
-            const raw = await settings.get();
             const inputs = launchInputsSchema.parse(context.inputs);
             let intent = await allocations.get(context.key);
             if (intent?.phase === "removed") intent = null;
@@ -681,7 +756,7 @@ export function createVercelSandboxPlugin() {
               );
             if (!intent) {
               const current = await currentConnection();
-              const defaults = resolveLaunchDefaults(raw);
+              const { defaults } = await effectiveDefaults(current);
               intent = {
                 phase: "prepared",
                 resource: {

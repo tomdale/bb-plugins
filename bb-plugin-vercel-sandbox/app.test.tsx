@@ -15,6 +15,7 @@ const app = await loadPluginApp(() => import("./app"));
 const LAUNCH_OPTIONS = {
   image: "vercel/sandbox/universal:latest",
   defaultInputs: { vcpus: 2, timeoutMinutes: 30 },
+  plan: null as "hobby" | "pro" | "enterprise" | null,
   limits: {
     minVcpus: 1,
     maxVcpus: 32,
@@ -102,6 +103,33 @@ describe("launch inputs control", () => {
     expect(onChange).toHaveBeenLastCalledWith({ status: "ready", value: {} });
   });
 
+  it("offers only what the team's plan allows when the plan is known", async () => {
+    const slot = renderSlot(
+      inputsSlot(),
+      { value: { vcpus: 8 }, onChange: vi.fn() },
+      {
+        rpc: {
+          "launch.options": () => ({ ...LAUNCH_OPTIONS, plan: "hobby" }),
+        },
+      },
+    );
+    openMenu(await slot.findByRole("button", { name: /choose new options/ }));
+    await slot.findByText(/limited to what your team's Hobby plan allows/);
+    expect(
+      slot.getByText(/Your team's Hobby plan allows 1, 2, 4 vCPUs/),
+    ).toBeTruthy();
+    expect(
+      slot.getAllByRole("menuitemradio").map((item) => item.textContent),
+    ).toEqual([
+      "1 vCPU · 2 GiB",
+      "2 vCPU · 4 GiB (default)",
+      "4 vCPU · 8 GiB",
+      "15 min",
+      "30 min (default)",
+      "45 min",
+    ]);
+  });
+
   it("states the data-loss and plan boundaries where the choice is made", async () => {
     const slot = renderSlot(
       inputsSlot(),
@@ -114,23 +142,15 @@ describe("launch inputs control", () => {
       slot.getByText(/BB can't extend, pause, or restore it/),
     ).toBeTruthy();
     expect(slot.getByText(/Choices are Vercel maximums/)).toBeTruthy();
-    const eight = slot.getByRole("menuitemradio", { name: /8 vCPU · 16 GiB/ });
-    expect(eight.textContent).toContain("Pro+");
-    const thirtyTwo = slot.getByRole("menuitemradio", {
-      name: /32 vCPU · 64 GiB/,
-    });
-    expect(thirtyTwo.textContent).toContain("Enterprise");
     expect(
       slot
         .getByRole("menuitemradio", { name: /2 vCPU · 4 GiB \(default\)/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
     expect(
-      slot.getByRole("menuitemradio", { name: /^24 h/ }).textContent,
-    ).toContain("Pro+");
-    expect(
-      slot.getByRole("menuitemradio", { name: /^45 min/ }).textContent,
-    ).not.toContain("Pro+");
+      slot.getByRole("menuitemradio", { name: /32 vCPU · 64 GiB/ }).textContent,
+    ).not.toMatch(/Pro|Enterprise/);
+    expect(slot.getByRole("menuitemradio", { name: /^24 h/ })).toBeTruthy();
   });
 
   it("emits a complete explicit selection after a pick", async () => {
@@ -403,6 +423,7 @@ describe("settings section", () => {
     projectId: string | null;
     teamName: string | null;
     projectName: string | null;
+    teamPlan: "hobby" | "pro" | "enterprise" | null;
     legacyAllocations: {
       count: number;
       teamId: string;
@@ -422,6 +443,7 @@ describe("settings section", () => {
     projectId: null,
     teamName: null,
     projectName: null,
+    teamPlan: null,
     legacyAllocations: null,
     adoptedAllocations: 0,
   };
@@ -437,6 +459,7 @@ describe("settings section", () => {
     projectId: "prj_def",
     teamName: null,
     projectName: null,
+    teamPlan: null,
     legacyAllocations: null,
     adoptedAllocations: 0,
   };
@@ -561,14 +584,67 @@ describe("settings section", () => {
       ),
     ).toBeNull();
     expect(connectCalls(slot)).toEqual([]);
-    // Launch defaults live in the host's Configuration fields, not here.
-    expect(slot.queryByRole("heading", { name: "New sandboxes" })).toBeNull();
-    expect(slot.queryByText("2 vCPU · 4 GiB")).toBeNull();
+    // Launch defaults follow the account, whose plan caps their choices.
+    const headings = slot
+      .getAllByRole("heading")
+      .map((heading) => heading.textContent);
+    expect(headings.indexOf("Account")).toBeLessThan(
+      headings.indexOf("New sandboxes"),
+    );
+    expect(
+      (await slot.findByRole("button", { name: /^vCPUs / })).textContent,
+    ).toContain("2 vCPUs · 4 GiB");
+    expect(
+      slot.getByRole("button", { name: /^Lifetime / }).textContent,
+    ).toContain("30 minutes");
     expect(
       slot.queryByRole("heading", { name: "Data and billing" }),
     ).toBeNull();
     expect(document.body.textContent).not.toMatch(TOKEN_SHAPED);
     expect(slot.queryByLabelText(/token/i)).toBeNull();
+  });
+
+  it("offers launch defaults within the team's plan and saves a pick", async () => {
+    const slot = renderSettings({
+      "account.inspect": () => ({ ...CONNECTED, teamPlan: "hobby" }),
+      "launch.options": () => ({ ...LAUNCH_OPTIONS, plan: "hobby" }),
+      "launch.defaults.set": (input: {
+        vcpus: number;
+        timeoutMinutes: number;
+      }) => ({ ...LAUNCH_OPTIONS, plan: "hobby", defaultInputs: input }),
+    });
+    await waitFor(() =>
+      expect(trigger(slot, "vCPUs").hasAttribute("disabled")).toBe(false),
+    );
+    openMenu(trigger(slot, "vCPUs"));
+    expect(
+      (await slot.findAllByRole("menuitemradio")).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["1 vCPU · 2 GiB", "2 vCPUs · 4 GiB", "4 vCPUs · 8 GiB"]);
+    fireEvent.click(
+      slot.getByRole("menuitemradio", { name: "4 vCPUs · 8 GiB" }),
+    );
+    await waitFor(() =>
+      expect(trigger(slot, "vCPUs").textContent).toContain("4 vCPUs"),
+    );
+    expect(
+      slot.inspection.rpcCalls.filter(
+        (call) => call.method === "launch.defaults.set",
+      ),
+    ).toEqual([
+      {
+        method: "launch.defaults.set",
+        input: { vcpus: 4, timeoutMinutes: 30 },
+      },
+    ]);
+    openMenu(trigger(slot, "Lifetime"));
+    expect(
+      (await slot.findAllByRole("menuitemradio")).map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["15 minutes", "30 minutes", "45 minutes"]);
+    expect(document.body.textContent).not.toMatch(/Pro and up|Enterprise\)/);
   });
 
   it("shows names without exposing IDs", async () => {
@@ -595,6 +671,7 @@ describe("settings section", () => {
         projectId: "prj_def",
         teamName: "My team",
         projectName: "My project",
+        teamPlan: null,
       }),
       "account.inspect": () => check.promise,
       "account.teams": () => teams.promise,
@@ -653,6 +730,7 @@ describe("settings section", () => {
         projectId: null,
         teamName: null,
         projectName: null,
+        teamPlan: null,
       }),
       "account.inspect": () => deferred<Account>().promise,
     });
@@ -699,6 +777,7 @@ describe("settings section", () => {
           projectId: "prj_def",
           teamName: "My team",
           projectName: "My project",
+          teamPlan: null,
           adoptLegacyAllocations: false,
           expectedLegacyIdentity: null,
         },
@@ -993,6 +1072,7 @@ describe("settings section", () => {
         directory: "/Users/me/vercel-bb",
         teamName: null,
         projectName: null,
+        teamPlan: null,
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       },
@@ -1014,6 +1094,7 @@ describe("settings section", () => {
         projectId: null,
         teamName: null,
         projectName: null,
+        teamPlan: null,
       }),
       "account.inspect": () => recheck.promise,
       "account.connect": () => CONNECTED,
@@ -1075,6 +1156,7 @@ describe("settings section", () => {
         projectId: "prj_other",
         teamName: "My team",
         projectName: "Other project",
+        teamPlan: null,
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       },

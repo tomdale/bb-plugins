@@ -1,4 +1,12 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 // Layout primitives that mirror BB's declarative plugin settings form, so the
@@ -76,5 +84,84 @@ export function StaticValue({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * A setting whose value is one of a fixed list, saved as soon as it is
+ * picked. Shows `placeholder` and stays disabled until `value` is known.
+ */
+export function SettingSelect<T extends string | number>({
+  label,
+  description,
+  value,
+  options,
+  placeholder = "Loading…",
+  disabled = false,
+  onChange,
+  children,
+}: {
+  label: string;
+  description?: ReactNode;
+  value: T | null;
+  options: readonly { value: T; label: string }[];
+  placeholder?: string;
+  disabled?: boolean;
+  onChange: (value: T) => void;
+  /** Messages shown under the control, such as a save failure. */
+  children?: ReactNode;
+}) {
+  const labelId = useId();
+  const selected = options.find((option) => option.value === value);
+  return (
+    <SettingRow label={label} labelId={labelId} description={description}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || selected === undefined}
+            aria-labelledby={`${labelId} ${labelId}-value`}
+            className={SETTINGS_TRIGGER_CLASS}
+          >
+            <span
+              id={`${labelId}-value`}
+              className={cn(
+                "min-w-0 truncate",
+                selected === undefined && "text-muted-foreground",
+              )}
+            >
+              {selected?.label ?? placeholder}
+            </span>
+            <Icon
+              name="ChevronDown"
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          mobileTitle={label}
+          aria-labelledby={labelId}
+          className={SETTINGS_MENU_CLASS}
+        >
+          {options.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              role="menuitemradio"
+              aria-checked={option.value === value}
+              onSelect={() => onChange(option.value)}
+            >
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {option.value === value ? (
+                <Icon name="Check" className="size-3.5" />
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {children}
+    </SettingRow>
   );
 }

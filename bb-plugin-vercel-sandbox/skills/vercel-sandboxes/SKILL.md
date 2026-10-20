@@ -51,11 +51,11 @@ Create a standalone machine with `bb machine create --provider vercel-sandbox
 `bb thread spawn --project PROJECT --environment-provider vercel-sandbox
 --machine-inputs '{"vcpus":2,"timeoutMinutes":30}' --prompt 'TASK'`.
 Machine inputs are a strict object with optional whole `vcpus` (1 or an even count
-up to 32) and `timeoutMinutes` (5–1440), or null for defaults. Defaults are plugin
-select settings, stored as strings: `defaultVcpus` (`"1"` or an even count up to
-`"32"`; default `"2"`) and `defaultTimeoutMinutes` (`"15"`, `"30"`, `"45"`, `"60"`,
-`"120"`, `"240"`, `"480"`, or `"1440"`; default `"30"`). Memory is 2048 MiB per
-vCPU. Vercel plan caps apply: Hobby 4 CPUs / 45 minutes, Pro 8 CPUs / 24 hours,
+up to 32) and `timeoutMinutes` (5–1440), or null for defaults. Set defaults with
+`bb vercel-sandbox launch defaults [--vcpus N] [--timeout-minutes M]` (initially 2
+vCPUs and 30 minutes); `bb vercel-sandbox launch options --json` shows the effective
+defaults, capped at the connected team's `plan` when it is known. Memory is 2048 MiB
+per vCPU. Vercel plan caps apply: Hobby 4 CPUs / 45 minutes, Pro 8 CPUs / 24 hours,
 Enterprise 32 CPUs / 24 hours, per pinned SDK 3.5.1 documentation.
 
 BB installs and enrolls the daemon; the project-checkout composition clones the

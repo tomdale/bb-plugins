@@ -33,12 +33,22 @@ export async function cliFixture() {
         },
       });
     if (args[1] === `/v2/teams/${scope.teamId}`)
-      return JSON.stringify({ id: scope.teamId, name: "Test team" });
+      return JSON.stringify({
+        id: scope.teamId,
+        name: "Test team",
+        billing: { plan: "pro", address: { line1: "private-address" } },
+      });
     if (args[1]?.startsWith(`/v9/projects/${scope.projectId}?`))
       return JSON.stringify({ id: scope.projectId, name: "Test project" });
     if (args[1]?.startsWith("/v2/teams?"))
       return JSON.stringify({
-        teams: [{ id: scope.teamId, name: "Test team" }],
+        teams: [
+          {
+            id: scope.teamId,
+            name: "Test team",
+            billing: { plan: "pro", email: "private-billing@example.invalid" },
+          },
+        ],
         pagination: { next: null },
       });
     if (args[1]?.startsWith("/v9/projects?"))

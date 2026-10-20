@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { scopeSchema } from "./configuration.js";
+import { planSchema, scopeSchema } from "./configuration.js";
 export const accountHostInputSchema = z
   .object({
     hostId: z.string().min(1).max(200),
@@ -14,6 +14,8 @@ const choiceSchema = z
   .object({
     id: z.string().min(1).max(200),
     name: z.string().min(1).max(200),
+    /** A team's billing plan; absent for projects and unknown plans. */
+    plan: planSchema.optional(),
   })
   .strict();
 export const accountChoicesSchema = z
@@ -52,10 +54,13 @@ export const legacyIdentitySchema = scopeSchema
   .strict();
 // Display-only labels chosen in Settings; never part of allocation identity.
 export const displayNameSchema = z.string().min(1).max(200).nullable();
+/** The selected team's plan, kept with its display labels. */
+export const teamPlanSchema = planSchema.nullable();
 export const accountConnectInputSchema = connectionInputSchema
   .safeExtend({
     teamName: displayNameSchema.default(null),
     projectName: displayNameSchema.default(null),
+    teamPlan: teamPlanSchema.default(null),
     adoptLegacyAllocations: z.boolean().default(false),
     expectedLegacyIdentity: legacyIdentitySchema.nullable().default(null),
   })
@@ -99,6 +104,7 @@ export const accountInspectionSchema = z
     projectId: z.string().nullable(),
     teamName: displayNameSchema,
     projectName: displayNameSchema,
+    teamPlan: teamPlanSchema,
   })
   .strict();
 // The stored connection and its display labels, without verification.
@@ -112,5 +118,6 @@ export const savedAccountSchema = accountInspectionSchema
     projectId: true,
     teamName: true,
     projectName: true,
+    teamPlan: true,
   })
   .strict();

@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   accountNameSchema,
   displayNameSchema,
+  teamPlanSchema,
   accountHostInputSchema,
   projectsInputSchema,
   accountChoicesSchema,
@@ -64,6 +65,7 @@ export const hostContract = defineRpcContract({
           accountName: accountNameSchema,
           teamName: displayNameSchema,
           projectName: displayNameSchema,
+          teamPlan: teamPlanSchema,
         })
         .strict(),
     ),

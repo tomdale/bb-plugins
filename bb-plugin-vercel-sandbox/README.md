@@ -10,7 +10,7 @@ The server persists a secret-free connection. Its host extension uses fixed, non
 
 SDK 3.5.1 executes compute operations on that authentication machine. A private transport supplies the validated OIDC token while the SDK receives an opaque credential marker, preventing SDK JWT inference or automatic refresh from rebinding scope. Expiring credentials refresh through the same CLI path before a request; a changed account or project blocks it. The standalone `sandbox` CLI 2.0.3 uses SDK 1.3.2 session commands and can implicitly login; it cannot preserve BB's named sandbox tags, generations, stop proof, and mutation retry suppression. `vc` owns authentication; the typed SDK owns this durable compute lifecycle.
 
-Select settings `defaultVcpus` (1 or an even count up to 32) and `defaultTimeoutMinutes` (15, 30, 45, 60, 120, 240, 480, or 1440 minutes) store their choice as a string and default to `"2"` and `"30"`; choices above Hobby plan limits are labeled with the plans that allow them. Editing defaults affects future allocations; recovery keeps the recorded allocation settings.
+Launch defaults (2 vCPUs, 30 minutes until changed) live in plugin storage. Set them in the Settings page's New sandboxes section, which offers only what the connected team's plan allows, or with `bb vercel-sandbox launch defaults [--vcpus N] [--timeout-minutes M] [--json]`. When the connected team's plan is known, launches and `launch options` cap the stored defaults at that plan's maximums; the stored choice returns if the team changes to a larger plan. Editing defaults affects future allocations; recovery keeps the recorded allocation settings.
 
 The server must be reachable from the sandbox. Configure core machine server access in Settings → Machines. BB owns daemon installation, private enrollment, credentials, work draining, checkout cloning, and `.bb-env-setup.sh`. Agent authentication uses BB's ordinary machine environment and provider configuration. A sandbox image's installed CLIs do not supply agent account credentials.
 
@@ -25,9 +25,9 @@ bb machine show HOST --json
 bb machine remove HOST --yes
 ```
 
-Use `bb machine list --all` to include disposable machines. `account inspect` proves authenticated sandbox listing; allocation permissions, spend capacity, image availability, and plan entitlements are checked by Vercel at launch. Diagnostics allocate no compute; account inspection may refresh OAuth/OIDC through the CLI. Resource defaults are also available through core plugin settings SDK and CLI.
+Use `bb machine list --all` to include disposable machines. `account inspect` proves authenticated sandbox listing; allocation permissions, spend capacity, image availability, and plan entitlements are checked by Vercel at launch. Diagnostics allocate no compute; account inspection may refresh OAuth/OIDC through the CLI. `launch options` reports the effective defaults and the connected team's `plan` (`hobby`, `pro`, `enterprise`, or null when unknown).
 
-Launch inputs accept `null` or a strict object with optional integer `vcpus` (1 or an even count up to 32) and `timeoutMinutes` (5–1440). Unknown fields are rejected. Memory is 2048 MiB per vCPU. Vercel plan limits apply: SDK 3.5.1 documents Hobby limits of 4 vCPUs and 45 minutes, Pro limits of 8 vCPUs and 24 hours, and Enterprise limits of 32 vCPUs and 24 hours. BB validates the provider maxima; it does not infer the account's plan.
+Launch inputs accept `null` or a strict object with optional integer `vcpus` (1 or an even count up to 32) and `timeoutMinutes` (5–1440). Unknown fields are rejected. Memory is 2048 MiB per vCPU. Vercel plan limits apply: SDK 3.5.1 documents Hobby limits of 4 vCPUs and 45 minutes, Pro limits of 8 vCPUs and 24 hours, and Enterprise limits of 32 vCPUs and 24 hours. BB reads the team's plan from its Vercel team record (keeping only the plan name) when listing teams and inspecting the connection, and uses it to cap defaults and the choices Settings and the composer offer. Explicit launch inputs are validated against the provider maxima; Vercel enforces the plan at launch.
 
 ## Files and lifetime
 
@@ -69,7 +69,7 @@ Bootstrap stdin is uploaded to a unique 0600 temporary file, opened and unlinked
 
 `account.connect` also accepts `{hostId,directory,...}` for directory-backed connections; supply either a directory or both IDs, not both forms. Direct-ID connections return `directory:null`. Discovery follows pagination up to 5,000 entries and fails rather than returning an incomplete list.
 
-`bb vercel-sandbox account connect --host HOST --team TEAM_ID --project PROJECT_ID [--json]` and the explicit adoption command above, `launch options`, `account inspect`, and `machine inspect HOST` expose the same results with `--json`. Core `hosts.experimental_create`, `hosts.delete`, and `threads.spawn` provide launch/removal parity. Use `bb plugin rpc inspect environment-vercel-sandbox` to inspect the registered schemas.
+`bb vercel-sandbox account connect --host HOST --team TEAM_ID --project PROJECT_ID [--json]` and the explicit adoption command above, `launch options`, `launch defaults`, `account inspect`, and `machine inspect HOST` expose the same results with `--json`. Core `hosts.experimental_create`, `hosts.delete`, and `threads.spawn` provide launch/removal parity. Use `bb plugin rpc inspect environment-vercel-sandbox` to inspect the registered schemas.
 
 ## Vendor evidence and verification
 

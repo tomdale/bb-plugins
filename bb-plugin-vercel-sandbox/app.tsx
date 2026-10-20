@@ -26,6 +26,7 @@ import {
   SETTINGS_PANEL_CLASS,
   SETTINGS_TRIGGER_CLASS,
   SettingRow,
+  SettingSelect,
   StaticValue,
 } from "./settings-rows.js";
 import { Label } from "@/components/ui/label";
@@ -57,6 +58,7 @@ import {
 } from "@/components/ui/popover";
 import type { vercelRpcContract } from "./rpc.js";
 import { PROVIDER_ID } from "./provider-id.js";
+import { PLAN_LIMITS, PLAN_NAMES, type Plan } from "./plans.js";
 
 type Contract = typeof vercelRpcContract;
 type LaunchOptions = PluginRpcResult<Contract["launch.options"]>;
@@ -70,16 +72,38 @@ type Load<T> =
   { status: "pending" } | { status: "ready"; data: T } | { status: "error" };
 
 const TIMEOUT_LADDER_MINUTES = [15, 30, 45, 60, 120, 240, 480, 1440] as const;
-const HOBBY_MAX_VCPUS = 4;
-const PRO_MAX_VCPUS = 8;
-const HOBBY_MAX_TIMEOUT_MINUTES = 45;
 const WARNING_REMAINING_MS = 10 * 60_000;
 const TICK_MS = 30_000;
 
 const DATA_LOSS_NOTE =
   "The sandbox stops for good at its time limit. BB can't extend, pause, or restore it, so uncommitted files are lost. Push work you want to keep.";
-const PLAN_NOTE =
-  "Choices are Vercel maximums. BB can't see your plan; a launch above its limits fails when the sandbox starts.";
+const UNKNOWN_PLAN_NOTE =
+  "Choices are Vercel maximums. BB couldn't read your team's plan; a launch above its limits fails when the sandbox starts.";
+
+/** The choices a launch may use: Vercel's maximums capped by the team plan. */
+type EffectiveLimits = LaunchOptions["limits"] & { planName: string | null };
+
+function effectiveLimits(options: LaunchOptions): EffectiveLimits {
+  const { limits, plan } = options;
+  if (plan === null) return { ...limits, planName: null };
+  const cap = PLAN_LIMITS[plan];
+  return {
+    ...limits,
+    maxVcpus: Math.min(limits.maxVcpus, cap.maxVcpus),
+    allowedVcpus: limits.allowedVcpus.filter((n) => n <= cap.maxVcpus),
+    maxTimeoutMinutes: Math.min(
+      limits.maxTimeoutMinutes,
+      cap.maxTimeoutMinutes,
+    ),
+    planName: PLAN_NAMES[plan],
+  };
+}
+
+function planNote(limits: EffectiveLimits): string {
+  return limits.planName === null
+    ? UNKNOWN_PLAN_NOTE
+    : `Choices are limited to what your team's ${limits.planName} plan allows.`;
+}
 
 function isPlainObject(
   value: JsonValue | null,
@@ -115,20 +139,23 @@ function launchInputsValue(inputs: LaunchInputs): JsonValue {
 
 function outOfRangeReason(
   inputs: LaunchInputs,
-  limits: LaunchOptions["limits"],
+  limits: EffectiveLimits,
 ): string | null {
+  const source =
+    limits.planName === null ? "Vercel" : `your team's ${limits.planName} plan`;
+  const Source = source[0]!.toUpperCase() + source.slice(1);
   if (
     inputs.vcpus !== undefined &&
     !limits.allowedVcpus.includes(inputs.vcpus)
   ) {
-    return `The saved choice of ${inputs.vcpus} vCPU isn't available. Vercel allows ${limits.allowedVcpus.join(", ")} vCPUs; choose another size.`;
+    return `The saved choice of ${inputs.vcpus} vCPU isn't available. ${Source} allows ${limits.allowedVcpus.join(", ")} vCPUs; choose another size.`;
   }
   if (
     inputs.timeoutMinutes !== undefined &&
     (inputs.timeoutMinutes < limits.minTimeoutMinutes ||
       inputs.timeoutMinutes > limits.maxTimeoutMinutes)
   ) {
-    return `The saved time limit of ${formatMinutes(inputs.timeoutMinutes).full} is outside Vercel's ${formatMinutes(limits.minTimeoutMinutes).full}–${formatMinutes(limits.maxTimeoutMinutes).full} range. Choose another.`;
+    return `The saved time limit of ${formatMinutes(inputs.timeoutMinutes).full} is outside the ${formatMinutes(limits.minTimeoutMinutes).full}–${formatMinutes(limits.maxTimeoutMinutes).full} range ${source} allows. Choose another.`;
   }
   return null;
 }
@@ -174,15 +201,6 @@ function sizeLabel(vcpus: number, memoryMiB: number): string {
 
 function isAllowedVcpuCount(vcpus: number): boolean {
   return vcpus === 1 || vcpus % 2 === 0;
-}
-
-function vcpuPlanTag(vcpus: number): string | null {
-  if (vcpus <= HOBBY_MAX_VCPUS) return null;
-  return vcpus <= PRO_MAX_VCPUS ? "Pro+" : "Enterprise";
-}
-
-function timeoutPlanTag(minutes: number): string | null {
-  return minutes <= HOBBY_MAX_TIMEOUT_MINUTES ? null : "Pro+";
 }
 
 function choiceList(
@@ -340,7 +358,7 @@ function launchChange(
     };
   }
   if (options.status === "ready") {
-    const reason = outOfRangeReason(inputs, options.data.limits);
+    const reason = outOfRangeReason(inputs, effectiveLimits(options.data));
     if (reason !== null) return { status: "blocked", reason };
   }
   return { status: "ready", value: launchInputsValue(inputs) };
@@ -363,6 +381,7 @@ function VercelMachineInputsControl({
 
   const blockedReason = change.status === "blocked" ? change.reason : null;
   const loaded = options.status === "ready" ? options.data : null;
+  const limits = loaded === null ? null : effectiveLimits(loaded);
   const valid = inputs !== null && blockedReason === null ? inputs : {};
   const vcpus = valid.vcpus ?? loaded?.defaultInputs.vcpus;
   const timeoutMinutes =
@@ -485,15 +504,15 @@ function VercelMachineInputsControl({
             </DropdownMenuItem>
           </>
         ) : null}
-        {loaded === null ? null : (
+        {loaded === null || limits === null ? null : (
           <>
             <DropdownMenuGroup aria-label="vCPU">
               <DropdownMenuLabel>vCPU</DropdownMenuLabel>
-              {loaded.limits.allowedVcpus.map((candidate) => (
+              {limits.allowedVcpus.map((candidate) => (
                 <MenuChoice
                   key={candidate}
                   label={`${sizeLabel(candidate, candidate * loaded.memoryMiBPerVcpu)}${candidate === loaded.defaultInputs.vcpus ? " (default)" : ""}`}
-                  tag={vcpuPlanTag(candidate)}
+                  tag={null}
                   selected={blockedReason === null && candidate === vcpus}
                   onSelect={() => choose({ vcpus: candidate })}
                 />
@@ -504,14 +523,14 @@ function VercelMachineInputsControl({
               <DropdownMenuLabel>Stops after</DropdownMenuLabel>
               {choiceList(
                 TIMEOUT_LADDER_MINUTES,
-                loaded.limits.minTimeoutMinutes,
-                loaded.limits.maxTimeoutMinutes,
+                limits.minTimeoutMinutes,
+                limits.maxTimeoutMinutes,
                 [loaded.defaultInputs.timeoutMinutes, inputs?.timeoutMinutes],
               ).map((candidate) => (
                 <MenuChoice
                   key={candidate}
                   label={`${formatMinutes(candidate).full}${candidate === loaded.defaultInputs.timeoutMinutes ? " (default)" : ""}`}
-                  tag={timeoutPlanTag(candidate)}
+                  tag={null}
                   selected={
                     blockedReason === null && candidate === timeoutMinutes
                   }
@@ -526,7 +545,7 @@ function VercelMachineInputsControl({
           {DATA_LOSS_NOTE}
         </MenuNote>
         <MenuNote id={planNoteId} tone="muted">
-          {PLAN_NOTE}
+          {limits === null ? UNKNOWN_PLAN_NOTE : planNote(limits)}
         </MenuNote>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -879,6 +898,7 @@ type ConnectInput = {
   directory?: string;
   teamName: string | null;
   projectName: string | null;
+  teamPlan: Plan | null;
 };
 
 function choiceKey(hostId: string, teamId: string, projectId: string) {
@@ -1036,6 +1056,7 @@ function AccountForm({
             directory: saved.directory,
             teamName: saved.teamName,
             projectName: saved.projectName,
+            teamPlan: saved.teamPlan,
           }
         : {
             hostId: saved.hostId!,
@@ -1043,6 +1064,7 @@ function AccountForm({
             projectId: saved.projectId!,
             teamName: saved.teamName,
             projectName: saved.projectName,
+            teamPlan: saved.teamPlan,
           },
     );
   };
@@ -1568,7 +1590,123 @@ function VercelSettingsSection() {
         onConnected={connectionLoaded}
         reinspect={account.retry}
       />
+
+      <LaunchDefaultsSection
+        planKey={JSON.stringify([
+          known?.teamId ?? null,
+          known?.teamPlan ?? null,
+        ])}
+      />
     </div>
+  );
+}
+
+function vcpuChoiceLabel(vcpus: number, memoryMiBPerVcpu: number): string {
+  return `${vcpus} vCPU${vcpus === 1 ? "" : "s"} · ${formatMemory(vcpus * memoryMiBPerVcpu)}`;
+}
+
+/**
+ * Default size and lifetime for new sandboxes. Choices stop at the connected
+ * team's plan limits; a pick saves at once. `planKey` changes when the
+ * connected team or its plan does, which reloads the plan-capped defaults.
+ */
+function LaunchDefaultsSection({ planKey }: { planKey: string }) {
+  const rpc = useRpc<Contract>();
+  const request = useCallback(
+    () => rpc.call("launch.options", {}),
+    // planKey only triggers a reload; the server reads the plan itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rpc, planKey],
+  );
+  const { state, retry, replace } = useLoad(request);
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const loaded = state.status === "ready" ? state.data : null;
+  const limits = loaded === null ? null : effectiveLimits(loaded);
+  const save = (next: { vcpus: number; timeoutMinutes: number }) => {
+    if (loaded === null) return;
+    setSaving(true);
+    setFailure(null);
+    rpc.call("launch.defaults.set", next).then(
+      (result) => {
+        setSaving(false);
+        replace(result);
+      },
+      (error: unknown) => {
+        setSaving(false);
+        setFailure(
+          serverReason(error) ?? "Couldn't save the default. Try again.",
+        );
+      },
+    );
+  };
+  const vcpus = loaded?.defaultInputs.vcpus ?? null;
+  const timeoutMinutes = loaded?.defaultInputs.timeoutMinutes ?? null;
+  return (
+    <section className="space-y-3">
+      <SettingsHeading title="New sandboxes" />
+      {state.status === "error" ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p role="alert" className="text-xs text-destructive-text">
+            Couldn't load launch defaults.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7"
+            onClick={retry}
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+      <div className={SETTINGS_PANEL_CLASS}>
+        <SettingSelect
+          label="vCPUs"
+          description="Memory is 2 GiB per vCPU. The composer can override this per thread."
+          value={vcpus}
+          disabled={saving}
+          options={(limits?.allowedVcpus ?? []).map((candidate) => ({
+            value: candidate,
+            label: vcpuChoiceLabel(candidate, loaded?.memoryMiBPerVcpu ?? 2048),
+          }))}
+          onChange={(next) =>
+            save({ vcpus: next, timeoutMinutes: timeoutMinutes! })
+          }
+        />
+        <SettingSelect
+          label="Lifetime"
+          description="Sandboxes stop for good at this limit and uncommitted files are lost."
+          value={timeoutMinutes}
+          disabled={saving}
+          options={
+            limits === null
+              ? []
+              : choiceList(
+                  TIMEOUT_LADDER_MINUTES,
+                  limits.minTimeoutMinutes,
+                  limits.maxTimeoutMinutes,
+                  [timeoutMinutes ?? undefined],
+                ).map((candidate) => ({
+                  value: candidate,
+                  label: formatMinutes(candidate).spoken,
+                }))
+          }
+          onChange={(next) => save({ vcpus: vcpus!, timeoutMinutes: next })}
+        />
+      </div>
+      {failure === null ? null : (
+        <p role="alert" className="text-xs text-destructive-text">
+          {failure}
+        </p>
+      )}
+      {limits === null || limits.planName !== null ? null : (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {UNKNOWN_PLAN_NOTE}
+        </p>
+      )}
+    </section>
   );
 }
 

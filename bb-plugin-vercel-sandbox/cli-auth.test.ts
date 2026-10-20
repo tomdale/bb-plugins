@@ -38,7 +38,9 @@ describe("CLI authentication boundary", () => {
       await worker.experimental_call("teams", { hostId: "host_auth" }),
     ).toEqual({
       ok: true,
-      value: { choices: [{ id: "team_test", name: "Test team" }] },
+      value: {
+        choices: [{ id: "team_test", name: "Test team", plan: "pro" }],
+      },
     });
     expect(
       await worker.experimental_call("projects", {
@@ -134,6 +136,7 @@ describe("CLI authentication boundary", () => {
         accountName: "fixture-user",
         teamName: "Test team",
         projectName: "Test project",
+        teamPlan: "pro",
       },
     });
     expect(cli.tokens.length).toBe(2);

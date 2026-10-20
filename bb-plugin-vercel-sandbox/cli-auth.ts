@@ -9,7 +9,12 @@ import {
   type Connection,
   connectionInputSchema,
 } from "./auth-contract.js";
-import { SafeError, scopeSchema, type Credentials } from "./configuration.js";
+import {
+  planSchema,
+  SafeError,
+  scopeSchema,
+  type Credentials,
+} from "./configuration.js";
 
 export type CliRunner = (
   args: string[],
@@ -85,6 +90,9 @@ export const runVc: CliRunner = async (args, directory, signal) => {
     });
   });
 };
+
+// A Vercel team's billing record; only its plan name is kept.
+const billingPlanSchema = z.object({ plan: z.unknown() }).nullish().catch(null);
 
 export function cliAuthentication(run: CliRunner = runVc) {
   const command = (args: string[], directory: string, signal: AbortSignal) =>
@@ -172,10 +180,18 @@ export function cliAuthentication(run: CliRunner = runVc) {
           signal,
         ),
       );
-      const item = z.object({
-        id: z.string().min(1).max(200),
-        name: z.string().min(1).max(200),
-      });
+      // Only the plan name is read from a team's billing record; the rest of
+      // it (addresses, contacts) never leaves this machine.
+      const item = z
+        .object({
+          id: z.string().min(1).max(200),
+          name: z.string().min(1).max(200),
+          billing: billingPlanSchema,
+        })
+        .transform(({ id, name, billing }) => {
+          const plan = planSchema.safeParse(billing?.plan);
+          return plan.success ? { id, name, plan: plan.data } : { id, name };
+        });
       const items = z.array(item).max(100).parse(response[kind]);
       const pagination = z
         .object({ next: z.number().int().nonnegative().nullable() })
@@ -202,24 +218,32 @@ export function cliAuthentication(run: CliRunner = runVc) {
     const lookup = async (endpoint: string) => {
       try {
         return z
-          .object({ name: z.string().min(1).max(200) })
+          .object({
+            name: z.string().min(1).max(200),
+            billing: billingPlanSchema,
+          })
           .parse(
             JSON.parse(
               await command(["api", endpoint, "--raw"], directory, signal),
             ),
-          ).name;
+          );
       } catch {
         signal.throwIfAborted();
         return null;
       }
     };
-    const [teamName, projectName] = await Promise.all([
+    const [team, project] = await Promise.all([
       lookup(`/v2/teams/${connection.teamId}`),
       lookup(
         `/v9/projects/${connection.projectId}?teamId=${connection.teamId}`,
       ),
     ]);
-    return { teamName, projectName };
+    const plan = planSchema.safeParse(team?.billing?.plan);
+    return {
+      teamName: team?.name ?? null,
+      projectName: project?.name ?? null,
+      teamPlan: plan.success ? plan.data : null,
+    };
   };
   return {
     names,
