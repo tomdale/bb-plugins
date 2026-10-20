@@ -544,7 +544,7 @@ function SettingsHeading({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex min-h-8 items-center justify-between gap-4">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       {action}
     </div>
@@ -617,8 +617,8 @@ function hostLabel(hosts: Load<AccountHost[]>, hostId: string): string {
   return host?.name ?? hostId;
 }
 
-// Label and value columns shared by the read-only connection rows and the
-// inline editor, so editing swaps values for controls in place.
+// Label and value columns shared by the read-only rows and the inline editor,
+// so editing swaps values for controls in place and sections line up.
 const CONNECTION_GRID = "grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 text-sm";
 
 /** A display name whose underlying Vercel ID appears on hover or focus. */
@@ -1494,7 +1494,7 @@ function VercelSettingsSection() {
             </div>
           ) : null}
           {loaded === null ? null : (
-            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+            <dl className={cn(CONNECTION_GRID, "gap-y-1.5")}>
               <dt className="text-muted-foreground">Default size</dt>
               <dd className="text-foreground">
                 {sizeLabel(
