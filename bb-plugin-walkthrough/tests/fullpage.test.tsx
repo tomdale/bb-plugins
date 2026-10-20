@@ -290,3 +290,19 @@ describe("out-of-date parts", () => {
     expect(slot.queryByText(/code changed after/u)).toBeNull();
   });
 });
+
+describe("review post on a settled PR", () => {
+  it("only offers a plain comment on a merged PR", async () => {
+    const merged = walkthrough({ mode: "pr", pr: { number: 3, url: "https://github.com/o/r/pull/3", title: "T", headRef: null, state: "merged" }, review: { body: "b", event: "REQUEST_CHANGES", comments: [], status: "draft", url: null, updatedAt: 1 } });
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: merged, notes: [] } }) });
+    fireEvent.click(await slot.findByRole("button", { name: /Review/u }));
+    fireEvent.click(await slot.findByRole("button", { name: /Post/u }));
+    const radios = await slot.findAllByRole("radio");
+    expect(radios.map((radio) => [radio.textContent, (radio as HTMLButtonElement).disabled])).toEqual([
+      ["Comment", false],
+      ["Request changes", true],
+      ["Approve", true],
+    ]);
+    expect(radios[0]!.getAttribute("aria-checked")).toBe("true");
+  });
+});

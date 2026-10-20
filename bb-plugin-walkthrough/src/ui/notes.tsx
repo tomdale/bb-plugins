@@ -362,7 +362,8 @@ export function prLabel(url: string, number: number): string {
 export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc: WalkthroughRpc }) {
   const review = walkthrough.review;
   const [confirming, setConfirming] = useState(false);
-  const [event, setEvent] = useState<ReviewEvent>(review?.event ?? "COMMENT");
+  const settledPr = walkthrough.pr?.state === "merged" || walkthrough.pr?.state === "closed";
+  const [event, setEvent] = useState<ReviewEvent>(settledPr ? "COMMENT" : (review?.event ?? "COMMENT"));
   const [sending, setSending] = useState(false);
   const markdown = useMemo(() => {
     if (!review) return "";
@@ -489,21 +490,27 @@ export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc:
             <p className="font-medium">This posts publicly to GitHub as your gh account.</p>
           </div>
           <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Review event">
-            {(Object.keys(EVENT_LABEL) as ReviewEvent[]).map((candidate) => (
+            {(Object.keys(EVENT_LABEL) as ReviewEvent[]).map((candidate) => {
+              // A merged or closed PR can still be commented on, but not approved or blocked.
+              const settled = settledPr;
+              return (
               <button
                 key={candidate}
                 type="button"
                 role="radio"
                 aria-checked={event === candidate}
+                disabled={settled && candidate !== "COMMENT"}
+                title={settled && candidate !== "COMMENT" ? `This PR is already ${walkthrough.pr?.state}` : undefined}
                 onClick={() => setEvent(candidate)}
                 className={cn(
-                  "rounded-md border px-2.5 py-1 text-sm",
+                  "rounded-md border px-2.5 py-1 text-sm disabled:opacity-40",
                   event === candidate ? "border-foreground bg-foreground text-background" : "border-border hover:bg-state-hover",
                 )}
               >
                 {EVENT_LABEL[candidate]}
               </button>
-            ))}
+              );
+            })}
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setConfirming(false)}>

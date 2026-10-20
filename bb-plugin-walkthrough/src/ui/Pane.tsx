@@ -151,16 +151,24 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
     (drawerRef.current.querySelector<HTMLElement>("textarea") ?? drawerRef.current).focus();
   }, [drawer]);
 
-  // Escape closes the drawer from anywhere on the page, except while a dialog (Post…, Finish) has its own Escape.
+  // Escape closes the drawer from anywhere on the page, except while one of our
+  // own dialogs (Post…, Finish) has its own Escape. An open dialog that contains
+  // the reader is BB's own overlay for a narrow side panel; the drawer closes
+  // first there, and the event stops so the panel stays open.
   useEffect(() => {
     if (!drawer) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[role=dialog]:not([data-state=closed])")) return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const root = rootRef.current;
+      const ownDialogOpen = Array.from(document.querySelectorAll("[role=dialog]:not([data-state=closed])")).some((dialog) => !root || !dialog.contains(root));
+      if (ownDialogOpen) return;
+      event.stopPropagation();
+      event.preventDefault();
       closeDrawer();
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [drawer, closeDrawer]);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [drawer, closeDrawer, rootRef]);
 
   const call = useCallback(
     (run: () => Promise<unknown>) => {

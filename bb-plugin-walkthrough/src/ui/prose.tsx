@@ -129,7 +129,7 @@ export function Prose({ text, context, className }: { text: string; context: Pro
                   <thead>
                     <tr>
                       {block.header.map((cell, cellIndex) => (
-                        <th key={cellIndex} className="border-b border-border px-2 py-1 text-left font-medium">
+                        <th key={cellIndex} className="border-b-2 border-border bg-secondary/50 px-2 py-1 text-left font-semibold">
                           {inline(cell, context, `${index}-h${cellIndex}`)}
                         </th>
                       ))}
