@@ -197,3 +197,27 @@ describe("code excerpts", () => {
     expect(slot.getByRole("region", { name: /src\/a\.ts, lines 3 to 9/u })).toBeTruthy();
   });
 });
+
+describe("notes drawer", () => {
+  it("is a labelled region that Escape closes, with focus returned to its button", async () => {
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: walkthrough(), notes: [] } }) });
+    const toggle = await slot.findByRole("button", { name: /Notes/u });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    const drawer = await slot.findByRole("complementary", { name: "Notes" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(drawer.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(slot.queryByRole("complementary", { name: "Notes" })).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  it("closes from the scrim when it overlays a narrow page", async () => {
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: walkthrough(), notes: [] } }) });
+    fireEvent.click(await slot.findByRole("button", { name: /Notes/u }));
+    await slot.findByRole("complementary", { name: "Notes" });
+    fireEvent.click(slot.container.querySelector("[data-drawer-scrim]")!);
+    expect(slot.queryByRole("complementary", { name: "Notes" })).toBeNull();
+  });
+});

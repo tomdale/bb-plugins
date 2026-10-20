@@ -60,6 +60,7 @@ function EmptyPane({ threadId }: { threadId: string }) {
 }
 
 type Drawer = "notes" | "review" | null;
+const DRAWER_ID = "walkthrough-drawer";
 
 /** Whether the wrap-up (rather than a part) is what the user is looking at. */
 function showsWrapUp(walkthrough: Walkthrough, leftWrapUp: boolean): boolean {
@@ -110,6 +111,9 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   const [leftWrapUp, setLeftWrapUp] = useState(false);
   const wrapUpShown = showsWrapUp(walkthrough, leftWrapUp);
   const mainRef = useRef<HTMLElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const notesToggleRef = useRef<HTMLButtonElement>(null);
+  const reviewToggleRef = useRef<HTMLButtonElement>(null);
   const wide = width >= 900;
   const showRail = width >= 700;
   const openNotes = notes.filter((note) => note.status === "open").length;
@@ -130,6 +134,30 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [walkthrough.currentPart, wrapUpShown]);
+
+  // Closing returns focus to the button that opened the drawer when focus was inside it.
+  const closeDrawer = useCallback(() => {
+    const focusWasInside = drawerRef.current?.contains(document.activeElement) ?? false;
+    const toggle = drawer === "review" ? reviewToggleRef.current : notesToggleRef.current;
+    setDrawer(null);
+    if (focusWasInside) toggle?.focus();
+  }, [drawer]);
+
+  // Opening the drawer moves focus into it, unless a child (the note box) has already taken it.
+  useEffect(() => {
+    if (drawer && drawerRef.current && !drawerRef.current.contains(document.activeElement)) drawerRef.current.focus();
+  }, [drawer]);
+
+  // Escape closes the drawer from anywhere on the page, except while a dialog (Post…, Finish) has its own Escape.
+  useEffect(() => {
+    if (!drawer) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[role=dialog]")) return;
+      closeDrawer();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [drawer, closeDrawer]);
 
   const call = useCallback(
     (run: () => Promise<unknown>) => {
@@ -159,12 +187,28 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
             {activity(walkthrough) ? <span className="ml-2 animate-pulse">{activity(walkthrough)}</span> : null}
           </p>
         </div>
-        <Button type="button" variant={drawer === "notes" ? "secondary" : "ghost"} size="sm" onClick={() => setDrawer(drawer === "notes" ? null : "notes")}>
+        <Button
+          ref={notesToggleRef}
+          type="button"
+          variant={drawer === "notes" ? "secondary" : "ghost"}
+          size="sm"
+          aria-expanded={drawer === "notes"}
+          aria-controls={DRAWER_ID}
+          onClick={() => (drawer === "notes" ? closeDrawer() : setDrawer("notes"))}
+        >
           <Icon name="ListTodo" className="size-3.5" aria-hidden />
           {openNotes === 0 ? "Notes" : openNotes === 1 ? "1 note" : `${openNotes} notes`}
         </Button>
         {walkthrough.mode === "pr" ? (
-          <Button type="button" variant={drawer === "review" ? "secondary" : "ghost"} size="sm" onClick={() => setDrawer(drawer === "review" ? null : "review")}>
+          <Button
+            ref={reviewToggleRef}
+            type="button"
+            variant={drawer === "review" ? "secondary" : "ghost"}
+            size="sm"
+            aria-expanded={drawer === "review"}
+            aria-controls={DRAWER_ID}
+            onClick={() => (drawer === "review" ? closeDrawer() : setDrawer("review"))}
+          >
             <Icon name="GitPullRequest" className="size-3.5" aria-hidden />
             Review
           </Button>
@@ -203,11 +247,25 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
             showContents={!showRail}
           />
         </main>
+        {drawer && !wide ? (
+          // On narrow layouts the drawer overlays the page; clicking outside it closes it.
+          <div aria-hidden onClick={closeDrawer} className="absolute inset-0 z-[5] bg-background/40" data-drawer-scrim="" />
+        ) : null}
         {drawer ? (
-          <aside className={cn("min-h-0 overflow-y-auto border-l border-border bg-card p-3", wide ? "w-80 shrink-0" : "absolute inset-y-0 right-0 z-10 w-[min(22rem,100%)] shadow-sm")}>
+          <aside
+            ref={drawerRef}
+            id={DRAWER_ID}
+            role="complementary"
+            aria-label={drawer === "notes" ? "Notes" : "Review draft"}
+            tabIndex={-1}
+            className={cn(
+              "min-h-0 overflow-y-auto border-l border-border bg-card p-3 focus-visible:outline-none",
+              wide ? "w-80 shrink-0" : "absolute inset-y-0 right-0 z-10 w-[min(22rem,100%)] shadow-sm",
+            )}
+          >
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-xs font-medium text-muted-foreground">{drawer === "notes" ? "Notes" : "Review draft"}</h2>
-              <button type="button" aria-label="Close" onClick={() => setDrawer(null)} className="rounded p-1 text-muted-foreground hover:text-foreground">
+              <button type="button" aria-label="Close" title="Close (Esc)" onClick={closeDrawer} className="rounded p-1 text-muted-foreground hover:text-foreground">
                 <Icon name="X" className="size-3.5" aria-hidden />
               </button>
             </div>
