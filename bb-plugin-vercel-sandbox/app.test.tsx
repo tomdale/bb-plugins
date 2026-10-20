@@ -6,15 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { PROVIDER_ID } from "./provider-id.js";
 
@@ -506,7 +498,10 @@ describe("settings section", () => {
             choices: [{ id: "team_abc", name: "My team" }],
           }),
           "account.projects": () => ({
-            choices: [{ id: "prj_def", name: "My project" }],
+            choices: [
+              { id: "prj_def", name: "My project" },
+              { id: "prj_other", name: "Other project" },
+            ],
           }),
           ...rpc,
         } as never,
@@ -515,11 +510,8 @@ describe("settings section", () => {
     );
   }
 
-  function rowValue(list: Element | null, term: string) {
-    const label = [...(list?.querySelectorAll("dt") ?? [])].find(
-      (entry) => entry.textContent === term,
-    );
-    return label?.nextElementSibling?.textContent ?? null;
+  function trigger(slot: ReturnType<typeof renderSettings>, field: string) {
+    return slot.getByRole("button", { name: new RegExp(`^${field} `) });
   }
 
   function connectCalls(slot: ReturnType<typeof renderSettings>) {
@@ -528,62 +520,47 @@ describe("settings section", () => {
     );
   }
 
-  async function chooseProject(slot: ReturnType<typeof renderSettings>) {
-    const edit = slot.queryByRole("button", { name: "Edit" });
-    if (edit !== null) fireEvent.click(edit);
-    openMenu(await slot.findByRole("button", { name: /^Team / }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: "My team" }),
+  async function pick(
+    slot: ReturnType<typeof renderSettings>,
+    field: string,
+    option: string | RegExp,
+  ) {
+    await waitFor(() =>
+      expect(trigger(slot, field).hasAttribute("disabled")).toBe(false),
     );
-    openMenu(
-      await slot.findByRole("button", { name: /^Project (?!Choose a team)/ }),
-    );
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: "My project" }),
-    );
+    openMenu(trigger(slot, field));
+    fireEvent.click(await slot.findByRole("menuitemradio", { name: option }));
   }
 
-  it("names the machine and project without claiming launch entitlement", async () => {
+  async function chooseProject(slot: ReturnType<typeof renderSettings>) {
+    await pick(slot, "Team", "My team");
+    await pick(slot, "Project", "My project");
+  }
+
+  const READY = "Ready. BB can create sandboxes in this project.";
+
+  it("shows the saved account as pickers without claiming launch entitlement", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
-    await slot.findByText(
-      "Connected. New sandboxes are created with this account.",
-    );
+    await slot.findByText(READY);
     expect(slot.getByRole("heading", { name: "Account" })).toBeTruthy();
-    const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
-    expect(rowValue(summary, "Machine")).toBe("Tom's MacBook");
-    expect(rowValue(summary, "Team")).toBe("team_abc");
-    expect(rowValue(summary, "Project")).toBe("prj_def");
-    expect(rowValue(summary, "Signed in as")).toBe("tom");
-    expect(rowValue(summary, "Linked folder")).toBe("/Users/me/vercel-bb");
-    expect(summary?.textContent).not.toContain("user_abc");
-    expect(slot.queryByText("IDs")).toBeNull();
-    expect(slot.queryByRole("button", { name: /Machine/ })).toBeNull();
-    fireEvent.click(slot.getByRole("button", { name: "Edit" }));
     expect(slot.queryByRole("button", { name: "Edit" })).toBeNull();
-    const form = slot.getByRole("form", { name: "Edit the Vercel account" });
-    expect(within(form).queryByRole("list")).toBeNull();
-    expect(
-      slot.getByRole("button", { name: /Machine Tom's MacBook/ }),
-    ).toBeTruthy();
-    expect(
-      await slot.findByRole("button", { name: /Team My team/ }),
-    ).toBeTruthy();
-    expect(
-      await slot.findByRole("button", { name: /Project My project/ }),
-    ).toBeTruthy();
+    expect(trigger(slot, "Machine").textContent).toContain("Tom's MacBook");
     await waitFor(() =>
-      expect(
-        slot.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
-      ).toBe(false),
+      expect(trigger(slot, "Team").textContent).toContain("My team"),
     );
-    expect(within(form).getByText("Signed in as")).toBeTruthy();
-    expect(within(form).getByText("tom")).toBeTruthy();
-    fireEvent.keyDown(form, { key: "Escape" });
     await waitFor(() =>
-      expect(document.activeElement).toBe(
-        slot.getByRole("button", { name: "Edit" }),
+      expect(trigger(slot, "Project").textContent).toContain("My project"),
+    );
+    expect(slot.getByText("Signed in as")).toBeTruthy();
+    expect(slot.getByText("tom")).toBeTruthy();
+    expect(slot.getByText("/Users/me/vercel-bb")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("user_abc");
+    expect(
+      within(slot.getByRole("form", { name: "Vercel account" })).queryByRole(
+        "list",
       ),
-    );
+    ).toBeNull();
+    expect(connectCalls(slot)).toEqual([]);
     // Launch defaults live in the host's Configuration fields, not here.
     expect(slot.queryByRole("heading", { name: "New sandboxes" })).toBeNull();
     expect(slot.queryByText("2 vCPU · 4 GiB")).toBeNull();
@@ -594,30 +571,29 @@ describe("settings section", () => {
     ).toBeTruthy();
     expect(document.body.textContent).not.toMatch(TOKEN_SHAPED);
     expect(slot.queryByLabelText(/token/i)).toBeNull();
-    expect(
-      slot.queryByText(/until someone removes it|Remove it there/),
-    ).toBeNull();
   });
 
   it("shows team, project, and account IDs on hover instead of inline", async () => {
-    const slot = renderSettings({
-      "account.inspect": () => ({
-        ...CONNECTED,
-        teamName: "My team",
-        projectName: "My project",
-      }),
-    });
-    const team = await slot.findByText("My team");
+    const slot = renderSettings({ "account.inspect": () => CONNECTED });
+    const name = await slot.findByText("tom");
+    fireEvent.focus(name);
+    fireEvent.pointerMove(name);
+    await waitFor(() =>
+      expect(document.body.textContent).toContain("user_abc"),
+    );
+    await waitFor(() =>
+      expect(trigger(slot, "Team").textContent).toContain("My team"),
+    );
     expect(document.body.textContent).not.toContain("team_abc");
-    fireEvent.focus(team);
-    fireEvent.pointerMove(team);
+    fireEvent.pointerMove(trigger(slot, "Team"));
     await waitFor(() =>
       expect(document.body.textContent).toContain("team_abc"),
     );
   });
 
-  it("shows the saved connection while the first check runs", async () => {
+  it("shows saved names and opens pickers while the check and listings load", async () => {
     const check = deferred<Account>();
+    const teams = deferred<{ choices: { id: string; name: string }[] }>();
     const slot = renderSettings({
       "account.saved": () => ({
         hostId: "host-mac",
@@ -630,22 +606,32 @@ describe("settings section", () => {
         projectName: "My project",
       }),
       "account.inspect": () => check.promise,
+      "account.teams": () => teams.promise,
     });
     await slot.findByText("Checking the Vercel CLI on Tom's MacBook…");
-    const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
-    expect(rowValue(summary, "Team")).toBe("My team");
-    expect(rowValue(summary, "Project")).toBe("My project");
-    expect(rowValue(summary, "Signed in as")).toBe("tom");
-    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
-    expect(slot.queryByRole("form")).toBeNull();
-    check.resolve({
-      ...CONNECTED,
-      teamName: "My team",
-      projectName: "My project",
-    });
-    await slot.findByText(
-      "Connected. New sandboxes are created with this account.",
+    await waitFor(() =>
+      expect(trigger(slot, "Team").textContent).toContain("My team"),
     );
+    expect(trigger(slot, "Team").hasAttribute("disabled")).toBe(false);
+    expect(trigger(slot, "Project").textContent).toContain("My project");
+    expect(slot.queryByText("Loading teams…")).toBeNull();
+    expect(
+      within(slot.getByRole("form", { name: "Vercel account" })).queryByRole(
+        "list",
+      ),
+    ).toBeNull();
+    await act(async () => {
+      teams.resolve({ choices: [{ id: "team_abc", name: "My team" }] });
+      check.resolve({
+        ...CONNECTED,
+        directory: null,
+        teamName: "My team",
+        projectName: "My project",
+      });
+      await check.promise;
+    });
+    await slot.findByText(READY);
+    expect(connectCalls(slot)).toEqual([]);
   });
 
   it("offers setup before the check finishes when nothing is saved", async () => {
@@ -663,55 +649,39 @@ describe("settings section", () => {
       "account.inspect": () => deferred<Account>().promise,
     });
     expect(
-      await slot.findByRole("form", { name: "Connect the Vercel CLI" }),
+      await slot.findByRole("button", { name: /^Machine Choose a machine/ }),
+    ).toBeTruthy();
+    expect(
+      within(slot.getByRole("form", { name: "Vercel account" })).getByRole(
+        "list",
+      ),
     ).toBeTruthy();
   });
 
-  it("collapses the change form on cancel", async () => {
-    const slot = renderSettings({ "account.inspect": () => CONNECTED });
-    fireEvent.click(await slot.findByRole("button", { name: "Edit" }));
-    fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
-    expect(slot.queryByRole("button", { name: "Save" })).toBeNull();
-    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
-  });
-
-  it("guides terminal sign-in and GUI project selection when nothing is connected", async () => {
-    const slot = renderSettings({ "account.inspect": () => NOT_CONNECTED });
-    await slot.findByText(/Not connected/);
-    expect(slot.getByText(NOT_CONNECTED.message)).toBeTruthy();
-    const steps = within(
-      slot.getByRole("form", { name: "Connect the Vercel CLI" }),
-    )
-      .getAllByRole("listitem")
-      .map((item) => item.textContent);
-    expect(steps[0]).toContain("vc login");
-    expect(steps[0]).toContain("same OS user that runs BB");
-    expect(steps[0]).toContain("58.3.0 or later");
-    expect(steps[1]).toContain("select the Vercel team and project");
-    expect(slot.queryByText(/vc link/)).toBeNull();
-    expect(slot.queryByLabelText("Linked folder")).toBeNull();
-    expect(slot.getByRole("button", { name: "Connect" })).toBeTruthy();
-  });
-
-  it("lists only enrolled machines and connects the chosen machine, team and project", async () => {
+  it("guides terminal sign-in and connects as soon as a project is picked", async () => {
     const pending = deferred<Account>();
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
       "account.connect": () => pending.promise,
     });
-    const trigger = await slot.findByRole("button", {
-      name: /Machine Choose a machine/,
-    });
-    openMenu(trigger);
+    await slot.findByText(/Not set up/);
+    expect(slot.getByText(NOT_CONNECTED.message)).toBeTruthy();
+    const steps = slot.getAllByRole("listitem").map((item) => item.textContent);
+    expect(steps[0]).toContain("vc login");
+    expect(steps[0]).toContain("same OS user that runs BB");
+    expect(steps[0]).toContain("58.3.0 or later");
+    expect(steps[1]).toContain("select the Vercel team and project");
+    expect(slot.queryByText(/vc link/)).toBeNull();
+    openMenu(trigger(slot, "Machine"));
     const choices = (await slot.findAllByRole("menuitemradio")).map(
       (item) => item.textContent,
     );
     expect(choices).toEqual(["Tom's MacBook", "StudioOffline", "Build box"]);
     fireEvent.click(slot.getByRole("menuitemradio", { name: /Build box/ }));
-    await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
-    const busy = await slot.findByRole("button", { name: "Connecting…" });
-    expect(busy.hasAttribute("disabled")).toBe(true);
+    await pick(slot, "Team", "My team");
+    expect(connectCalls(slot)).toEqual([]);
+    await pick(slot, "Project", "My project");
+    await slot.findByText("Connecting…");
     expect(connectCalls(slot)).toEqual([
       {
         method: "account.connect",
@@ -727,27 +697,67 @@ describe("settings section", () => {
       },
     ]);
     await act(async () => {
-      pending.resolve({
-        ...CONNECTED,
-        hostId: "host-linux",
-        directory: null,
-      });
+      pending.resolve({ ...CONNECTED, hostId: "host-linux", directory: null });
       await pending.promise;
     });
+    await slot.findByText(READY);
+    expect(trigger(slot, "Machine").textContent).toContain("Build box");
     expect(
-      slot.getByText("Connected. New sandboxes are created with this account."),
-    ).toBeTruthy();
-    expect(
-      rowValue(
-        slot.getByText("Machine", { selector: "dt" }).closest("dl"),
-        "Machine",
+      within(slot.getByRole("form", { name: "Vercel account" })).queryByRole(
+        "list",
       ),
-    ).toBe("Build box");
-    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
-    expect(slot.queryByRole("button", { name: "Connect" })).toBeNull();
+    ).toBeNull();
+    expect(connectCalls(slot)).toHaveLength(1);
   });
 
-  it("clears project selection on team or machine changes and ignores stale project responses", async () => {
+  it("saves a different project at once and undoes an unfinished switch", async () => {
+    const slot = renderSettings({
+      "account.inspect": () => CONNECTED,
+      "account.teams": () => ({
+        choices: [
+          { id: "team_abc", name: "My team" },
+          { id: "team_other", name: "Other team" },
+        ],
+      }),
+      "account.projects": (input: { teamId: string }) => ({
+        choices:
+          input.teamId === "team_abc"
+            ? [
+                { id: "prj_def", name: "My project" },
+                { id: "prj_new", name: "New project" },
+              ]
+            : [{ id: "prj_other", name: "Other project" }],
+      }),
+      "account.connect": () => ({
+        ...CONNECTED,
+        directory: null,
+        projectId: "prj_new",
+        teamName: "My team",
+        projectName: "New project",
+      }),
+    });
+    await slot.findByText(READY);
+    await pick(slot, "Team", "Other team");
+    await slot.findByText("Choose a project to switch.");
+    expect(connectCalls(slot)).toEqual([]);
+    fireEvent.click(slot.getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(trigger(slot, "Team").textContent).toContain("My team"),
+    );
+    await slot.findByText(READY);
+    await pick(slot, "Project", "New project");
+    await waitFor(() => expect(connectCalls(slot)).toHaveLength(1));
+    expect(connectCalls(slot)[0]?.input).toMatchObject({
+      hostId: "host-mac",
+      teamId: "team_abc",
+      projectId: "prj_new",
+    });
+    await slot.findByText(READY);
+    await pick(slot, "Project", "New project");
+    expect(connectCalls(slot)).toHaveLength(1);
+  });
+
+  it("ignores stale project responses after a team change", async () => {
     const oldProjects = deferred<{ choices: { id: string; name: string }[] }>();
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
@@ -761,44 +771,35 @@ describe("settings section", () => {
         input.teamId === "team_abc"
           ? oldProjects.promise
           : { choices: [{ id: "prj_other", name: "Other project" }] },
-      "account.connect": () => CONNECTED,
+      "account.connect": () => deferred<Account>().promise,
     });
-    openMenu(await slot.findByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Build box/ }),
-    );
-    openMenu(await slot.findByRole("button", { name: /Team Choose/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: "My team" }),
-    );
+    await slot.findByText(/Not set up/);
+    await pick(slot, "Machine", /Build box/);
+    await pick(slot, "Team", "My team");
     await slot.findByText("Loading projects…");
-    openMenu(slot.getByRole("button", { name: /Team My team/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: "Other team" }),
-    );
+    await pick(slot, "Team", "Other team");
     await act(async () => {
       oldProjects.resolve({
         choices: [{ id: "prj_stale", name: "Stale project" }],
       });
       await oldProjects.promise;
     });
-    openMenu(await slot.findByRole("button", { name: /Project Choose/ }));
+    await waitFor(() =>
+      expect(trigger(slot, "Project").hasAttribute("disabled")).toBe(false),
+    );
+    openMenu(trigger(slot, "Project"));
     expect(
       slot.queryByRole("menuitemradio", { name: "Stale project" }),
     ).toBeNull();
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: "Other project" }),
     );
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
-    );
-    submitConnect(slot);
-    await slot.findByText("Choose a team and project first.");
-    expect(connectCalls(slot)).toEqual([]);
-    expect(
-      slot.queryByRole("button", { name: /Project Other project/ }),
-    ).toBeNull();
+    await waitFor(() => expect(connectCalls(slot)).toHaveLength(1));
+    expect(connectCalls(slot)[0]?.input).toMatchObject({
+      hostId: "host-linux",
+      teamId: "team_other",
+      projectId: "prj_other",
+    });
   });
 
   it("offers retry for discovery failures and handles empty teams and projects", async () => {
@@ -867,22 +868,23 @@ describe("settings section", () => {
     expect(connectCalls(slot)[0]?.input).not.toHaveProperty("directory");
   });
 
-  it("shows the server's safe reason when connecting is refused", async () => {
+  it("shows the server's safe reason when connecting is refused and retries on request", async () => {
+    let attempts = 0;
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
       "account.connect": () => {
+        attempts += 1;
         throw safeError("Project access was refused. Choose another project.");
       },
     });
-    await slot.findByText(/Not connected/);
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
-    );
+    await slot.findByText(/Not set up/);
+    await pick(slot, "Machine", /Tom's MacBook/);
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
     const alert = await slot.findByText(/Couldn't connect/);
     expect(alert.textContent).toContain("Project access was refused");
+    expect(attempts).toBe(1);
+    fireEvent.click(slot.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(attempts).toBe(2));
   });
 
   it("replaces a failed connect call with generic next steps and rechecks", async () => {
@@ -896,99 +898,22 @@ describe("settings section", () => {
         throw safeError("vc stderr: Bearer eyJsecret");
       },
     });
-    await slot.findByText(/Not connected/);
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Build box/ }),
-    );
+    await slot.findByText(/Not set up/);
+    await pick(slot, "Machine", /Build box/);
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
     const alert = await slot.findByText(/Couldn't connect/);
     expect(alert.textContent).toContain(
       "vc login finished there as the OS user that runs BB",
     );
     await waitFor(() => expect(inspects).toBe(2));
-    await slot.findByText(/Not connected/);
     expect(slot.getByText(/Couldn't connect/)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(TOKEN_SHAPED);
-    expect(
-      slot.getByRole("button", { name: /Machine Build box/ }),
-    ).toBeTruthy();
-    expect(
-      slot.getByRole("button", { name: /Project My project/ }),
-    ).toBeTruthy();
-    expect(
-      slot.getByRole("button", { name: "Connect" }).hasAttribute("disabled"),
-    ).toBe(false);
+    expect(trigger(slot, "Machine").textContent).toContain("Build box");
+    expect(trigger(slot, "Project").textContent).toContain("My project");
+    expect(connectCalls(slot)).toHaveLength(1);
   });
 
-  function describedText(element: Element) {
-    return (element.getAttribute("aria-describedby") ?? "")
-      .split(" ")
-      .map((id) => document.getElementById(id)?.textContent ?? "")
-      .join(" ");
-  }
-
-  function recordFocus() {
-    const seen: {
-      element: Element;
-      invalid: string | null;
-      described: string;
-    }[] = [];
-    const listener = (event: FocusEvent) => {
-      if (!(event.target instanceof Element)) return;
-      seen.push({
-        element: event.target,
-        invalid: event.target.getAttribute("aria-invalid"),
-        described: describedText(event.target),
-      });
-    };
-    document.addEventListener("focusin", listener);
-    onTestFinished(() => document.removeEventListener("focusin", listener));
-    return seen;
-  }
-
-  function submitConnect(slot: ReturnType<typeof renderSettings>) {
-    fireEvent.submit(
-      slot.getByRole("form", { name: "Connect the Vercel CLI" }),
-    );
-  }
-
-  it("focuses the machine picker with its problem already described on the first blocked submit", async () => {
-    const slot = renderSettings({
-      "account.inspect": () => NOT_CONNECTED,
-      "account.connect": () => CONNECTED,
-    });
-    await slot.findByText(/Not connected/);
-    const seen = recordFocus();
-    submitConnect(slot);
-    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
-    const trigger = slot.getByRole("button", { name: /Machine/ });
-    expect(seen[0]?.element).toBe(trigger);
-    expect(seen[0]?.described).toContain(
-      "Choose the machine where you ran vc login.",
-    );
-    expect(connectCalls(slot)).toEqual([]);
-  });
-
-  it("blocks connection until a team and project are selected", async () => {
-    const slot = renderSettings({
-      "account.inspect": () => NOT_CONNECTED,
-      "account.connect": () => CONNECTED,
-    });
-    await slot.findByText(/Not connected/);
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Build box/ }),
-    );
-    submitConnect(slot);
-    expect(
-      await slot.findByText("Choose a team and project first."),
-    ).toBeTruthy();
-    expect(connectCalls(slot)).toEqual([]);
-  });
-
-  it("rechecks the machine list when the chosen machine is offline", async () => {
+  it("describes an offline machine on its picker and rechecks the machine list", async () => {
     let online = false;
     const slot = renderSettings(
       { "account.inspect": () => NOT_CONNECTED },
@@ -999,48 +924,39 @@ describe("settings section", () => {
             : entry,
         ),
     );
-    await slot.findByText(/Not connected/);
+    await slot.findByText(/Not set up/);
     expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(await slot.findByRole("menuitemradio", { name: /Studio/ }));
-    expect(slot.getByText(/Studio is offline/)).toBeTruthy();
+    await pick(slot, "Machine", /Studio/);
+    const problem = slot.getByText(/Studio is offline/);
+    expect(trigger(slot, "Machine").getAttribute("aria-describedby")).toBe(
+      problem.id,
+    );
+    expect(slot.queryByRole("button", { name: /^Team / })).toBeNull();
     online = true;
     fireEvent.click(slot.getByRole("button", { name: "Check again" }));
     await waitFor(() =>
       expect(slot.queryByText(/Studio is offline/)).toBeNull(),
     );
+    expect(await slot.findByRole("button", { name: /^Team / })).toBeTruthy();
   });
 
-  it("focuses an offline machine with the offline reason described", async () => {
-    const slot = renderSettings({
-      "account.inspect": () => NOT_CONNECTED,
-      "account.connect": () => CONNECTED,
-    });
-    await slot.findByText(/Not connected/);
-    openMenu(slot.getByRole("button", { name: /Machine/ }));
-    fireEvent.click(await slot.findByRole("menuitemradio", { name: /Studio/ }));
-    const seen = recordFocus();
-    submitConnect(slot);
-    const trigger = slot.getByRole("button", { name: /Machine Studio/ });
-    await waitFor(() =>
-      expect(seen.some((entry) => entry.element === trigger)).toBe(true),
-    );
-    expect(
-      seen.find((entry) => entry.element === trigger)?.described,
-    ).toContain("Studio is offline");
-    expect(connectCalls(slot)).toEqual([]);
-  });
-
-  it("reports a broken pinned connection and re-checks without reconnecting", async () => {
+  it("reports a broken pinned connection, rechecks it, and reconnects the CLI's current sign-in", async () => {
     const first = deferred<Account>();
     let calls = 0;
     let hostLists = 0;
+    const broken = {
+      ...CONNECTED,
+      available: false,
+      message:
+        "The Vercel CLI on this machine is signed in as a different user. Sign in again or reconnect.",
+    };
     const slot = renderSettings(
       {
         "account.inspect": () => {
           calls += 1;
-          return calls === 1 ? first.promise : CONNECTED;
+          return calls === 1 ? first.promise : calls === 2 ? broken : CONNECTED;
         },
+        "account.connect": () => CONNECTED,
       },
       () => {
         hostLists += 1;
@@ -1050,28 +966,31 @@ describe("settings section", () => {
     expect(slot.getByText("Checking the Vercel connection…")).toBeTruthy();
     expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
     await act(async () => {
-      first.resolve({
-        ...CONNECTED,
-        available: false,
-        message:
-          "The Vercel CLI on this machine is signed in as a different user. Sign in again or reconnect.",
-      });
+      first.resolve(broken);
       await first.promise;
     });
     const alert = slot.getByRole("alert");
     expect(alert.textContent).toContain("signed in as a different user");
-    expect(
-      slot.getByText("Linked folder", { selector: "dt" }).closest("dl")
-        ?.textContent,
-    ).toContain("prj_def");
+    expect(trigger(slot, "Machine").textContent).toContain("Tom's MacBook");
     fireEvent.click(slot.getByRole("button", { name: "Check again" }));
-    await slot.findByText(
-      "Connected. New sandboxes are created with this account.",
-    );
-    expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
-    expect(calls).toBe(2);
+    await waitFor(() => expect(calls).toBe(2));
     expect(hostLists).toBe(2);
+    await slot.findByRole("button", { name: "Reconnect" });
     expect(connectCalls(slot)).toEqual([]);
+    fireEvent.click(slot.getByRole("button", { name: "Reconnect" }));
+    await slot.findByText(READY);
+    expect(connectCalls(slot).map((call) => call.input)).toEqual([
+      {
+        hostId: "host-mac",
+        directory: "/Users/me/vercel-bb",
+        teamName: null,
+        projectName: null,
+        adoptLegacyAllocations: false,
+        expectedLegacyIdentity: null,
+      },
+    ]);
+    expect(slot.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
     expect(slot.inspection.navigateCalls).toEqual([]);
   });
 
@@ -1091,18 +1010,14 @@ describe("settings section", () => {
       "account.inspect": () => recheck.promise,
       "account.connect": () => CONNECTED,
     });
-    openMenu(await slot.findByRole("button", { name: /Machine/ }));
-    fireEvent.click(
-      await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
-    );
+    await pick(slot, "Machine", /Tom's MacBook/);
     await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Connect" }));
-    await slot.findByText(/Connected. New sandboxes are created/);
+    await slot.findByText(READY);
     await act(async () => {
       recheck.resolve(NOT_CONNECTED);
       await recheck.promise;
     });
-    expect(slot.getByText(/Connected. New sandboxes are created/)).toBeTruthy();
+    expect(slot.getByText(READY)).toBeTruthy();
   });
 
   it("recovers when the machine list fails to load", async () => {
@@ -1143,16 +1058,15 @@ describe("settings section", () => {
     });
     expect(apply.hasAttribute("disabled")).toBe(true);
     fireEvent.click(apply);
-    await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Save" }));
-    await slot.findByRole("button", { name: "Saving…" });
+    await pick(slot, "Project", "Other project");
+    await slot.findByText("Saving…");
     expect(connectCalls(slot).map((call) => call.input)).toEqual([
       {
         hostId: "host-mac",
         teamId: "team_abc",
-        projectId: "prj_def",
+        projectId: "prj_other",
         teamName: "My team",
-        projectName: "My project",
+        projectName: "Other project",
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       },
@@ -1231,8 +1145,7 @@ describe("settings section", () => {
         .getByRole("checkbox", { name: /Let tom \(user_abc\)/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
-    await chooseProject(slot);
-    fireEvent.click(slot.getByRole("button", { name: "Save" }));
+    await pick(slot, "Project", "Other project");
     const consent = await slot.findByRole("checkbox", {
       name: /Let sam \(user_other\) on Tom's MacBook/,
     });

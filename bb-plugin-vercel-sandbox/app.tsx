@@ -24,6 +24,7 @@ import {
   FieldRow,
   INLINE_TRIGGER_CLASS,
   ProjectFields,
+  type ProjectSelection,
   ROW_GRID_CLASS,
   ROW_LABEL_CLASS,
   ROW_VALUE_CLASS,
@@ -639,74 +640,29 @@ function NamedId({ name, id }: { name: string | null; id: string }) {
   );
 }
 
-/**
- * A read-only row of the account grid, matching an editable row's size.
- * Rows outside a description list, such as beside the editor's pickers,
- * render as plain grid cells.
- */
-function StaticRow({
-  term,
-  inList = true,
-  children,
-}: {
-  term: string;
-  inList?: boolean;
-  children: ReactNode;
-}) {
-  const Term = inList ? "dt" : "div";
-  const Value = inList ? "dd" : "div";
+/** A read-only row of the account grid, matching a picker row's size. */
+function StaticRow({ term, children }: { term: string; children: ReactNode }) {
   return (
-    <div className="contents">
-      <Term className={ROW_LABEL_CLASS}>{term}</Term>
-      <Value className={cn(ROW_VALUE_CLASS, "break-words text-foreground")}>
+    <>
+      <div className={ROW_LABEL_CLASS}>{term}</div>
+      <div className={cn(ROW_VALUE_CLASS, "break-words text-foreground")}>
         {children}
-      </Value>
-    </div>
-  );
-}
-
-function ConnectionDetails({
-  account,
-  machineName,
-}: {
-  account: SavedAccount;
-  machineName: string;
-}) {
-  return (
-    <dl className={ROW_GRID_CLASS}>
-      <StaticRow term="Machine">{machineName}</StaticRow>
-      {account.teamId === null ? null : (
-        <StaticRow term="Team">
-          <NamedId name={account.teamName} id={account.teamId} />
-        </StaticRow>
-      )}
-      {account.projectId === null ? null : (
-        <StaticRow term="Project">
-          <NamedId name={account.projectName} id={account.projectId} />
-        </StaticRow>
-      )}
-      <IdentityRows account={account} />
-    </dl>
+      </div>
+    </>
   );
 }
 
 /** Rows that come from the CLI login rather than a choice in Settings. */
-function IdentityRows({
-  account,
-  inList = true,
-}: {
-  account: SavedAccount;
-  inList?: boolean;
-}) {
+function IdentityRows({ account }: { account: SavedAccount }) {
   return (
     <>
       {account.accountId === null ? null : (
-        <StaticRow term="Signed in as" inList={inList}>
+        <StaticRow term="Signed in as">
           <NamedId name={account.accountName} id={account.accountId} />
         </StaticRow>
       )}
       {account.directory === null ? null : (
-        <StaticRow term="Linked folder" inList={inList}>
+        <StaticRow term="Linked folder">
           <span className="break-all font-mono">{account.directory}</span>
         </StaticRow>
       )}
@@ -791,8 +747,8 @@ function ConnectionStatus({
     return (
       <StatusLine icon="Info" tone="normal">
         <p>
-          Not connected. Sign in with the Vercel CLI on one of your machines,
-          then choose where sandboxes are created.
+          Not set up. Sign in with the Vercel CLI on one of your machines, then
+          choose where BB creates sandboxes.
         </p>
         {account.message === "" ? null : (
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -808,15 +764,15 @@ function ConnectionStatus({
         <p>{account.message}</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
           BB can't start or manage sandboxes with this account. Fix it on{" "}
-          {hostLabel(hosts, account.hostId)} and check again, or edit the
-          account.
+          {hostLabel(hosts, account.hostId)} and check again, or reconnect to
+          use the CLI's current sign-in.
         </p>
       </StatusLine>
     );
   }
   return (
     <StatusLine icon="CircleCheck" tone="success">
-      Connected. New sandboxes are created with this account.
+      Ready. BB can create sandboxes in this project.
     </StatusLine>
   );
 }
@@ -922,30 +878,48 @@ function MachineField({
   );
 }
 
+type ConnectInput = {
+  hostId: string;
+  teamId?: string;
+  projectId?: string;
+  directory?: string;
+  teamName: string | null;
+  projectName: string | null;
+};
+
+function choiceKey(hostId: string, teamId: string, projectId: string) {
+  return JSON.stringify([hostId, teamId, projectId]);
+}
+
 /**
- * The Account section while choosing the machine, team, and project. Setup
- * explains the CLI sign-in and connects below the fields. Edit keeps the
- * read-only layout: pickers replace the static values in place, preselected
- * with the saved connection, and Save and Cancel replace Edit in the heading.
+ * The Account section. Machine, team, and project are always pickers showing
+ * the saved choice; picking a complete, different combination saves it at
+ * once, so there is no separate edit mode. Team and project listings load in
+ * the background as soon as the page opens.
  */
-function ConnectForm({
-  account,
-  mode,
+function AccountForm({
+  saved,
   status,
+  unavailable,
+  checking,
+  recheckable,
+  onCheckAgain,
   hosts,
   retryHosts,
   onConnected,
-  onCancel,
   reinspect,
 }: {
-  account: SavedAccount | null;
-  mode: "setup" | "edit";
-  /** The connection status shown under the heading during setup. */
+  /** The saved connection; `hostId` is null when nothing is set up. */
+  saved: SavedAccount;
   status: ReactNode;
+  /** The latest check found the saved connection unusable. */
+  unavailable: boolean;
+  checking: boolean;
+  recheckable: boolean;
+  onCheckAgain: () => void;
   hosts: Load<AccountHost[]>;
   retryHosts: () => void;
   onConnected: (account: AccountStatus) => void;
-  onCancel: () => void;
   reinspect: () => void;
 }) {
   const rpc = useRpc<Contract>();
@@ -954,23 +928,10 @@ function ConnectForm({
   const hostProblemId = `${idPrefix}-machine-problem`;
   const machineTriggerRef = useRef<HTMLButtonElement>(null);
   const [hostChoice, setHostChoice] = useState<string | null>(null);
-  const [projectChoice, setProjectChoice] = useState<ProjectChoice | null>(
-    null,
-  );
-  const chooseProject = useCallback((choice: ProjectChoice | null) => {
-    setProjectChoice(choice);
-    setConnect({ status: "idle" });
-  }, []);
-  const [attempted, setAttempted] = useState(false);
-  const [focusRequest, setFocusRequest] = useState<{
-    target: "machine";
-    attempt: number;
-  } | null>(null);
-  useEffect(() => {
-    if (focusRequest === null) return;
-    machineTriggerRef.current?.focus();
-  }, [focusRequest]);
+  const [selection, setSelection] = useState<ProjectSelection | null>(null);
+  const [resets, setResets] = useState(0);
   const [connect, setConnect] = useState<ConnectState>({ status: "idle" });
+  const attempted = useRef<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -979,144 +940,182 @@ function ConnectForm({
     };
   }, []);
 
+  const configured = saved.hostId !== null;
   const hostList = hosts.status === "ready" ? hosts.data : [];
   const onlyHost = hostList.length === 1 ? hostList[0] : undefined;
-  const hostId = hostChoice ?? account?.hostId ?? onlyHost?.id ?? null;
+  const hostId = hostChoice ?? saved.hostId ?? onlyHost?.id ?? null;
   const selectedHost = hostList.find((host) => host.id === hostId) ?? null;
-  const scope = projectChoice?.hostId === hostId ? projectChoice : null;
-  const hostProblem =
-    selectedHost === null
-      ? attempted && hosts.status === "ready" && hostList.length > 0
-        ? "Choose the machine where you ran vc login."
-        : null
-      : selectedHost.online
-        ? null
-        : `${selectedHost.name} is offline. Reconnect it to BB before connecting Vercel.`;
-  const connecting = connect.status === "connecting";
-  const editing = mode === "edit";
-  useEffect(() => {
-    if (editing) machineTriggerRef.current?.focus();
-  }, [editing]);
+  const onSavedHost = configured && hostId === saved.hostId;
   const initialScope =
-    account !== null &&
-    account.hostId === hostId &&
-    account.teamId !== null &&
-    account.projectId !== null
-      ? { teamId: account.teamId, projectId: account.projectId }
+    onSavedHost && saved.teamId !== null && saved.projectId !== null
+      ? {
+          teamId: saved.teamId,
+          projectId: saved.projectId,
+          teamName: saved.teamName,
+          projectName: saved.projectName,
+        }
       : null;
+  const savedKey =
+    configured && saved.teamId !== null && saved.projectId !== null
+      ? choiceKey(saved.hostId!, saved.teamId, saved.projectId)
+      : null;
+  const choice =
+    selection?.choice && selection.choice.hostId === hostId
+      ? selection.choice
+      : null;
+  // An unsaved change is any pick that differs from the saved connection.
+  // Until both listings load, the pickers still hold the saved values.
+  const changed =
+    configured &&
+    (!onSavedHost ||
+      (selection !== null &&
+        (selection.teamId !== saved.teamId ||
+          selection.projectId !== saved.projectId)));
+  const connecting = connect.status === "connecting";
+  const hostProblem =
+    selectedHost === null || selectedHost.online
+      ? null
+      : `${selectedHost.name} is offline. Reconnect it to BB before choosing its Vercel team and project.`;
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setAttempted(true);
-    if (connecting) return;
-    if (selectedHost === null || !selectedHost.online) {
-      setFocusRequest((previous) => ({
-        target: "machine",
-        attempt: (previous?.attempt ?? 0) + 1,
-      }));
-      return;
-    }
-    if (scope === null) return;
-    setHostChoice(selectedHost.id);
-    setConnect({ status: "connecting" });
-    rpc
-      .call("account.connect", {
-        hostId: scope.hostId,
-        teamId: scope.teamId,
-        projectId: scope.projectId,
-        teamName: scope.teamName,
-        projectName: scope.projectName,
-        adoptLegacyAllocations: false,
-        expectedLegacyIdentity: null,
-      })
-      .then(
-        (result) => {
-          if (!mounted.current) return;
-          setConnect({ status: "idle" });
-          onConnected(result);
-        },
-        (error: unknown) => {
-          if (!mounted.current) return;
-          setConnect({ status: "failed", reason: serverReason(error) });
-          reinspect();
-        },
-      );
+  const save = useCallback(
+    (input: ConnectInput) => {
+      setConnect({ status: "connecting" });
+      rpc
+        .call("account.connect", {
+          ...input,
+          adoptLegacyAllocations: false,
+          expectedLegacyIdentity: null,
+        })
+        .then(
+          (result) => {
+            if (!mounted.current) return;
+            setConnect({ status: "idle" });
+            setHostChoice(null);
+            onConnected(result);
+          },
+          (error: unknown) => {
+            if (!mounted.current) return;
+            setConnect({ status: "failed", reason: serverReason(error) });
+            reinspect();
+          },
+        );
+    },
+    [rpc, onConnected, reinspect],
+  );
+  // Saves each new complete pick once. A failed pick is retried only on
+  // request, and choosing the saved combination again saves nothing.
+  useEffect(() => {
+    if (choice === null || connecting || !selectedHost?.online) return;
+    const key = choiceKey(choice.hostId, choice.teamId, choice.projectId);
+    if (key === savedKey || key === attempted.current) return;
+    attempted.current = key;
+    save(choice);
+  }, [choice, connecting, selectedHost, savedKey, save]);
+
+  const reset = () => {
+    attempted.current = null;
+    setHostChoice(null);
+    setSelection(null);
+    setConnect({ status: "idle" });
+    setResets((count) => count + 1);
+  };
+  const retry = () => {
+    if (choice !== null) save(choice);
+  };
+  // Reconnecting the saved scope adopts the CLI's current sign-in, such as
+  // after `vc login` as a different Vercel user.
+  const reconnect = () => {
+    if (!configured) return;
+    save(
+      saved.directory !== null
+        ? {
+            hostId: saved.hostId!,
+            directory: saved.directory,
+            teamName: saved.teamName,
+            projectName: saved.projectName,
+          }
+        : {
+            hostId: saved.hostId!,
+            teamId: saved.teamId!,
+            projectId: saved.projectId!,
+            teamName: saved.teamName,
+            projectName: saved.projectName,
+          },
+    );
   };
 
-  const submitButton = (
-    <Button
-      type="submit"
-      size="sm"
-      disabled={connecting || scope === null}
-      aria-busy={connecting}
-    >
-      {connecting ? (
-        <Icon name="Spinner" className="size-3.5 animate-spin" />
-      ) : null}
-      {connecting
-        ? editing
-          ? "Saving…"
-          : "Connecting…"
-        : editing
-          ? "Save"
-          : "Connect"}
-    </Button>
-  );
   const failure =
     connect.status === "failed" ? (
-      <>
+      <StatusLine icon="AlertCircle" tone="error" alert>
         {CONNECT_FAILED_MESSAGE}
         <FailureReason reason={connect.reason} />
-      </>
+      </StatusLine>
     ) : null;
+  const line = connecting ? (
+    <StatusLine icon="Spinner" tone="muted">
+      {configured ? "Saving…" : "Connecting…"}
+    </StatusLine>
+  ) : failure !== null ? (
+    failure
+  ) : changed && choice === null ? (
+    <StatusLine icon="Info" tone="muted">
+      {selection?.teamId == null
+        ? "Choose a team and project to switch."
+        : "Choose a project to switch."}
+    </StatusLine>
+  ) : (
+    status
+  );
+  const actions = (
+    <div className="flex items-center gap-2">
+      {connect.status === "failed" && choice !== null ? (
+        <Button type="button" size="sm" variant="ghost" onClick={retry}>
+          Try again
+        </Button>
+      ) : null}
+      {changed || connect.status === "failed" ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={connecting}
+          onClick={reset}
+        >
+          {configured ? "Undo" : "Clear"}
+        </Button>
+      ) : null}
+      {!changed && !connecting && recheckable ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={checking}
+          onClick={onCheckAgain}
+        >
+          {checking ? (
+            <Icon name="Spinner" className="size-3.5 animate-spin" />
+          ) : null}
+          Check again
+        </Button>
+      ) : null}
+      {!changed && !connecting && unavailable && !checking ? (
+        <Button type="button" size="sm" variant="outline" onClick={reconnect}>
+          Reconnect
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <form
       noValidate
-      aria-label={
-        editing ? "Edit the Vercel account" : "Connect the Vercel CLI"
-      }
-      onSubmit={submit}
-      onKeyDown={(event) => {
-        if (editing && event.key === "Escape" && !connecting) onCancel();
-      }}
+      aria-label="Vercel account"
+      onSubmit={(event) => event.preventDefault()}
       className="space-y-3"
     >
-      <SettingsHeading
-        title="Account"
-        action={
-          editing ? (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={connecting}
-                onClick={onCancel}
-              >
-                Cancel
-              </Button>
-              {submitButton}
-            </div>
-          ) : undefined
-        }
-      />
-      {editing ? (
-        failure === null ? (
-          <StatusLine icon="Info" tone="muted">
-            Changes apply to new sandboxes. To switch Vercel users, run{" "}
-            <code className="font-mono text-foreground">vc login</code> on the
-            machine first.
-          </StatusLine>
-        ) : (
-          <StatusLine icon="AlertCircle" tone="error" alert>
-            {failure}
-          </StatusLine>
-        )
-      ) : (
-        status
-      )}
-      {editing ? null : (
+      <SettingsHeading title="Account" action={actions} />
+      {line}
+      {configured ? null : (
         <ol className="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
           <li>
             On the machine BB should use, open a terminal as the same OS user
@@ -1129,7 +1128,7 @@ function ConnectForm({
           </li>
           <li>
             Choose that machine, then select the Vercel team and project to use
-            for sandboxes.
+            for sandboxes. BB connects as soon as you pick the project.
           </li>
         </ol>
       )}
@@ -1144,8 +1143,10 @@ function ConnectForm({
             hostId={hostId}
             onRetry={retryHosts}
             onChoose={(next) => {
+              if (next === hostId) return;
+              attempted.current = null;
               setHostChoice(next);
-              setProjectChoice(null);
+              setSelection(null);
               setConnect({ status: "idle" });
             }}
           />
@@ -1154,61 +1155,55 @@ function ConnectForm({
               <p id={hostProblemId} className="text-xs text-warning-text">
                 {hostProblem}
               </p>
-              {selectedHost !== null && !selectedHost.online ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={retryHosts}
-                >
-                  Check again
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={retryHosts}
+              >
+                Check again
+              </Button>
             </div>
           )}
         </FieldRow>
 
-        {hostId !== null && selectedHost?.online ? (
+        {hostId === null ? null : selectedHost === null ||
+          selectedHost.online ? (
           <ProjectFields
-            key={hostId}
+            key={`${hostId}:${resets}`}
             hostId={hostId}
             initial={initialScope}
-            onChoose={chooseProject}
+            onChange={setSelection}
           />
+        ) : onSavedHost ? (
+          <>
+            {saved.teamId === null ? null : (
+              <StaticRow term="Team">
+                <NamedId name={saved.teamName} id={saved.teamId} />
+              </StaticRow>
+            )}
+            {saved.projectId === null ? null : (
+              <StaticRow term="Project">
+                <NamedId name={saved.projectName} id={saved.projectId} />
+              </StaticRow>
+            )}
+          </>
         ) : null}
-        {editing && account !== null ? (
-          <IdentityRows account={account} inList={false} />
-        ) : null}
+        {configured ? <IdentityRows account={saved} /> : null}
       </fieldset>
 
-      {editing ? null : (
-        <>
-          <div className="flex flex-wrap items-center gap-3">
-            {submitButton}
-            {scope === null && hostId !== null && selectedHost?.online ? (
-              <p className="text-xs text-muted-foreground">
-                Choose a team and project first.
-              </p>
-            ) : null}
-            {failure === null ? null : (
-              <p role="alert" className="text-xs text-destructive-text">
-                {failure}
-              </p>
-            )}
-          </div>
-          <div className="max-w-prose space-y-1 text-xs leading-relaxed text-muted-foreground">
-            <p>
-              Your Vercel sign-in stays in the CLI on that machine. BB saves
-              only the machine and the account, team, and project IDs, and asks
-              the CLI for a short-lived token each time.
-            </p>
-            <p>
-              This page can't remove an access token saved by an earlier version
-              of this plugin; revoke that token in Vercel if you no longer use
-              it.
-            </p>
-          </div>
-        </>
+      {configured ? null : (
+        <div className="max-w-prose space-y-1 text-xs leading-relaxed text-muted-foreground">
+          <p>
+            Your Vercel sign-in stays in the CLI on that machine. BB saves only
+            the machine and the account, team, and project IDs, and asks the CLI
+            for a short-lived token each time.
+          </p>
+          <p>
+            This page can't remove an access token saved by an earlier version
+            of this plugin; revoke that token in Vercel if you no longer use it.
+          </p>
+        </div>
       )}
     </form>
   );
@@ -1471,14 +1466,6 @@ function VercelSettingsSection() {
   const readSaved = useCallback(() => rpc.call("account.saved", {}), [rpc]);
   const saved = useLoad(readSaved);
   const hosts = useAccountHosts();
-  const [editing, setEditing] = useState(false);
-  // Leaving edit mode returns focus to the Edit button that opened it.
-  const editButtonRef = useRef<HTMLButtonElement>(null);
-  const wasEditing = useRef(false);
-  useEffect(() => {
-    if (wasEditing.current && !editing) editButtonRef.current?.focus();
-    wasEditing.current = editing;
-  }, [editing]);
   const checkAgain = () => {
     account.retry();
     hosts.retry();
@@ -1492,9 +1479,6 @@ function VercelSettingsSection() {
   const known: SavedAccount | null =
     current ?? (saved.state.status === "ready" ? saved.state.data : null);
   const checking = account.state.status === "pending";
-  // Setup replaces the details only once the saved or checked connection
-  // shows there is none, so a pending check never flashes the setup form.
-  const setup = known !== null && known.hostId === null;
   // Check again is offered only after a check fails: a healthy or empty
   // connection is already rechecked on every visit. It stays visible while
   // its own recheck runs.
@@ -1505,10 +1489,10 @@ function VercelSettingsSection() {
   useEffect(() => {
     if (!checking) setRecheckable(failed);
   }, [checking, failed]);
-  const connectionLoaded = (next: AccountStatus) => {
-    account.replace(next);
-    setEditing(false);
-  };
+  const connectionLoaded = useCallback(
+    (next: AccountStatus) => account.replace(next),
+    [account.replace],
+  );
   const status = (
     <ConnectionStatus state={account.state} known={known} hosts={hosts.state} />
   );
@@ -1516,62 +1500,28 @@ function VercelSettingsSection() {
     <TooltipProvider delayDuration={300}>
       <div className="w-full min-w-0 space-y-6">
         <section>
-          {setup || editing ? (
-            <ConnectForm
-              account={known}
-              mode={editing ? "edit" : "setup"}
+          {known === null ? (
+            // Before the saved connection loads, show only the check so the
+            // setup steps never flash for an already-connected account.
+            <div className="space-y-3">
+              <SettingsHeading title="Account" />
+              {status}
+            </div>
+          ) : (
+            <AccountForm
+              saved={known}
               status={status}
+              unavailable={
+                latest !== null && latest.hostId !== null && !latest.available
+              }
+              checking={checking}
+              recheckable={recheckable}
+              onCheckAgain={checkAgain}
               hosts={hosts.state}
               retryHosts={hosts.retry}
               onConnected={connectionLoaded}
-              onCancel={() => setEditing(false)}
               reinspect={account.retry}
             />
-          ) : (
-            <div className="space-y-3">
-              <SettingsHeading
-                title="Account"
-                action={
-                  <div className="flex items-center gap-2">
-                    {recheckable ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={checking}
-                        onClick={checkAgain}
-                      >
-                        {checking ? (
-                          <Icon
-                            name="Spinner"
-                            className="size-3.5 animate-spin"
-                          />
-                        ) : null}
-                        Check again
-                      </Button>
-                    ) : null}
-                    {known?.hostId ? (
-                      <Button
-                        ref={editButtonRef}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setEditing(true)}
-                      >
-                        Edit
-                      </Button>
-                    ) : null}
-                  </div>
-                }
-              />
-              {status}
-              {known?.hostId ? (
-                <ConnectionDetails
-                  account={known}
-                  machineName={hostLabel(hosts.state, known.hostId)}
-                />
-              ) : null}
-            </div>
           )}
         </section>
 
