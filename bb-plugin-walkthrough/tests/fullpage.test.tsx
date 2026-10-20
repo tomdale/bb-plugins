@@ -170,3 +170,30 @@ describe("header", () => {
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "close")).toHaveLength(1);
   });
 });
+
+describe("code excerpts", () => {
+  const codePart = {
+    title: "Schema",
+    summary: "",
+    locations: [],
+    status: "ready" as const,
+    blocks: [{ kind: "code" as const, caption: "The schema", path: "src/a.ts", startLine: 3, endLine: 9, notes: [] }],
+    suggestions: [],
+    message: null,
+    discussion: [],
+  };
+  const context = ["diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -3,2 +3,2 @@", " one", " two", ""].join("\n");
+
+  it("opens unchanged code as after and carries its location for notes", async () => {
+    const slot = await mountPage("wt_1", {
+      get: () => ({ view: { walkthrough: walkthrough({ parts: [codePart] }), notes: [] } }),
+      excerpt: () => ({ outcome: "available", path: "src/a.ts", change: context, after: context, before: context }),
+    });
+    const after = await slot.findByRole("button", { name: "after" });
+    await vi.waitFor(() => expect(after.getAttribute("aria-pressed")).toBe("true"));
+    expect(slot.getByRole("button", { name: "change" }).getAttribute("aria-pressed")).toBe("false");
+    const figure = slot.container.querySelector("figure")!;
+    expect([figure.dataset.codePath, figure.dataset.codeStart, figure.dataset.codeEnd]).toEqual(["src/a.ts", "3", "9"]);
+    expect(slot.getByRole("region", { name: /src\/a\.ts, lines 3 to 9/u })).toBeTruthy();
+  });
+});

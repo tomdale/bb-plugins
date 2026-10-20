@@ -209,3 +209,44 @@ export function describePartForAgent(part: Part): string {
     .map((block) => (block.kind === "prose" ? block.text : `[code: ${block.path}:${block.startLine}-${block.endLine} "${block.caption}"]`))
     .join("\n\n");
 }
+
+// ---------------------------------------------------------------------------
+// Code excerpts
+// ---------------------------------------------------------------------------
+
+export type ExcerptView = "change" | "after" | "before";
+
+/** Lines of a unified patch that are code (context, added, removed), with file headers and hunk markers left out. */
+function patchLines(patch: string): Array<{ marker: " " | "+" | "-"; text: string }> {
+  const lines: Array<{ marker: " " | "+" | "-"; text: string }> = [];
+  let inHunk = false;
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("diff --git")) inHunk = false;
+    else if (line.startsWith("@@")) inHunk = true;
+    else if (inHunk && (line[0] === " " || line[0] === "+" || line[0] === "-")) lines.push({ marker: line[0] as " " | "+" | "-", text: line.slice(1) });
+  }
+  return lines;
+}
+
+/** Whether a patch adds or removes anything, rather than only showing unchanged context. */
+export function hasChangedLines(patch: string): boolean {
+  return patchLines(patch).some((line) => line.marker !== " ");
+}
+
+/**
+ * The view an excerpt opens in. The change view of code that did not change is
+ * only collapsed context, so an excerpt for reading code opens as "after".
+ */
+export function defaultExcerptView(excerpt: { change: string | null; after: string | null }): ExcerptView {
+  if (excerpt.change && hasChangedLines(excerpt.change)) return "change";
+  return excerpt.after ? "after" : "change";
+}
+
+/** The text to copy for a view: its new side, old side, or (for the change view) the diff's code lines with markers. */
+export function excerptCode(patch: string, view: ExcerptView): string {
+  const lines = patchLines(patch);
+  const pick = (keep: string) => lines.filter((line) => keep.includes(line.marker)).map((line) => line.text);
+  if (view === "after") return pick(" +").join("\n");
+  if (view === "before") return pick(" -").join("\n");
+  return lines.map((line) => `${line.marker}${line.text}`).join("\n");
+}

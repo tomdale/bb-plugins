@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparedWith, formatStarted, parseCommand, renderNotesMarkdown, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
+import { comparedWith, defaultExcerptView, excerptCode, formatStarted, hasChangedLines, parseCommand, renderNotesMarkdown, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
 import { filterPatchToRange } from "../src/patch.ts";
 import type { Note, Walkthrough } from "../src/schemas.ts";
 
@@ -164,5 +164,28 @@ describe("walkthrough list labels", () => {
     expect(summaryDetail({ status: "reading", partCount: 6, currentPart: null, createdAt }, now)).toBe("In progress · Introduction · Yesterday");
     expect(summaryDetail({ status: "done", partCount: 6, currentPart: 5, createdAt }, now)).toBe("Finished · 6 parts · Yesterday");
     expect(summaryDetail({ status: "planning", partCount: 0, currentPart: null, createdAt }, now)).toBe("Getting ready · Yesterday");
+  });
+});
+
+describe("excerpt views", () => {
+  const context = ["diff --git a/f.ts b/f.ts", "--- a/f.ts", "+++ b/f.ts", "@@ -1,2 +1,2 @@", " one", " two", ""].join("\n");
+  const changed = ["diff --git a/f.ts b/f.ts", "--- a/f.ts", "+++ b/f.ts", "@@ -1,2 +1,2 @@", " one", "-two", "+TWO", ""].join("\n");
+
+  it("opens an excerpt of unchanged code as after, and a real change as change", () => {
+    expect(defaultExcerptView({ change: context, after: "one\ntwo" })).toBe("after");
+    expect(defaultExcerptView({ change: changed, after: "one\nTWO" })).toBe("change");
+    expect(defaultExcerptView({ change: null, after: "x" })).toBe("after");
+    expect(defaultExcerptView({ change: context, after: null })).toBe("change");
+  });
+
+  it("does not mistake file headers for changes", () => {
+    expect(hasChangedLines(context)).toBe(false);
+    expect(hasChangedLines(changed)).toBe(true);
+  });
+
+  it("copies the code of the shown view", () => {
+    expect(excerptCode(changed, "after")).toBe("one\nTWO");
+    expect(excerptCode(changed, "before")).toBe("one\ntwo");
+    expect(excerptCode(changed, "change")).toBe(" one\n-two\n+TWO");
   });
 });

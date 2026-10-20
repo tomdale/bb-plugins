@@ -1,20 +1,34 @@
 // A code excerpt inside the reading view: a plain caption, the change shown
 // three ways (change / after / before), and margin notes beside it.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { toast } from "sonner";
 import { experimental_Diff as Diff } from "@get-bb/plugin-sdk/app";
+import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { defaultExcerptView, excerptCode, type ExcerptView } from "../model.ts";
 import type { ExcerptResult } from "../rpc.ts";
 import type { CodeBlock, Walkthrough } from "../schemas.ts";
 import { errorMessage, useWalkthroughRpc } from "./hooks.ts";
 import { LocationLink } from "./parts.tsx";
 
-type View = "change" | "after" | "before";
+type View = ExcerptView;
 const VIEWS: View[] = ["change", "after", "before"];
+
+/** The first element under `root`, shadow roots included, that scrolls sideways. */
+function findHorizontalScroller(root: ParentNode): HTMLElement | null {
+  for (const element of Array.from(root.querySelectorAll<HTMLElement>("*"))) {
+    if (element.scrollWidth > element.clientWidth + 1 && /auto|scroll/u.test(getComputedStyle(element).overflowX)) return element;
+    const nested = element.shadowRoot ? findHorizontalScroller(element.shadowRoot) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
 
 export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthrough; block: CodeBlock; wide: boolean }) {
   const rpc = useWalkthroughRpc();
   const [result, setResult] = useState<ExcerptResult | null>(null);
-  const [view, setView] = useState<View>("change");
+  // Until the reader picks a view, the excerpt opens in whichever suits its content.
+  const [chosenView, setView] = useState<View | null>(null);
   useEffect(() => {
     let live = true;
     setResult(null);
@@ -31,15 +45,38 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
 
   const available = result?.outcome === "available" ? result : null;
   const patchFor = (candidate: View) => (available ? available[candidate] : null);
+  const view = chosenView ?? (available ? defaultExcerptView(available) : "change");
   const effectiveView = patchFor(view) ? view : (VIEWS.find((candidate) => patchFor(candidate)) ?? view);
   const patch = patchFor(effectiveView);
   const notes = block.notes;
   const [expanded, setExpanded] = useState(false);
   const lineCount = patch ? patch.split("\n").filter((line) => /^[ +-]/u.test(line) && !/^(\+\+\+|---) /u.test(line)).length : 0;
   const long = lineCount > 30;
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  // The host's diff viewer owns the horizontal scroller (and it is not a tab stop),
+  // so the focusable wrapper scrolls it on the arrow keys.
+  const scrollSideways = (event: KeyboardEvent) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const scroller = scrollerRef.current ? findHorizontalScroller(scrollerRef.current) : null;
+    if (!scroller) return;
+    event.preventDefault();
+    scroller.scrollBy({ left: event.key === "ArrowLeft" ? -80 : 80 });
+  };
+  const copy = () => {
+    if (!patch) return;
+    void navigator.clipboard.writeText(excerptCode(patch, effectiveView)).then(
+      () => toast.success("Copied the code"),
+      () => toast.error("Could not copy"),
+    );
+  };
 
   return (
-    <figure className={cn("my-5 grid gap-x-4 gap-y-2", wide && notes.length > 0 ? "grid-cols-[minmax(0,1fr)_11rem]" : "grid-cols-1")}>
+    <figure
+      data-code-path={block.path}
+      data-code-start={block.startLine}
+      data-code-end={block.endLine}
+      className={cn("my-5 grid gap-x-4 gap-y-2", wide && notes.length > 0 ? "grid-cols-[minmax(0,1fr)_11rem]" : "grid-cols-1")}
+    >
       <figcaption className="col-span-full flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-serif text-[13.5px] text-foreground">{block.caption}</span>
         <span className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -66,6 +103,16 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
               </button>
             ))}
           </span>
+          <button
+            type="button"
+            aria-label="Copy the code"
+            title="Copy the code"
+            disabled={!patch}
+            onClick={copy}
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground disabled:opacity-40"
+          >
+            <Icon name="Copy" className="size-3.5" aria-hidden />
+          </button>
         </span>
       </figcaption>
       <div className="min-w-0 overflow-hidden rounded-md border border-border">
@@ -74,7 +121,14 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
             Loading the code…
           </p>
         ) : patch ? (
-          <div className={cn("relative", long && !expanded && "max-h-[28rem] overflow-hidden")}>
+          <div
+            ref={scrollerRef}
+            tabIndex={0}
+            role="region"
+            aria-label={`Code from ${block.path}, lines ${block.startLine} to ${block.endLine}`}
+            onKeyDown={scrollSideways}
+            className={cn("relative focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring", long && !expanded && "max-h-[28rem] overflow-hidden")}
+          >
             <Diff patch={patch} path={available?.path ?? block.path} />
             {long && !expanded ? (
               <button
