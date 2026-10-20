@@ -5,6 +5,7 @@ import { Fragment, type ReactNode } from "react";
 import { experimental_FileLink as FileLink, UrlLink } from "@get-bb/plugin-sdk/app";
 import { cn } from "@/lib/utils";
 import { fileTarget, type FileContext } from "../files.ts";
+import { parseMarkdownBlocks } from "./markdown-blocks.ts";
 
 export interface ProseContext {
   files: FileContext;
@@ -105,34 +106,41 @@ function inline(text: string, context: ProseContext, keyPrefix: string): ReactNo
   return out;
 }
 
-/** Paragraphs, bullet and numbered lists, and inline code, emphasis, and links. */
+/** Paragraphs, headings, bullet and numbered lists, fenced code, and inline code, emphasis, and links. */
 export function Prose({ text, context, className }: { text: string; context: ProseContext; className?: string }) {
-  const blocks = text.trim().split(/\n{2,}/u);
+  const blocks = parseMarkdownBlocks(text);
   return (
     <div className={cn("space-y-3 font-serif text-[15px] leading-[1.65]", className)}>
-      {blocks.map((block, blockIndex) => {
-        const lines = block.split("\n");
-        const bullets = lines.every((line) => /^\s*[-*]\s+/u.test(line));
-        const numbered = lines.every((line) => /^\s*\d+[.)]\s+/u.test(line));
-        if (bullets || numbered) {
-          const Tag = numbered ? "ol" : "ul";
-          return (
-            <Tag key={blockIndex} className={cn("space-y-1 pl-5", numbered ? "list-decimal" : "list-disc")}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>{inline(line.replace(/^\s*(?:[-*]|\d+[.)])\s+/u, ""), context, `${blockIndex}-${lineIndex}`)}</li>
-              ))}
-            </Tag>
-          );
+      {blocks.map((block, index) => {
+        switch (block.kind) {
+          case "code":
+            return (
+              <pre
+                key={index}
+                className="overflow-x-auto rounded-md border border-border bg-secondary/60 px-3 py-2 font-mono text-[12.5px] leading-[1.55]"
+              >
+                <code>{block.text}</code>
+              </pre>
+            );
+          case "list": {
+            const Tag = block.ordered ? "ol" : "ul";
+            return (
+              <Tag key={index} className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}>
+                {block.items.map((item, itemIndex) => (
+                  <li key={itemIndex}>{inline(item, context, `${index}-${itemIndex}`)}</li>
+                ))}
+              </Tag>
+            );
+          }
+          case "heading":
+            return (
+              <p key={index} className="font-medium">
+                {inline(block.text, context, `${index}`)}
+              </p>
+            );
+          case "paragraph":
+            return <p key={index}>{inline(block.text, context, `${index}`)}</p>;
         }
-        const heading = /^#{1,6}\s+(.*)$/u.exec(block);
-        if (heading && lines.length === 1) {
-          return (
-            <p key={blockIndex} className="font-medium">
-              {inline(heading[1]!, context, `${blockIndex}`)}
-            </p>
-          );
-        }
-        return <p key={blockIndex}>{inline(lines.join(" "), context, `${blockIndex}`)}</p>;
       })}
     </div>
   );

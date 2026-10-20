@@ -63,10 +63,14 @@ function EmptyPane({ threadId }: { threadId: string }) {
 
 type Drawer = "notes" | "review" | null;
 
-function progress(walkthrough: Walkthrough): string {
+/** Whether the wrap-up (rather than a part) is what the user is looking at. */
+function showsWrapUp(walkthrough: Walkthrough, leftWrapUp: boolean): boolean {
+  return !leftWrapUp && (walkthrough.status === "wrapping-up" || (walkthrough.status === "done" && walkthrough.wrapUp !== null));
+}
+
+function progress(walkthrough: Walkthrough, wrapUpShown: boolean): string {
   if (walkthrough.status === "planning") return "Getting ready";
-  if (walkthrough.status === "wrapping-up") return "Wrapping up";
-  if (walkthrough.status === "done") return "Finished";
+  if (wrapUpShown) return walkthrough.status === "done" ? "Finished" : "Wrapping up";
   if (walkthrough.status === "failed") return "Stopped";
   if (walkthrough.currentPart === null) return "Introduction";
   return `Part ${walkthrough.currentPart + 1} of ${walkthrough.parts.length}`;
@@ -103,6 +107,11 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [draft, setDraft] = useState<NoteDraft | null>(null);
+  // Wrap-up is a state of the walkthrough, but the user can still go back and
+  // read parts (or the introduction) from it; this only picks what is shown.
+  const [leftWrapUp, setLeftWrapUp] = useState(false);
+  const wrapUpShown = showsWrapUp(walkthrough, leftWrapUp);
+  const mainRef = useRef<HTMLElement>(null);
   const wide = width >= 900;
   const showRail = width >= 700;
   const openNotes = notes.filter((note) => note.status === "open").length;
@@ -115,13 +124,26 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
     navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title: walkthrough.title, params: { walkthroughId: walkthrough.id } });
   }, [navigate, surface, walkthrough.id, walkthrough.title]);
 
+  useEffect(() => {
+    if (walkthrough.status === "wrapping-up") setLeftWrapUp(false);
+  }, [walkthrough.status]);
+
+  // Each part starts at its top, however far the previous one was scrolled.
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [walkthrough.currentPart, wrapUpShown]);
+
   const call = useCallback(
     (run: () => Promise<unknown>) => {
       run().catch((cause: unknown) => toast.error(errorMessage(cause)));
     },
     [],
   );
-  const openPart = (index: number | null) => call(() => rpc.call("openPart", { walkthroughId: walkthrough.id, index }));
+  const openPart = (index: number | null) => {
+    if (wrapUpShown) setLeftWrapUp(true);
+    call(() => rpc.call("openPart", { walkthroughId: walkthrough.id, index }));
+  };
+  const openWrapUp = () => setLeftWrapUp(false);
   const noteFromSelection = (quote: string) => {
     setDraft({ quote, groupIndex: walkthrough.currentPart, sequence: Date.now() });
     setDrawer("notes");
@@ -134,7 +156,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-medium">{walkthrough.title}</h1>
           <p className="truncate text-xs text-muted-foreground">
-            {progress(walkthrough)}
+            {progress(walkthrough, wrapUpShown)}
             {walkthrough.parts.length > 0 ? ` · ${walkthrough.mode === "pr" && walkthrough.pr ? `PR #${walkthrough.pr.number}` : "your changes"} compared with ${shortRef(walkthrough.baseRef)}` : ""}
             {activity(walkthrough) ? <span className="ml-2 animate-pulse">{activity(walkthrough)}</span> : null}
           </p>
@@ -179,9 +201,19 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
       </header>
 
       <div className="relative flex min-h-0 flex-1">
-        {showRail && walkthrough.parts.length > 0 ? <Contents walkthrough={walkthrough} onOpen={openPart} /> : null}
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          <Page walkthrough={walkthrough} rpc={rpc} wide={wide} onOpen={openPart} onNote={noteFromSelection} threadId={threadId} showContents={!showRail} />
+        {showRail && walkthrough.parts.length > 0 ? <Contents walkthrough={walkthrough} wrapUpShown={wrapUpShown} onOpen={openPart} onOpenWrapUp={openWrapUp} /> : null}
+        <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto">
+          <Page
+            walkthrough={walkthrough}
+            rpc={rpc}
+            wide={wide}
+            wrapUpShown={wrapUpShown}
+            onOpen={openPart}
+            onOpenWrapUp={openWrapUp}
+            onNote={noteFromSelection}
+            threadId={threadId}
+            showContents={!showRail}
+          />
         </main>
         {drawer ? (
           <aside className={cn("min-h-0 overflow-y-auto border-l border-border bg-card p-3", wide ? "w-80 shrink-0" : "absolute inset-y-0 right-0 z-10 w-[min(22rem,100%)] shadow-sm")}>
@@ -203,7 +235,17 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   );
 }
 
-function Contents({ walkthrough, onOpen }: { walkthrough: Walkthrough; onOpen: (index: number | null) => void }) {
+function Contents({
+  walkthrough,
+  wrapUpShown,
+  onOpen,
+  onOpenWrapUp,
+}: {
+  walkthrough: Walkthrough;
+  wrapUpShown: boolean;
+  onOpen: (index: number | null) => void;
+  onOpenWrapUp: () => void;
+}) {
   return (
     <nav aria-label="In this walkthrough" className="w-44 shrink-0 overflow-y-auto border-r border-border px-3 py-4 text-[12.5px]">
       <p className="mb-2 text-xs text-muted-foreground">In this walkthrough</p>
@@ -212,14 +254,14 @@ function Contents({ walkthrough, onOpen }: { walkthrough: Walkthrough; onOpen: (
           <button
             type="button"
             onClick={() => onOpen(null)}
-            aria-current={walkthrough.currentPart === null && walkthrough.status === "reading" ? "page" : undefined}
-            className={cn("w-full text-left leading-snug hover:text-foreground", walkthrough.currentPart === null ? "text-foreground" : "text-muted-foreground")}
+            aria-current={walkthrough.currentPart === null && !wrapUpShown ? "page" : undefined}
+            className={cn("w-full text-left leading-snug hover:text-foreground", walkthrough.currentPart === null && !wrapUpShown ? "text-foreground" : "text-muted-foreground")}
           >
             Introduction
           </button>
         </li>
         {walkthrough.parts.map((part, index) => {
-          const current = walkthrough.currentPart === index && walkthrough.status !== "wrapping-up";
+          const current = walkthrough.currentPart === index && !wrapUpShown;
           return (
             <li key={`${index}:${part.title}`}>
               <button
@@ -234,7 +276,18 @@ function Contents({ walkthrough, onOpen }: { walkthrough: Walkthrough; onOpen: (
             </li>
           );
         })}
-        {walkthrough.wrapUp ? <li className={cn("pl-[18px]", walkthrough.status !== "reading" ? "text-foreground" : "text-muted-foreground")}>Wrapping up</li> : null}
+        {walkthrough.wrapUp ? (
+          <li>
+            <button
+              type="button"
+              onClick={onOpenWrapUp}
+              aria-current={wrapUpShown ? "page" : undefined}
+              className={cn("w-full pl-[18px] text-left leading-snug hover:text-foreground", wrapUpShown ? "text-foreground" : "text-muted-foreground")}
+            >
+              {walkthrough.status === "done" ? "Finished" : "Wrapping up"}
+            </button>
+          </li>
+        ) : null}
       </ol>
       {nextReadyHint(walkthrough)}
     </nav>
@@ -252,7 +305,9 @@ function Page({
   walkthrough,
   rpc,
   wide,
+  wrapUpShown,
   onOpen,
+  onOpenWrapUp,
   onNote,
   threadId,
   showContents,
@@ -260,7 +315,9 @@ function Page({
   walkthrough: Walkthrough;
   rpc: WalkthroughRpc;
   wide: boolean;
+  wrapUpShown: boolean;
   onOpen: (index: number | null) => void;
+  onOpenWrapUp: () => void;
   onNote: (quote: string) => void;
   threadId: string;
   showContents: boolean;
@@ -284,12 +341,12 @@ function Page({
   let content;
   if (walkthrough.status === "planning" || (walkthrough.status === "failed" && walkthrough.parts.length === 0)) {
     content = <Preparing walkthrough={walkthrough} rpc={rpc} />;
-  } else if (walkthrough.status === "wrapping-up" || (walkthrough.status === "done" && walkthrough.wrapUp)) {
-    content = <WrapUp walkthrough={walkthrough} rpc={rpc} wide={wide} threadId={threadId} />;
+  } else if (wrapUpShown) {
+    content = <WrapUp walkthrough={walkthrough} rpc={rpc} wide={wide} threadId={threadId} onOpen={onOpen} />;
   } else if (walkthrough.currentPart === null) {
     content = <Introduction walkthrough={walkthrough} onOpen={onOpen} />;
   } else {
-    content = <PartPage walkthrough={walkthrough} index={walkthrough.currentPart} rpc={rpc} wide={wide} onOpen={onOpen} showContents={showContents} />;
+    content = <PartPage walkthrough={walkthrough} index={walkthrough.currentPart} rpc={rpc} wide={wide} onOpen={onOpen} onOpenWrapUp={onOpenWrapUp} showContents={showContents} />;
   }
   return (
     <div ref={pageRef} onMouseUp={onMouseUp} className="relative mx-auto w-full max-w-[44rem] px-6 pb-16 pt-8">
@@ -391,6 +448,7 @@ function PartPage({
   rpc,
   wide,
   onOpen,
+  onOpenWrapUp,
   showContents,
 }: {
   walkthrough: Walkthrough;
@@ -398,6 +456,7 @@ function PartPage({
   rpc: WalkthroughRpc;
   wide: boolean;
   onOpen: (index: number | null) => void;
+  onOpenWrapUp: () => void;
   showContents: boolean;
 }) {
   const part = walkthrough.parts[index]!;
@@ -420,6 +479,8 @@ function PartPage({
             Try again
           </Button>
         </div>
+      ) : closed ? (
+        <p className="font-serif text-[15px] text-muted-foreground">{part.summary ? `${part.summary} ` : ""}This part was not written before the walkthrough finished.</p>
       ) : (
         <p className="animate-pulse font-serif text-[15px] text-muted-foreground">
           {part.summary ? `${part.summary} ` : ""}Writing this part…
@@ -447,6 +508,12 @@ function PartPage({
           ) : !closed && walkthrough.status === "reading" ? (
             <Button type="button" size="sm" onClick={() => void rpc.call("wrapUp", { walkthroughId: walkthrough.id }).catch((cause: unknown) => toast.error(errorMessage(cause)))}>
               Finish and wrap up
+              <Icon name="ArrowRight" className="size-3.5" aria-hidden />
+            </Button>
+          ) : null}
+          {walkthrough.wrapUp ? (
+            <Button type="button" variant={next ? "outline" : "default"} size="sm" onClick={onOpenWrapUp}>
+              {walkthrough.status === "done" ? "Back to the summary" : "Back to wrap-up"}
               <Icon name="ArrowRight" className="size-3.5" aria-hidden />
             </Button>
           ) : null}
@@ -563,7 +630,19 @@ function AskBox({ onSubmit, placeholder, className }: { onSubmit: (text: string)
   );
 }
 
-function WrapUp({ walkthrough, rpc, wide, threadId }: { walkthrough: Walkthrough; rpc: WalkthroughRpc; wide: boolean; threadId: string }) {
+function WrapUp({
+  walkthrough,
+  rpc,
+  wide,
+  threadId,
+  onOpen,
+}: {
+  walkthrough: Walkthrough;
+  rpc: WalkthroughRpc;
+  wide: boolean;
+  threadId: string;
+  onOpen: (index: number | null) => void;
+}) {
   const part = walkthrough.wrapUp;
   const closed = walkthrough.status === "done";
   const [sending, setSending] = useState(false);
@@ -599,7 +678,16 @@ function WrapUp({ walkthrough, rpc, wide, threadId }: { walkthrough: Walkthrough
         <p className="animate-pulse font-serif text-[15px] text-muted-foreground">Going over your notes and answering what it can…</p>
       )}
       {part.status === "ready" ? <Discussion walkthrough={walkthrough} place="wrap-up" part={part} rpc={rpc} closed={closed} /> : null}
-      <footer className="mt-10 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+      <footer className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+        {walkthrough.parts.length > 0 ? (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onOpen(walkthrough.parts.length - 1)}>
+            <Icon name="ArrowLeft" className="size-3.5" aria-hidden />
+            Back to the parts
+          </Button>
+        ) : (
+          <span />
+        )}
+        <span className="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" size="sm" disabled={sending} onClick={() => void handOff()}>
           <Icon name="Sent" className="size-3.5" aria-hidden />
           Send open notes to my thread
@@ -610,6 +698,7 @@ function WrapUp({ walkthrough, rpc, wide, threadId }: { walkthrough: Walkthrough
             <Icon name="Check" className="size-3.5" aria-hidden />
           </Button>
         ) : null}
+        </span>
       </footer>
     </article>
   );

@@ -461,7 +461,12 @@ export class WalkthroughService {
   async openPart(id: string, index: number | null): Promise<void> {
     this.update(id, (walkthrough) => {
       if (index !== null && (index < 0 || index >= walkthrough.parts.length)) throw new WalkthroughError("No such part.");
-      return this.scheduleWrites({ ...walkthrough, currentPart: index });
+      const opened = { ...walkthrough, currentPart: index };
+      // Wrap-up drops the queued writes; a part the user goes back to read is still owed.
+      if (walkthrough.status === "wrapping-up" && index !== null && opened.parts[index]!.status === "pending") {
+        return this.enqueue(opened, { kind: "write", part: index }, "after-asks");
+      }
+      return this.scheduleWrites(opened);
     });
     await this.pump(id);
   }

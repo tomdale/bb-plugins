@@ -113,3 +113,32 @@ describe("full page", () => {
     expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "walkthroughs", options: { subPath: "wt_2" } }]);
   });
 });
+
+describe("wrap-up", () => {
+  const part = (title: string) => ({
+    title,
+    summary: "",
+    locations: [],
+    status: "ready" as const,
+    blocks: [{ kind: "prose" as const, text: `${title} prose.` }],
+    suggestions: [],
+    message: null,
+    discussion: [],
+  });
+  const wrapped = walkthrough({
+    status: "wrapping-up",
+    currentPart: 1,
+    parts: [part("Schema"), part("Store")],
+    wrapUp: { ...part("Wrapping up"), blocks: [{ kind: "prose", text: "That is the change." }] },
+  });
+
+  it("lets the reader go back to the parts and return to the wrap-up", async () => {
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: wrapped, notes: [] } }), openPart: () => ({ ok: true }) });
+    await slot.findByText("That is the change.");
+    fireEvent.click(slot.getByRole("button", { name: "Back to the parts" }));
+    await slot.findByText("Store prose.");
+    expect(slot.queryByText("That is the change.")).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: /Back to wrap-up/u }));
+    await slot.findByText("That is the change.");
+  });
+});
