@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow, type CardTreeNode } from "./card.js";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, todoCount, type CardRow, type CardTreeNode } from "./card.js";
 import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
@@ -277,7 +277,7 @@ export function TodoCard() {
             className="todo-view-toggle"
             aria-expanded={expanded}
             aria-controls={listId}
-            aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
+            aria-label={expanded ? "Show compact todos" : `Show all ${todoCount(card.total)}`}
             onClick={(e) => {
               e.stopPropagation();
               toggleExpanded();
