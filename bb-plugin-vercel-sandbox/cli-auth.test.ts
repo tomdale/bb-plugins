@@ -204,20 +204,31 @@ describe("CLI authentication boundary", () => {
     },
   );
 
-  it("rechecks the selected machine's CLI version after connection before any authentication request", async () => {
+  it("checks the CLI version before a directory's first authentication request and once per host process", async () => {
     const cli = await fixture();
-    const auth = cliAuthentication(cli.run);
-    const { connection } = await auth.connect(
-      { hostId: "host_auth", directory: cli.directory },
-      signal(),
-    );
     cli.version = "57.9.0";
-    const count = cli.commands.length;
-    await expect(auth.credentials(connection, signal())).rejects.toThrow(
+    const stale = cliAuthentication(cli.run);
+    const connection = {
+      hostId: "host_auth",
+      directory: null,
+      accountId: "user_test",
+      ...cli.scope,
+    };
+    await expect(stale.credentials(connection, signal())).rejects.toThrow(
       "Install vc 58.3.0",
     );
-    expect(cli.commands.slice(count)).toHaveLength(1);
+    expect(cli.commands).toHaveLength(1);
     expect(cli.tokens).toHaveLength(0);
+    cli.version = "58.3.0";
+    const auth = cliAuthentication(cli.run);
+    await auth.credentials(connection, signal());
+    await auth.credentials(connection, signal());
+    expect(cli.commands.filter((args) => args[0] === "--version")).toHaveLength(
+      2,
+    );
+    expect(cli.commands.filter((args) => args[1] === "/v2/user")).toHaveLength(
+      2,
+    );
   });
   it("refuses relinked directories before requesting a token and preserves cancellation across host RPC", async () => {
     const cli = await fixture();

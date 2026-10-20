@@ -134,7 +134,12 @@ export function cliAuthentication(run: CliRunner = runVc) {
       );
     }
   };
+  // A supported CLI is confirmed once per directory (Proto can select the vc
+  // version per directory) before that directory's first authenticated
+  // command, then trusted for the life of this host process.
+  const supported = new Set<string>();
   const assertVersion = async (directory: string, signal: AbortSignal) => {
+    if (supported.has(directory)) return;
     const version = await command(["--version"], directory, signal);
     const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(version.trim());
     if (
@@ -143,6 +148,7 @@ export function cliAuthentication(run: CliRunner = runVc) {
       (Number(match[1]) === 58 && Number(match[2]) < 3)
     )
       throw new SafeError(CLI_FAILURE);
+    supported.add(directory);
   };
   const choices = async (
     kind: "teams" | "projects",
@@ -261,10 +267,9 @@ export function cliAuthentication(run: CliRunner = runVc) {
         throw new SafeError(
           "The linked Vercel project changed. Restore this machine's original linked directory before inspection or cleanup; reconnect for future launches.",
         );
-      if ((await identity(directory, signal)).id !== connection.accountId)
-        throw new SafeError(
-          "The Vercel CLI account changed. Log in with this allocation's original account before inspection or cleanup; reconnect for future launches.",
-        );
+      // The project token names only the team and project, so the CLI account
+      // is read after issuance: a login that differs from the pinned account,
+      // before or during the request, refuses the token before any use.
       const endpoint = `/v1/projects/${connection.projectId}/token?source=vercel-oidc-refresh&teamId=${connection.teamId}`;
       const response = z
         .object({
@@ -307,7 +312,7 @@ export function cliAuthentication(run: CliRunner = runVc) {
       const user = await identity(directory, signal);
       if (user.id !== connection.accountId)
         throw new SafeError(
-          "The Vercel CLI account changed during OIDC refresh. Restore the original login and retry.",
+          "The Vercel CLI account changed. Log in with this allocation's original account before inspection or cleanup; reconnect for future launches.",
         );
       const after =
         connection.directory === null
