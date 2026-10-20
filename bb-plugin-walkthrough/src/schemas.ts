@@ -87,6 +87,8 @@ export const partSchema = z
     /** Worker text when writing failed or it needs the user's input. */
     message: z.string().nullable(),
     discussion: z.array(exchangeSchema),
+    /** The workspace's code fingerprint when this part was written; see staleness.ts. */
+    writtenAgainst: z.string().nullable().optional(),
   })
   .strict();
 export type Part = z.infer<typeof partSchema>;
@@ -166,7 +168,7 @@ export const walkthroughSchema = z
     baseRef: z.string(),
     includeUncommitted: z.boolean(),
     pr: z
-      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable(), headRef: z.string().nullable().default(null) })
+      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable(), headRef: z.string().nullable().optional() })
       .strict()
       .nullable(),
     /** Prose (Markdown) shown before the first part. */
@@ -189,6 +191,12 @@ export const walkthroughSchema = z
       .nullable(),
     nextNoteNumber: z.number().int().positive(),
     nextExchangeNumber: z.number().int().positive(),
+    /** Fingerprint of the workspace's diff the last time we looked; null in PR mode or when unknown. */
+    codeFingerprint: z.string().nullable().optional(),
+    /** Last event of the user's thread already considered; null for walkthroughs that predate tracking. */
+    threadSeq: z.number().int().nonnegative().nullable().optional(),
+    /** What the user told their thread since the helper last heard, to be passed on with its next request. */
+    threadUpdates: z.array(z.string()).optional(),
     createdAt: z.number(),
     updatedAt: z.number(),
   })

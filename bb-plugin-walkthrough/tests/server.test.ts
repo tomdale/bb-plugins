@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createFakePluginHost, makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "../server.ts";
+import { isOutdated } from "../src/staleness.ts";
 
 const THREAD = "thr_user";
 const WORKER = "thr_worker";
 
-async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null } = {}) {
+async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }> } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
@@ -31,7 +32,11 @@ async function setup(options: { forkFails?: boolean; readCode?: () => unknown; t
         archive: async () => ({}) as never,
         events: {
           list: async (args: { types?: readonly string[] }) =>
-            (args.types?.includes("turn/completed") ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }] : []) as never,
+            (args.types?.includes("turn/completed")
+              ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }]
+              : args.types?.includes("client/turn/requested")
+                ? (options.userTurns?.() ?? [])
+                : []) as never,
         },
         queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
       },
@@ -321,5 +326,50 @@ describe("walkthrough failure handling", () => {
     const current = await view(walkthroughId);
     expect(current.walkthrough).toMatchObject({ status: "done", inFlight: null, queue: [] });
     expect(current.walkthrough.parts[0]).toMatchObject({ status: "failed" });
+  });
+});
+
+describe("walkthrough staleness", () => {
+  const userTurn = (seq: number, text: string) => ({ seq, type: "client/turn/requested", data: { initiator: "user", input: [{ type: "text", text }] } });
+
+  it("tells the helper what the user said to their thread, once", async () => {
+    let turns: ReturnType<typeof userTurn>[] = [];
+    const { rpc, tool, idle, sent } = await setup({ userTurns: () => turns });
+    await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    turns = [userTurn(7, "Rename retries to maxRetries everywhere")];
+    await idle("Planned.");
+    await settle();
+    const write = sent.at(-1)!.text;
+    expect(write).toContain("Rename retries to maxRetries everywhere");
+    expect(write).toContain("Write part 1");
+    turns = [];
+    await tool("walkthrough_write_part", PART);
+    await idle("Wrote it.");
+    await settle();
+    expect(sent.at(-1)!.text).not.toContain("Rename retries");
+  });
+
+  it("marks a part outdated once the code it points at changes after it was written", async () => {
+    let patch = "@@ -1 +1 @@\n-a\n+b\n";
+    const { rpc, tool, idle, view, harness } = await setup();
+    harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [{ path: "tts.ts", patch, truncated: false }] }));
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await tool("walkthrough_write_part", PART);
+    await idle("Wrote it.");
+    await settle();
+    let current = (await view(walkthroughId)).walkthrough;
+    expect(isOutdated(current, current.parts[0])).toBe(false);
+    patch = "@@ -1 +1 @@\n-a\n+c\n";
+    harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: THREAD, status: "idle" }), lastAssistantText: "Renamed." });
+    await settle();
+    current = (await view(walkthroughId)).walkthrough;
+    expect(isOutdated(current, current.parts[0])).toBe(true);
+    expect(isOutdated(current, current.parts[1])).toBe(false);
   });
 });

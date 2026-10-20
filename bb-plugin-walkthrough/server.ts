@@ -55,6 +55,7 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.events.on("thread.idle", ({ thread, lastAssistantText }) => {
     void service.onWorkerIdle(thread.id, lastAssistantText);
+    void service.onThreadIdle(thread.id);
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
     service.onWorkerFailed(thread.id, error);

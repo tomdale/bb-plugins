@@ -7,7 +7,7 @@
 // ends. SQLite is the source of truth; the pane re-reads it on every change
 // signal, and `.agent/review-notes/<walkthrough id>.md` mirrors the notes once
 // one exists.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
@@ -67,7 +67,15 @@ const INTERRUPTED = "The helper was stopped before it finished.";
 const HELPER_GONE = "The helper for this walkthrough is no longer running, so it can't write or answer any more.";
 
 function emptyPart(title: string, summary: string, locations: Location[]): Part {
-  return { title, summary, locations, status: "pending", blocks: [], suggestions: [], message: null, discussion: [] };
+  return { title, summary, locations, status: "pending", blocks: [], suggestions: [], message: null, discussion: [], writtenAgainst: null };
+}
+
+function threadUpdateMessage(updates: string[]): string {
+  return [
+    "Since you last heard from the user, they sent these messages to their own thread, whose agent may have changed the code in response (the walkthrough is about that thread's work, so this is the user's doing):",
+    ...updates.map((update) => `- ${JSON.stringify(update)}`),
+    "Re-read any code before relying on what you saw earlier. If a part already written is now out of date, say so briefly when it matters.",
+  ].join("\n");
 }
 
 function errorText(cause: unknown): string {
@@ -149,6 +157,7 @@ export class WalkthroughService {
 
   async start(threadId: string, request: string): Promise<Walkthrough> {
     const workspace = await this.resolveWorkspace(threadId);
+    const threadSeq = await this.latestSeq(threadId);
     const now = this.now();
     const id = `wt_${randomUUID().replace(/-/gu, "").slice(0, 12)}`;
     let walkthrough: Walkthrough = {
@@ -181,6 +190,9 @@ export class WalkthroughService {
       inFlight: null,
       nextNoteNumber: 1,
       nextExchangeNumber: 1,
+      codeFingerprint: null,
+      threadSeq,
+      threadUpdates: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -252,23 +264,39 @@ export class WalkthroughService {
   /** Sends the next queued request when the worker is free. */
   pump(id: string): Promise<void> {
     return this.locked(id, async () => {
-      const walkthrough = this.get(id);
-      if (walkthrough.inFlight || walkthrough.queue.length === 0) return;
-      if (walkthrough.workerThreadId === null || walkthrough.status === "done" || walkthrough.status === "failed") return;
+      const ready = (walkthrough: Walkthrough) =>
+        !walkthrough.inFlight &&
+        walkthrough.queue.length > 0 &&
+        walkthrough.workerThreadId !== null &&
+        walkthrough.status !== "done" &&
+        walkthrough.status !== "failed";
+      let walkthrough = this.get(id);
+      if (!ready(walkthrough)) return;
+      // The helper cannot see its source thread after the fork, so tell it what
+      // the user said there, and note whether the code moved. The plan request
+      // starts the walkthrough, so there is nothing to catch up on yet.
+      if (walkthrough.queue[0]!.kind !== "plan") {
+        await this.refreshThread(id);
+        walkthrough = this.get(id);
+        if (!ready(walkthrough)) return;
+      }
       const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
-      const text = this.messageFor(walkthrough, request);
-      if (text === null) {
+      const body = this.messageFor(walkthrough, request);
+      if (body === null) {
         this.save({ ...walkthrough, queue: rest });
         void this.pump(id);
         return;
       }
-      const afterSeq = await this.latestSeq(walkthrough.workerThreadId);
-      let next: Walkthrough = { ...walkthrough, queue: rest, inFlight: { request, sentAt: this.now(), afterSeq } };
+      const updates = walkthrough.threadUpdates ?? [];
+      const text = updates.length > 0 ? `${threadUpdateMessage(updates)}\n\n${body}` : body;
+      const workerThreadId = walkthrough.workerThreadId!;
+      const afterSeq = await this.latestSeq(workerThreadId);
+      let next: Walkthrough = { ...walkthrough, queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
       next = this.markStarted(next, request);
       this.save(next);
       try {
         await this.bb.sdk.threads.send({
-          threadId: walkthrough.workerThreadId,
+          threadId: workerThreadId,
           mode: "queue-if-active",
           input: [{ type: "text", text, mentions: [] }],
         });
@@ -657,7 +685,7 @@ export class WalkthroughService {
     const walkthrough = this.requireForWorker(workerThreadId);
     if (index < 0 || index >= walkthrough.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
     const parts = walkthrough.parts.map((part, candidate) =>
-      candidate === index ? { ...part, blocks, suggestions, status: "ready" as const, message: null } : part,
+      candidate === index ? { ...part, blocks, suggestions, status: "ready" as const, message: null, writtenAgainst: walkthrough.codeFingerprint ?? null } : part,
     );
     return this.save({ ...walkthrough, parts });
   }
@@ -950,6 +978,72 @@ export class WalkthroughService {
   }
 
   // -- workspace --------------------------------------------------------------
+
+  /**
+   * Hash of the change in the files the walkthrough points at; null where the
+   * checkout is not what the parts describe (a PR is read at its head) or there
+   * is nothing to compare.
+   */
+  private async fingerprint(walkthrough: Walkthrough): Promise<string | null> {
+    if (walkthrough.environmentId === null || walkthrough.pr?.headRef) return null;
+    const paths = new Set<string>();
+    const add = (path: string) => {
+      const relative = workspaceRelativePath(path, walkthrough.workspacePath);
+      if (relative !== null) paths.add(relative);
+    };
+    for (const part of walkthrough.parts) {
+      part.locations.forEach((location) => add(location.path));
+      part.blocks.forEach((block) => block.kind === "code" && add(block.path));
+    }
+    if (paths.size === 0) return null;
+    try {
+      const response = await this.bb.sdk.environments.diffPatch({
+        environmentId: walkthrough.environmentId,
+        paths: [...paths].sort().slice(0, 40),
+        target: { type: this.diffTarget(walkthrough), mergeBaseBranch: walkthrough.baseRef },
+      });
+      if (response.outcome !== "available") return null;
+      const hash = createHash("sha1");
+      for (const file of [...response.patches].sort((a, b) => a.path.localeCompare(b.path))) hash.update(file.path).update("\0").update(file.patch).update("\0");
+      return hash.digest("hex");
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Catches up with the user's thread: records what they said there since the
+   * last look, and the workspace's current code fingerprint, which marks parts
+   * written against older code as out of date.
+   */
+  async refreshThread(id: string): Promise<void> {
+    const walkthrough = this.store.get(id);
+    if (walkthrough === null || walkthrough.status === "done" || walkthrough.status === "failed" || walkthrough.threadSeq == null) return;
+    const [rows, codeFingerprint] = await Promise.all([
+      this.bb.sdk.threads.events
+        .list({ threadId: walkthrough.threadId, afterSeq: String(walkthrough.threadSeq), types: ["client/turn/requested"], limit: "50" })
+        .catch(() => null) as Promise<Array<{ seq: number; data?: { input?: Array<{ type?: string; text?: string }> } }> | null>,
+      this.fingerprint(walkthrough),
+    ]);
+    const latest = this.store.get(id);
+    if (latest === null) return;
+    const fresh = Array.isArray(rows) ? rows : [];
+    const updates = fresh
+      .map((row) => (row.data?.input ?? []).map((part) => (part.type === "text" ? part.text ?? "" : "")).join("\n").trim())
+      .filter((text) => text !== "")
+      .map((text) => (text.length > 600 ? `${text.slice(0, 600)}…` : text));
+    const threadSeq = fresh.reduce((seq, row) => Math.max(seq, row.seq), latest.threadSeq ?? 0);
+    const nextFingerprint = codeFingerprint ?? latest.codeFingerprint ?? null;
+    if (updates.length === 0 && threadSeq === latest.threadSeq && nextFingerprint === (latest.codeFingerprint ?? null)) return;
+    this.save({ ...latest, threadSeq, codeFingerprint: nextFingerprint, threadUpdates: [...(latest.threadUpdates ?? []), ...updates].slice(-10) });
+  }
+
+  /** The user's own thread finished a turn: its agent may have changed the code. */
+  async onThreadIdle(threadId: string): Promise<void> {
+    for (const walkthrough of this.store.forThread(threadId)) {
+      if (walkthrough.status === "reading" || walkthrough.status === "wrapping-up") await this.refreshThread(walkthrough.id);
+    }
+  }
 
   private async latestSeq(threadId: string): Promise<number> {
     try {
