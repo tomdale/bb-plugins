@@ -702,7 +702,7 @@ function StatusLine({
     <div
       role={alert ? "alert" : "status"}
       className={cn(
-        "flex items-start gap-2 text-xs leading-snug",
+        "flex items-start gap-1.5 text-xs leading-snug",
         STATUS_TONES[tone],
       )}
     >
@@ -781,7 +781,7 @@ function ConnectionStatus({
   }
   return (
     <StatusLine icon="CircleCheck" tone="success">
-      Ready.
+      Ready
     </StatusLine>
   );
 }

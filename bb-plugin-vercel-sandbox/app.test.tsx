@@ -537,7 +537,7 @@ describe("settings section", () => {
     await pick(slot, "Project", "My project");
   }
 
-  const READY = "Ready.";
+  const READY = "Ready";
 
   it("shows the saved account as pickers without claiming launch entitlement", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
