@@ -516,6 +516,8 @@ describe("settings section", () => {
   }
 
   async function chooseProject(slot: ReturnType<typeof renderSettings>) {
+    const change = slot.queryByRole("button", { name: "Change connection" });
+    if (change !== null) fireEvent.click(change);
     openMenu(await slot.findByRole("button", { name: /Team Choose a team/ }));
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: "My team" }),
@@ -533,16 +535,21 @@ describe("settings section", () => {
     await slot.findByText(
       "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
     );
-    expect(
-      slot.getByText(/doesn't confirm your plan's sandbox limits/),
-    ).toBeTruthy();
-    const details = slot
+    expect(slot.getByText(/checks your plan's sandbox limits/)).toBeTruthy();
+    const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
+    expect(summary?.textContent).toContain("team_abc / prj_def");
+    expect(summary?.textContent).toContain("tom");
+    expect(summary?.textContent).not.toContain("user_abc");
+    const ids = slot
       .getByText("Authentication folder", { selector: "dt" })
       .closest("dl");
-    expect(details?.textContent).toContain("/Users/me/vercel-bb");
-    expect(details?.textContent).toContain("tom (user_abc)");
-    expect(details?.textContent).toContain("team_abc");
-    expect(details?.textContent).toContain("prj_def");
+    expect(ids?.textContent).toContain("/Users/me/vercel-bb");
+    expect(ids?.textContent).toContain("user_abc");
+    expect(
+      slot.queryByRole("heading", { name: "Change connection" }),
+    ).toBeNull();
+    expect(slot.queryByRole("button", { name: /Machine/ })).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: "Change connection" }));
     expect(
       slot.getByRole("heading", { name: "Change connection" }),
     ).toBeTruthy();
@@ -568,6 +575,18 @@ describe("settings section", () => {
     expect(
       slot.queryByText(/until someone removes it|Remove it there/),
     ).toBeNull();
+  });
+
+  it("collapses the change form on cancel", async () => {
+    const slot = renderSettings({ "account.inspect": () => CONNECTED });
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Change connection" }),
+    );
+    fireEvent.click(slot.getByRole("button", { name: "Cancel" }));
+    expect(slot.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    expect(
+      slot.getByRole("button", { name: "Change connection" }),
+    ).toBeTruthy();
   });
 
   it("guides terminal sign-in and GUI project selection when nothing is connected", async () => {
@@ -615,6 +634,8 @@ describe("settings section", () => {
           hostId: "host-linux",
           teamId: "team_abc",
           projectId: "prj_def",
+          teamName: "My team",
+          projectName: "My project",
           adoptLegacyAllocations: false,
           expectedLegacyIdentity: null,
         },
@@ -633,7 +654,10 @@ describe("settings section", () => {
         "Connected. New sandboxes use the Vercel CLI on Build box.",
       ),
     ).toBeTruthy();
-    expect(slot.getByRole("button", { name: "Reconnect" })).toBeTruthy();
+    expect(
+      slot.getByRole("button", { name: "Change connection" }),
+    ).toBeTruthy();
+    expect(slot.queryByRole("button", { name: "Connect project" })).toBeNull();
   });
 
   it("clears project selection on team or machine changes and ignores stale project responses", async () => {
@@ -716,7 +740,7 @@ describe("settings section", () => {
     fireEvent.click(
       await slot.findByRole("button", { name: "Retry projects" }),
     );
-    await slot.findByText("No projects available for this selection.");
+    await slot.findByText("No projects are available for this selection.");
     expect(slot.queryByText(/secret raw failure/)).toBeNull();
     slot.lifecycle.unmount();
     const empty = renderSettings({
@@ -727,7 +751,7 @@ describe("settings section", () => {
     fireEvent.click(
       await empty.findByRole("menuitemradio", { name: /Build box/ }),
     );
-    await empty.findByText("No teams available for this selection.");
+    await empty.findByText("No teams are available for this selection.");
   });
 
   it("allows adoption with a directory-free connection", async () => {
@@ -1018,6 +1042,8 @@ describe("settings section", () => {
         hostId: "host-mac",
         teamId: "team_abc",
         projectId: "prj_def",
+        teamName: "My team",
+        projectName: "My project",
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       },

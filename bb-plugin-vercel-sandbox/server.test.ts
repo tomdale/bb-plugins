@@ -239,6 +239,32 @@ describe("Vercel machine allocation", () => {
     );
   });
 
+  it("returns display names only for the scope they were chosen for", async () => {
+    const test = await setup();
+    const named = await test.harness.behavior.callRpc("account.connect", {
+      hostId: "host_auth",
+      ...test.cli.scope,
+      teamName: "My team",
+      projectName: "My project",
+    });
+    expect(named).toMatchObject({
+      teamName: "My team",
+      projectName: "My project",
+    });
+    expect(
+      await test.harness.behavior.callRpc("account.inspect", {}),
+    ).toMatchObject({ teamName: "My team", projectName: "My project" });
+    await test.bb.storage.kv.set("connection-names", {
+      teamId: "team_other",
+      projectId: test.cli.scope.projectId,
+      teamName: "Stale",
+      projectName: "Stale",
+    });
+    expect(
+      await test.harness.behavior.callRpc("account.inspect", {}),
+    ).toMatchObject({ teamName: null, projectName: null });
+  });
+
   it("rejects partial, ambiguous, and injected project selections before host calls", async () => {
     const test = await setup();
     const count = test.harness.experimental_hostRpcCalls.length;

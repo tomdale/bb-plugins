@@ -33,6 +33,13 @@ import {
 import { IMAGE, PROVIDER_ID } from "./provider-id.js";
 import { vercelRpcContract } from "./rpc.js";
 
+const connectionNamesSchema = z.object({
+  teamId: z.string(),
+  projectId: z.string(),
+  teamName: z.string().nullable(),
+  projectName: z.string().nullable(),
+});
+
 export function createVercelSandboxPlugin() {
   return async (bb: BbPluginApi) => {
     const settings = bb.settings.define(SETTING_DESCRIPTORS);
@@ -92,7 +99,21 @@ export function createVercelSandboxPlugin() {
       const count = connection
         ? (await allocations.legacyAllocations(connection)).length
         : 0;
+      const names = connection
+        ? connectionNamesSchema.safeParse(
+            await bb.storage.kv.get<unknown>("connection-names"),
+          )
+        : null;
+      const labels =
+        names?.success &&
+        connection &&
+        names.data.teamId === connection.teamId &&
+        names.data.projectId === connection.projectId
+          ? names.data
+          : null;
       return {
+        teamName: labels?.teamName ?? null,
+        projectName: labels?.projectName ?? null,
         available,
         message,
         hostId: connection?.hostId ?? null,
@@ -173,6 +194,13 @@ export function createVercelSandboxPlugin() {
         }
         combinedSignal.throwIfAborted();
         await bb.storage.kv.set("cli-connection", connection);
+        if (input.teamName !== null || input.projectName !== null)
+          await bb.storage.kv.set("connection-names", {
+            teamId: connection.teamId,
+            projectId: connection.projectId,
+            teamName: input.teamName,
+            projectName: input.projectName,
+          });
         return accountResult(
           connection,
           true,

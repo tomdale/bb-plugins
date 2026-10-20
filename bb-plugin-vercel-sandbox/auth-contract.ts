@@ -50,8 +50,12 @@ export const legacyIdentitySchema = scopeSchema
     count: z.number().int().positive(),
   })
   .strict();
+// Display-only labels chosen in Settings; never part of allocation identity.
+const displayNameSchema = z.string().min(1).max(200).nullable();
 export const accountConnectInputSchema = connectionInputSchema
   .safeExtend({
+    teamName: displayNameSchema.default(null),
+    projectName: displayNameSchema.default(null),
     adoptLegacyAllocations: z.boolean().default(false),
     expectedLegacyIdentity: legacyIdentitySchema.nullable().default(null),
   })
@@ -93,5 +97,7 @@ export const accountInspectionSchema = z
     accountName: accountNameSchema,
     teamId: z.string().nullable(),
     projectId: z.string().nullable(),
+    teamName: displayNameSchema,
+    projectName: displayNameSchema,
   })
   .strict();

@@ -536,7 +536,7 @@ function SettingsHeading({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       {action}
     </div>
   );
@@ -615,39 +615,57 @@ function ConnectionDetails({
   account: AccountStatus;
   machineName: string;
 }) {
-  const rows = [
-    { term: "Machine", value: machineName, mono: false },
-    { term: "Authentication folder", value: account.directory, mono: true },
+  const present = <T extends { value: string | null }>(rows: T[]) =>
+    rows.filter((row): row is T & { value: string } => row.value !== null);
+  const scope =
+    account.teamId === null || account.projectId === null
+      ? null
+      : `${account.teamName ?? account.teamId} / ${account.projectName ?? account.projectId}`;
+  const summary = present([
+    { term: "Machine", value: machineName },
+    { term: "Project", value: scope },
     {
-      term: "Vercel account",
+      term: "Account",
       value:
         account.accountId === null
           ? null
-          : accountLabel(account.accountName, account.accountId),
-      mono: true,
+          : (account.accountName ?? account.accountId),
     },
-    { term: "Team", value: account.teamId, mono: true },
-    { term: "Project", value: account.projectId, mono: true },
-  ].filter(
-    (row): row is { term: string; value: string; mono: boolean } =>
-      row.value !== null,
-  );
+  ]);
+  const ids = present([
+    { term: "Team ID", value: account.teamId },
+    { term: "Project ID", value: account.projectId },
+    { term: "Account ID", value: account.accountId },
+    { term: "Authentication folder", value: account.directory },
+  ]);
   return (
-    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 pl-5.5 text-xs">
-      {rows.map(({ term, value, mono }) => (
-        <div key={term} className="contents">
-          <dt className="text-muted-foreground">{term}</dt>
-          <dd
-            className={cn(
-              "min-w-0 break-all text-foreground",
-              mono ? "font-mono" : null,
-            )}
-          >
-            {value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div className="space-y-2 pl-5.5">
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+        {summary.map(({ term, value }) => (
+          <div key={term} className="contents">
+            <dt className="text-muted-foreground">{term}</dt>
+            <dd className="min-w-0 break-words text-foreground">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {ids.length === 0 ? null : (
+        <details className="text-xs">
+          <summary className="w-fit cursor-pointer text-muted-foreground hover:text-foreground">
+            IDs
+          </summary>
+          <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1">
+            {ids.map(({ term, value }) => (
+              <div key={term} className="contents">
+                <dt className="text-muted-foreground">{term}</dt>
+                <dd className="min-w-0 break-all font-mono text-foreground">
+                  {value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      )}
+    </div>
   );
 }
 
@@ -729,9 +747,7 @@ function ConnectionStatus({
           </span>
         </p>
         <p className="pl-5.5 leading-relaxed text-muted-foreground">
-          This confirms the CLI can get a short-lived token for the selected
-          project. It doesn't confirm your plan's sandbox limits; Vercel checks
-          those when a sandbox starts.
+          Vercel checks your plan's sandbox limits when a sandbox starts.
         </p>
       </div>
       <ConnectionDetails account={account} machineName={machineName} />
@@ -798,7 +814,7 @@ function MachineField({
           size="sm"
           aria-labelledby={`${labelId} ${labelId}-value`}
           aria-describedby={describedById}
-          className="w-full min-w-0 justify-between sm:w-72"
+          className="w-full min-w-0 justify-between"
         >
           <span id={`${labelId}-value`} className="min-w-0 truncate">
             {triggerLabel}
@@ -834,12 +850,14 @@ function MachineField({
 
 function ConnectForm({
   account,
+  compact,
   hosts,
   retryHosts,
   onConnected,
   reinspect,
 }: {
   account: AccountStatus | null;
+  compact: boolean;
   hosts: Load<AccountHost[]>;
   retryHosts: () => void;
   onConnected: (account: AccountStatus) => void;
@@ -908,7 +926,11 @@ function ConnectForm({
     setConnect({ status: "connecting" });
     rpc
       .call("account.connect", {
-        ...scope,
+        hostId: scope.hostId,
+        teamId: scope.teamId,
+        projectId: scope.projectId,
+        teamName: scope.teamName,
+        projectName: scope.projectName,
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       })
@@ -931,25 +953,38 @@ function ConnectForm({
       noValidate
       aria-label="Connect the Vercel CLI"
       onSubmit={submit}
-      className="space-y-3"
+      className="space-y-4"
     >
-      <ol className="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
-        <li>
-          On the machine BB should use, open a terminal as the same OS user that
-          runs BB there. Check that the Vercel CLI is {MIN_VC_VERSION} or later
-          (<code className="font-mono text-foreground">vc --version</code>),
-          then run <code className="font-mono text-foreground">vc login</code>{" "}
-          and finish Vercel's sign-in in your browser.
-        </li>
-        <li>
-          Choose that machine, then select the Vercel team and project to use
-          for sandboxes.
-        </li>
-      </ol>
+      {compact ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Switching Vercel users? Run{" "}
+          <code className="font-mono text-foreground">vc login</code> on the
+          machine first.
+        </p>
+      ) : (
+        <ol className="list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-muted-foreground">
+          <li>
+            On the machine BB should use, open a terminal as the same OS user
+            that runs BB there. Check that the Vercel CLI is {MIN_VC_VERSION} or
+            later (
+            <code className="font-mono text-foreground">vc --version</code>
+            ), then run{" "}
+            <code className="font-mono text-foreground">vc login</code> and
+            finish Vercel's sign-in in your browser.
+          </li>
+          <li>
+            Choose that machine, then select the Vercel team and project to use
+            for sandboxes.
+          </li>
+        </ol>
+      )}
 
-      <fieldset disabled={connecting} className="space-y-3">
-        <div className="space-y-1.5">
-          <Label id={machineLabelId} className="text-xs">
+      <fieldset disabled={connecting} className="grid gap-4 sm:max-w-sm">
+        <div className="flex flex-col gap-1.5">
+          <Label
+            id={machineLabelId}
+            className="block text-xs font-medium text-foreground"
+          >
             Machine
           </Label>
           <MachineField
@@ -979,18 +1014,13 @@ function ConnectForm({
             onChoose={chooseProject}
           />
         ) : null}
-        {attempted && scope === null ? (
-          <p role="alert" className="text-xs text-destructive-text">
-            Choose a team and project before connecting.
-          </p>
-        ) : null}
       </fieldset>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="submit"
           size="sm"
-          disabled={connecting}
+          disabled={connecting || scope === null}
           aria-busy={connecting}
         >
           {connecting ? (
@@ -1002,6 +1032,11 @@ function ConnectForm({
               ? "Reconnect"
               : "Connect project"}
         </Button>
+        {scope === null && hostId !== null && selectedHost?.online ? (
+          <p className="text-xs text-muted-foreground">
+            Choose a team and project before connecting.
+          </p>
+        ) : null}
         {connect.status === "failed" ? (
           <p role="alert" className="text-xs text-destructive-text">
             {CONNECT_FAILED_MESSAGE}
@@ -1010,15 +1045,19 @@ function ConnectForm({
         ) : null}
       </div>
 
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        Your Vercel sign-in stays in the CLI on that machine. For a CLI
-        connection, BB saves only the machine and the account, team, and project
-        IDs, and asks the CLI for a short-lived token for each operation. This
-        page can't remove an access token saved by an earlier version of this
-        plugin; revoke that token in Vercel if you no longer use it. If you sign
-        in as a different Vercel user, connect again. A new connection applies
-        to new sandboxes; existing sandboxes keep the one they started with.
-      </p>
+      <div className="max-w-prose space-y-1 text-xs leading-relaxed text-muted-foreground">
+        <p>
+          Your Vercel sign-in stays in the CLI on that machine. BB saves only
+          the machine and the account, team, and project IDs, and asks the CLI
+          for a short-lived token each time.
+        </p>
+        <p>
+          A new connection applies to new sandboxes; existing sandboxes keep the
+          one they started with. This page can't remove an access token saved by
+          an earlier version of this plugin; revoke that token in Vercel if you
+          no longer use it.
+        </p>
+      </div>
     </form>
   );
 }
@@ -1278,25 +1317,50 @@ function VercelSettingsSection() {
   const hosts = useAccountHosts();
   const { state: options, retry: retryOptions } = useLaunchOptions();
   const loaded = options.status === "ready" ? options.data : null;
+  const [changing, setChanging] = useState(false);
   const checkAgain = () => {
     account.retry();
     hosts.retry();
   };
+  const current = account.state.status === "ready" ? account.state.data : null;
+  const connected = current !== null && current.hostId !== null;
+  const showForm = !connected || !current.available || changing;
+  const checking = account.state.status === "pending";
+  const connectionLoaded = (next: AccountStatus) => {
+    account.replace(next);
+    setChanging(false);
+  };
   return (
-    <div className="w-full min-w-0 space-y-5">
-      <section className="space-y-2">
+    <div className="w-full min-w-0 space-y-6">
+      <section className="space-y-3">
         <SettingsHeading
-          title="Vercel account"
+          title="Vercel connection"
           action={
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={account.state.status === "pending"}
-              onClick={checkAgain}
-            >
-              Check again
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={checking}
+                onClick={checkAgain}
+              >
+                {checking ? (
+                  <Icon name="Spinner" className="size-3.5 animate-spin" />
+                ) : null}
+                Check again
+              </Button>
+              {connected && current.available ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-expanded={changing}
+                  onClick={() => setChanging((open) => !open)}
+                >
+                  {changing ? "Cancel" : "Change connection"}
+                </Button>
+              ) : null}
+            </div>
           }
         />
         <ConnectionStatus state={account.state} hosts={hosts.state} />
@@ -1305,29 +1369,27 @@ function VercelSettingsSection() {
       <LegacyAllocations
         state={account.state}
         hosts={hosts.state}
-        onConnected={account.replace}
+        onConnected={connectionLoaded}
         reinspect={account.retry}
       />
 
-      <section className="space-y-2">
-        <SettingsHeading
-          title={
-            account.state.status === "ready" &&
-            account.state.data.hostId !== null
-              ? "Change connection"
-              : "Set up"
-          }
-        />
-        <ConnectForm
-          account={account.state.status === "ready" ? account.state.data : null}
-          hosts={hosts.state}
-          retryHosts={hosts.retry}
-          onConnected={account.replace}
-          reinspect={account.retry}
-        />
-      </section>
+      {showForm ? (
+        <section className="space-y-3 border-t border-border pt-5">
+          <h4 className="text-sm font-semibold text-foreground">
+            {connected ? "Change connection" : "Set up"}
+          </h4>
+          <ConnectForm
+            account={current}
+            compact={connected}
+            hosts={hosts.state}
+            retryHosts={hosts.retry}
+            onConnected={connectionLoaded}
+            reinspect={account.retry}
+          />
+        </section>
+      ) : null}
 
-      <section className="space-y-2">
+      <section className="space-y-3 border-t border-border pt-5">
         <SettingsHeading title="New sandboxes" />
         {options.status === "pending" ? (
           <p role="status" className="text-xs text-muted-foreground">
@@ -1350,7 +1412,7 @@ function VercelSettingsSection() {
           </div>
         ) : null}
         {loaded === null ? null : (
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
             <dt className="text-muted-foreground">Default size</dt>
             <dd className="text-foreground">
               {sizeLabel(
@@ -1362,7 +1424,7 @@ function VercelSettingsSection() {
             <dd className="text-foreground">
               {formatMinutes(loaded.defaultInputs.timeoutMinutes).full}
             </dd>
-            <dt className="text-muted-foreground">Vercel maximums</dt>
+            <dt className="text-muted-foreground">Limits</dt>
             <dd className="text-foreground">
               {loaded.limits.minVcpus}–{loaded.limits.maxVcpus} vCPU,{" "}
               {formatMinutes(loaded.limits.minTimeoutMinutes).full}–
@@ -1374,14 +1436,14 @@ function VercelSettingsSection() {
             </dd>
           </dl>
         )}
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Your plan may allow less than Vercel's maximums (Hobby: 4 vCPU and 45
-          minutes). Change the defaults in the fields above; the composer can
-          override them per thread.
+        <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">
+          Your Vercel plan may set lower limits. Change the defaults with
+          Default vCPUs and Default lifetime above; the composer can override
+          them per thread.
         </p>
       </section>
 
-      <section className="space-y-2">
+      <section className="space-y-3 border-t border-border pt-5">
         <SettingsHeading title="Data and billing" />
         <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
           <li>
