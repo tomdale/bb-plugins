@@ -516,20 +516,19 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Status:** not filed
 - **Observed:** BB 0.46.1, Plugin SDK 0.5.29; the desktop behavior below is read
   from BB source at `f0898f707a`
-- **Use case:** Walkthrough's pop-out button shows the reading view in a window
-  of its own, so it can sit on a second display beside the thread.
+- **Use case:** Walkthrough's reading view should open in a BB window of its own,
+  so it can sit on a second display beside the thread.
 - **Limit:** `useBbNavigate` has no way to open a window. BB's desktop app denies
   every `window.open` from an app window and hands http(s) URLs to
-  `shell.openExternal` (`apps/desktop/src/desktop-window-factory.ts`), and New
-  window always loads the app root, so a plugin cannot create a BB window at a
-  route. The only plugin-owned route is a `navPanel`, which BB lists in the
-  sidebar navigation, visible by default, so a page that exists to be popped out
-  costs a sidebar row. The page also renders inside the full BB layout.
-- **Workaround:** the pane's pop-out button calls `window.open` on the plugin's
-  nav panel route: a popup window in a browser client, the system browser in the
-  desktop app (a local server answers on loopback without sign-in; a remote one
-  would ask the browser to sign in). The nav panel's root lists recent
-  walkthroughs so its sidebar row is not a dead end.
+  `shell.openExternal` (`apps/desktop/src/desktop-window-factory.ts`), so the
+  link lands in the system browser, and New window always loads the app root. A
+  plugin cannot create a BB window at a route. The only plugin-owned route is a
+  `navPanel`, which BB lists in the sidebar navigation, visible by default, so a
+  page that exists to be shown on its own costs a sidebar row. Split panes can
+  be started only by dragging a sidebar row.
+- **Workaround:** the pane's expand button navigates the current window to the
+  walkthrough's nav panel route, a full page with a Thread button back. The nav
+  panel's root lists recent walkthroughs so its sidebar row is not a dead end.
 - **Possible API:** `useBbNavigate().openWindow({ pluginId, path, subPath })`
-  that opens a BB window (a popup in browsers) at a plugin route, and a
-  `navPanel` option to omit its sidebar row.
+  that opens a BB window (a popup in browsers) at a plugin route, a way to open
+  a nav panel in a split pane, and a `navPanel` option to omit its sidebar row.

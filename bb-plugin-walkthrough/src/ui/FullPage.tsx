@@ -1,5 +1,6 @@
-// The Walkthrough nav panel: a walkthrough as a page of its own, which is what
-// the pop-out window loads, plus an index of recent walkthroughs at its root.
+// The Walkthrough nav panel: a walkthrough as a full page of the BB window
+// instead of a thread side panel, plus an index of recent walkthroughs at its
+// root.
 import { useBbNavigate, type PluginNavPanelProps } from "@get-bb/plugin-sdk/app";
 import type { WalkthroughSummary } from "../rpc.ts";
 import { PAGE_PATH } from "../schemas.ts";
@@ -13,7 +14,7 @@ export function walkthroughIdFromSubPath(subPath: string): string | null {
   return id ?? null;
 }
 
-export function WalkthroughWindow({ subPath }: PluginNavPanelProps) {
+export function WalkthroughFullPage({ subPath }: PluginNavPanelProps) {
   const walkthroughId = walkthroughIdFromSubPath(subPath);
   return walkthroughId === null ? <Index /> : <Page walkthroughId={walkthroughId} />;
 }
@@ -37,7 +38,7 @@ function Index() {
       <div className="mx-auto w-full max-w-[40rem] space-y-4 px-6 py-8">
         <div>
           <h2 className="font-serif text-2xl font-medium">Recent walkthroughs</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Start one from a thread’s side panel, and open it in its own window from the button in its header.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Start one from a thread’s side panel, and open it as a full page from the button in its header.</p>
         </div>
         {walkthroughs === null ? (
           <Muted>{error ?? "Loading…"}</Muted>

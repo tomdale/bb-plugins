@@ -7,9 +7,9 @@ import { z } from "zod";
 
 export const PANEL_ACTION_ID = "walkthrough";
 /**
- * Path of the nav panel that shows a walkthrough as a page of its own:
+ * Path of the nav panel that shows a walkthrough as a full page:
  * `/plugins/<pluginId>/walkthroughs/<walkthroughId>`, and an index of recent
- * walkthroughs at the root. A pop-out window loads that route.
+ * walkthroughs at the root.
  */
 export const PAGE_PATH = "walkthroughs";
 export const CHANGED_CHANNEL = "walkthrough-changed";

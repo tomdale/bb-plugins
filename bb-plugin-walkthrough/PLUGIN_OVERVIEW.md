@@ -13,7 +13,7 @@ anything.
 - Notes from any selection, mirrored to `.agent/review-notes.md`.
 - A wrap-up that answers your recorded questions, and for PR reviews a draft
   review you can preview and post.
-- A pop-out button to read a walkthrough in a window of its own.
+- A full-page view for reading without the thread beside it.
 - One click to hand open todos and questions back to your thread's agent.
 
 ## How it works

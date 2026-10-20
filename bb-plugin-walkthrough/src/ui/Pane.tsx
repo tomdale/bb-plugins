@@ -2,16 +2,15 @@
 // A contents rail, one part at a time in a serif reading column, a
 // conversation under each part, and a drawer for notes and the review draft.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { experimental_usePluginId as usePluginId, useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
+import { useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { NOTE_KIND_LABEL, parseCommand, shortRef } from "../model.ts";
-import { PANEL_ACTION_ID, type Block, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
+import { PAGE_PATH, PANEL_ACTION_ID, type Block, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
 import { CodeExcerpt } from "./code.tsx";
 import { errorMessage, useThreadWalkthroughs, useWalkthrough, useWidth, type WalkthroughRpc } from "./hooks.ts";
-import { popOut } from "./popout.ts";
 import { openPane, StartForm } from "./Starter.tsx";
 import { NotesTab, ReviewTab, type NoteDraft } from "./notes.tsx";
 import { Muted } from "./parts.tsx";
@@ -95,13 +94,12 @@ function activity(walkthrough: Walkthrough): string | null {
 
 /**
  * The reading view. `surface` is where it is mounted: a thread's side panel,
- * or a page of its own (the pop-out window), which has no thread panel tab to
- * retitle and nothing to pop out of.
+ * or a full page of its own, which has no thread panel tab to retitle, nothing
+ * to expand, and a way back to the thread.
  */
 export function Reader({ threadId, view, rpc, surface }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc; surface: "panel" | "page" }) {
   const { walkthrough, notes } = view;
   const navigate = useBbNavigate();
-  const pluginId = usePluginId();
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [draft, setDraft] = useState<NoteDraft | null>(null);
@@ -156,12 +154,17 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
             type="button"
             variant="ghost"
             size="sm"
-            aria-label="Open in a new window"
-            onClick={() => popOut(pluginId, walkthrough.id)}
+            aria-label="Open as a full page"
+            onClick={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}
           >
-            <Icon name="ExternalLink" className="size-3.5" aria-hidden />
+            <Icon name="Maximize2" className="size-3.5" aria-hidden />
           </Button>
-        ) : null}
+        ) : (
+          <Button type="button" variant="ghost" size="sm" onClick={() => navigate.toThread(walkthrough.threadId)}>
+            <Icon name="ArrowLeft" className="size-3.5" aria-hidden />
+            Thread
+          </Button>
+        )}
         {walkthrough.status !== "done" ? (
           <Button
             type="button"
