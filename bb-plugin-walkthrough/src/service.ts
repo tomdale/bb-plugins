@@ -9,6 +9,7 @@
 // one exists.
 import { createHash, randomUUID } from "node:crypto";
 import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
+import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
 import { describeNoteForAgent, renderNotesMarkdown } from "./model.ts";
@@ -39,7 +40,7 @@ export interface PlanInput {
   title: string;
   baseRef: string;
   includeUncommitted?: boolean | undefined;
-  pr?: { number: number; url?: string | undefined; title?: string | undefined; headRef?: string | undefined } | undefined;
+  pr?: { number: number; url?: string | undefined; title?: string | undefined; headRef?: string | undefined; state?: "open" | "merged" | "closed" | undefined } | undefined;
   introduction: string;
   parts: Array<{ title: string; summary: string; locations: Location[] }>;
 }
@@ -360,7 +361,12 @@ export class WalkthroughService {
       // about this request.
       const interrupted = Array.isArray(turns) && turns.at(-1)?.data?.status === "interrupted";
       if (interrupted) this.complete(walkthrough.id, INTERRUPTED, true);
-      else this.complete(walkthrough.id, lastText, false);
+      else {
+        const produced = await this.latestAgentText(workerThreadId, walkthrough.inFlight.afterSeq).catch(() => null);
+        // lastText can be an earlier turn's message (a turn with only tool calls
+        // leaves it untouched), so an answer never falls back to it.
+        this.complete(walkthrough.id, produced ?? (walkthrough.inFlight.request.kind === "ask" ? null : lastText), false);
+      }
     }
     await this.pump(walkthrough.id);
   }
@@ -413,6 +419,13 @@ export class WalkthroughService {
     });
   }
 
+  /** An archived thread takes its helper with it (the helper is lifecycle-owned by it), so its walkthroughs are over. */
+  onThreadArchived(threadId: string): void {
+    const own = this.store.byWorker(threadId);
+    if (own) this.helperGone(own.id);
+    for (const walkthrough of this.store.forThread(threadId, 100)) this.helperGone(walkthrough.id);
+  }
+
   onWorkerFailed(workerThreadId: string, error: string | null): void {
     const walkthrough = this.store.byWorker(workerThreadId);
     if (walkthrough === null || walkthrough.inFlight === null) return;
@@ -459,6 +472,33 @@ export class WalkthroughService {
     this.save(next);
   }
 
+  /**
+   * The helper's last message since `afterSeq`, rebuilt from its streamed
+   * deltas. The idle event's last-text value can still hold an earlier turn's
+   * message, so what a request produced is read from the events themselves.
+   */
+  private async latestAgentText(workerThreadId: string, afterSeq: number): Promise<string | null> {
+    const texts = new Map<string, string>();
+    let cursor = afterSeq;
+    // BB pages thread events 100 at a time.
+    for (let page = 0; page < 50; page += 1) {
+      const rows = (await this.bb.sdk.threads.events.list({
+        threadId: workerThreadId,
+        afterSeq: String(cursor),
+        limit: "100",
+        types: ["item/agentMessage/delta"],
+      })) as unknown as Array<{ seq: number; data: { itemId?: string; delta?: string } }>;
+      for (const row of rows) {
+        cursor = Math.max(cursor, row.seq);
+        const itemId = row.data.itemId;
+        if (!itemId || typeof row.data.delta !== "string") continue;
+        texts.set(itemId, (texts.get(itemId) ?? "") + row.data.delta);
+      }
+      if (rows.length < 100) break;
+    }
+    return [...texts.values()].at(-1) ?? null;
+  }
+
   /** Streams the in-flight answer while the worker writes it. */
   async onWorkerEvents(workerThreadId: string): Promise<void> {
     const walkthrough = this.store.byWorker(workerThreadId);
@@ -467,25 +507,7 @@ export class WalkthroughService {
     const request = inFlight.request;
     this.streaming.add(walkthrough.id);
     try {
-      const texts = new Map<string, string>();
-      let cursor = inFlight.afterSeq;
-      // BB pages thread events 100 at a time.
-      for (let page = 0; page < 50; page += 1) {
-        const rows = (await this.bb.sdk.threads.events.list({
-          threadId: workerThreadId,
-          afterSeq: String(cursor),
-          limit: "100",
-          types: ["item/agentMessage/delta"],
-        })) as unknown as Array<{ seq: number; data: { itemId?: string; delta?: string } }>;
-        for (const row of rows) {
-          cursor = Math.max(cursor, row.seq);
-          const itemId = row.data.itemId;
-          if (!itemId || typeof row.data.delta !== "string") continue;
-          texts.set(itemId, (texts.get(itemId) ?? "") + row.data.delta);
-        }
-        if (rows.length < 100) break;
-      }
-      const latest = [...texts.values()].at(-1);
+      const latest = await this.latestAgentText(workerThreadId, inFlight.afterSeq);
       if (!latest) return;
       const current = this.get(walkthrough.id);
       if (current.inFlight?.request.kind !== "ask" || current.inFlight.request.exchangeId !== request.exchangeId) return;
@@ -574,6 +596,7 @@ export class WalkthroughService {
 
   async retry(id: string, place: Place): Promise<void> {
     this.update(id, (walkthrough) => {
+      if (walkthrough.status === "done" || walkthrough.status === "failed") throw new WalkthroughError("This walkthrough is finished.");
       if (place === "wrap-up") {
         return this.enqueue({ ...walkthrough, wrapUp: walkthrough.wrapUp && { ...walkthrough.wrapUp, status: "writing", message: null } }, { kind: "wrap-up" }, "front");
       }
@@ -609,7 +632,7 @@ export class WalkthroughService {
   /** Hands open todos and questions to the agent in the user's own thread. */
   async handOff(id: string): Promise<boolean> {
     const walkthrough = this.get(id);
-    const open = this.store.notes(id).filter((note) => note.status === "open" && (note.kind === "todo" || note.kind === "question"));
+    const open = this.store.notes(id).filter((note) => note.status === "open" && !note.sentAt && (note.kind === "todo" || note.kind === "question"));
     if (open.length === 0) return false;
     const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
     const subject = walkthrough.pr ? `PR #${walkthrough.pr.number}${walkthrough.pr.url ? ` (${walkthrough.pr.url})` : ""}` : walkthrough.title;
@@ -625,6 +648,8 @@ export class WalkthroughService {
         },
       ],
     });
+    this.store.markSent(id, open.map((note) => note.id), this.now());
+    this.save(this.get(id));
     return true;
   }
 
@@ -668,7 +693,7 @@ export class WalkthroughService {
       includeUncommitted: input.includeUncommitted ?? input.mode === "local",
       pr:
         input.mode === "pr" && input.pr
-          ? { number: input.pr.number, url: input.pr.url || null, title: input.pr.title || null, headRef: input.pr.headRef || null }
+          ? { number: input.pr.number, url: input.pr.url || null, title: input.pr.title || null, headRef: input.pr.headRef || null, state: input.pr.state ?? null }
           : null,
       introduction: input.introduction,
       parts: input.parts.map((part) => emptyPart(part.title, part.summary, part.locations)),
@@ -770,6 +795,8 @@ export class WalkthroughService {
       text: patch.text?.trim() || note.text,
       status: patch.status ?? note.status,
       resolution: patch.resolution === undefined ? note.resolution : patch.resolution?.trim() || null,
+      // A note that changed is news to the thread again.
+      sentAt: patch.text !== undefined || patch.kind !== undefined || (patch.status === "open" && note.status !== "open") ? null : note.sentAt ?? null,
       updatedAt: this.now(),
     };
     this.store.saveNote(next, author === "agent");
@@ -846,7 +873,9 @@ export class WalkthroughService {
     // A PR's code lives at its head commit, which the checkout may not be on;
     // reading the checkout instead would show another revision's code under
     // this PR's prose. The host entry reads the commit itself.
-    const onHost = headRef !== undefined && walkthrough.hostId !== null && walkthrough.workspacePath !== null;
+    // The empty tree (a whole-history walkthrough) is a base BB's diff APIs cannot take either.
+    const onHost =
+      (headRef !== undefined || walkthrough.baseRef.trim().toLowerCase() === EMPTY_TREE_SHA) && walkthrough.hostId !== null && walkthrough.workspacePath !== null;
     if (relative === null || onHost) {
       const hostPath = relative !== null ? `${walkthrough.workspacePath}/${relative}` : path;
       if (!isAbsolutePath(hostPath) || walkthrough.hostId === null) throw new WalkthroughError("This code path has no known workspace or host.");

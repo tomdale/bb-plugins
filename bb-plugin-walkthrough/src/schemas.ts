@@ -168,7 +168,7 @@ export const walkthroughSchema = z
     baseRef: z.string(),
     includeUncommitted: z.boolean(),
     pr: z
-      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable(), headRef: z.string().nullable().optional() })
+      .object({ number: z.number().int().positive(), url: z.string().nullable(), title: z.string().nullable(), headRef: z.string().nullable().optional(), state: z.enum(["open", "merged", "closed"]).nullable().optional() })
       .strict()
       .nullable(),
     /** Prose (Markdown) shown before the first part. */
@@ -225,6 +225,8 @@ export const noteSchema = z
     status: noteStatusSchema,
     resolution: z.string().nullable(),
     author: z.enum(["user", "agent"]),
+    /** When the note was handed to the user's own thread; cleared when the note changes. */
+    sentAt: z.number().nullable().optional(),
     createdAt: z.number(),
     updatedAt: z.number(),
   })

@@ -2,8 +2,10 @@ import { execFile } from "node:child_process";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import type { CodeSnapshot } from "./code-contract.ts";
+import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 
 const MAX_BYTES = 1_000_000;
+
 
 /** Read the repository named by an absolute excerpt, not the conversation's cwd. */
 export async function readCode(
@@ -21,10 +23,12 @@ export async function readCode(
   const absolute = join(await realpath(dirname(input.path)), basename(input.path));
   const path = relative(root, absolute).split("\\").join("/");
   if (!path || path.startsWith("../") || isAbsolute(path)) throw new Error("The code path must be inside its repository.");
-  const baseCommit = (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.baseRef}^{commit}`])).trim();
+  const emptyBase = input.baseRef.trim().toLowerCase() === EMPTY_TREE_SHA;
+  const baseCommit = emptyBase ? EMPTY_TREE_SHA : (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.baseRef}^{commit}`])).trim();
   // A pinned head (a PR's) replaces both HEAD and the working tree.
   const head = input.headRef ? (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.headRef}^{commit}`])).trim() : "HEAD";
-  const base = (await git(root, ["merge-base", baseCommit, head])).trim();
+  // The empty tree is not a commit, so there is nothing to merge-base against.
+  const base = emptyBase ? EMPTY_TREE_SHA : (await git(root, ["merge-base", baseCommit, head])).trim();
   const includeUncommitted = input.includeUncommitted && !input.headRef;
   const patch = await git(root, ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=3", base, ...(includeUncommitted ? [] : [head]), "--", path]);
   const show = async (ref: string): Promise<string | null> => {

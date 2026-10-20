@@ -6,7 +6,7 @@ import { isOutdated } from "../src/staleness.ts";
 const THREAD = "thr_user";
 const WORKER = "thr_worker";
 
-async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }> } = {}) {
+async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
@@ -36,7 +36,9 @@ async function setup(options: { forkFails?: boolean; readCode?: () => unknown; t
               ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }]
               : args.types?.includes("client/turn/requested")
                 ? (options.userTurns?.() ?? [])
-                : []) as never,
+                : args.types?.includes("item/agentMessage/delta")
+                  ? ((options.agentText?.() ?? null) === null ? [] : [{ seq: 100, type: "item/agentMessage/delta", data: { itemId: "i1", delta: options.agentText!() } }])
+                  : []) as never,
         },
         queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
       },
@@ -177,7 +179,8 @@ describe("walkthrough orchestration", () => {
   });
 
   it("answers questions ahead of queued writes and keeps the answer from the final message", async () => {
-    const { rpc, tool, idle, view, sent } = await setup();
+    let text: string | null = null;
+    const { rpc, tool, idle, view, sent } = await setup({ agentText: () => text });
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
     await settle();
     await tool("walkthrough_plan", PLAN);
@@ -191,10 +194,32 @@ describe("walkthrough orchestration", () => {
     await idle("Done.");
     await settle();
     expect(sent.at(-1)!.text).toContain("Why truncate?");
-    await idle("Because the Gateway caps input.");
+    text = "Because the Gateway caps input.";
+    await idle("Part 1 is ready.");
     await settle();
     current = await view(walkthroughId);
     expect(current.walkthrough.parts[0].discussion[0]).toMatchObject({ question: "Why truncate?", answer: "Because the Gateway caps input.", status: "done" });
+  });
+
+  it("never answers with the thread's stale last text when the turn said nothing", async () => {
+    const { rpc, tool, idle, view } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await tool("walkthrough_write_part", PART);
+    await idle("Part 1 is ready.");
+    await settle();
+    await rpc("ask", { walkthroughId, place: 0, question: "Why truncate?" });
+    await settle();
+    await idle("Part 2 is ready.");
+    await settle();
+    await idle("Part 1 is ready.");
+    await settle();
+    const exchange = (await view(walkthroughId)).walkthrough.parts[0].discussion[0];
+    expect(exchange.answer).not.toBe("Part 1 is ready.");
+    expect(exchange.status).toBe("failed");
   });
 
   it("surfaces the worker's question when it cannot plan, and sends the reply", async () => {
@@ -371,5 +396,23 @@ describe("walkthrough staleness", () => {
     current = (await view(walkthroughId)).walkthrough;
     expect(isOutdated(current, current.parts[0])).toBe(true);
     expect(isOutdated(current, current.parts[1])).toBe(false);
+  });
+});
+
+describe("walkthrough hand-off", () => {
+  it("sends each open note to the thread once, and again only after it changes", async () => {
+    const { rpc, tool, idle, sent } = await setup();
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    const note = await rpc("addNote", { walkthroughId, kind: "todo", text: "Name the cap", groupIndex: 0 });
+    expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: true });
+    const count = sent.length;
+    expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: false });
+    expect(sent).toHaveLength(count);
+    await rpc("updateNote", { walkthroughId, noteId: note.id, text: "Name the cap constant" });
+    expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: true });
   });
 });

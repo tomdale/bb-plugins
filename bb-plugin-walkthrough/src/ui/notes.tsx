@@ -321,6 +321,7 @@ function NoteRow({ walkthrough, note, rpc }: { walkthrough: Walkthrough; note: N
             {group ? <span className="truncate">{group}</span> : null}
             {note.location ? <LocationLink files={walkthrough} location={note.location} /> : null}
             {note.author === "agent" ? <span className="rounded bg-secondary px-1 text-secondary-foreground">agent</span> : null}
+            {note.sentAt ? <span className="rounded bg-secondary px-1 text-secondary-foreground">sent to thread</span> : null}
           </div>
         </>
       )}
@@ -484,6 +485,7 @@ export function ReviewTab({ walkthrough, rpc }: { walkthrough: Walkthrough; rpc:
                 {walkthrough.pr.title ? <span className="text-muted-foreground"> · {walkthrough.pr.title}</span> : null}
               </p>
             ) : null}
+            {walkthrough.pr?.state && walkthrough.pr.state !== "open" ? <p className="font-medium">This PR is already {walkthrough.pr.state}.</p> : null}
             <p className="font-medium">This posts publicly to GitHub as your gh account.</p>
           </div>
           <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Review event">

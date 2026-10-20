@@ -1,5 +1,6 @@
 // Pure walkthrough logic shared by the server and the pane: labels, the
 // notes Markdown mirror, and text handed to the worker agent.
+import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import type { Location, Mode, Note, NoteKind, Part, Walkthrough, WalkthroughStatus } from "./schemas.ts";
 
 export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
@@ -20,9 +21,6 @@ export const NOTE_SECTIONS: ReadonlyArray<{ kind: NoteKind; title: string }> = [
 export function noteKindsFor(mode: Mode): NoteKind[] {
   return mode === "pr" ? ["question", "comment", "todo", "note"] : ["question", "todo", "note"];
 }
-
-/** The SHA of git's empty tree: the base of a walkthrough of a repository's first commit. */
-export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /**
  * A base ref as a reader should see it. Full SHAs are abbreviated, the empty

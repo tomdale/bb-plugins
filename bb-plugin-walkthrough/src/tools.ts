@@ -95,6 +95,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
             number: z.number().int().positive(),
             url: z.string().max(2048).optional(),
             title: z.string().max(500).optional().describe("The PR's real title, verbatim."),
+            state: z.enum(["open", "merged", "closed"]).optional().describe("Whether the PR is open, merged, or closed (gh pr view --json state)."),
             headRef: z
               .string()
               .trim()

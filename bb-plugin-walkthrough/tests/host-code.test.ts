@@ -16,6 +16,7 @@ async function repository() {
   git("init", "--quiet");
   git("config", "user.name", "Test");
   git("config", "user.email", "test@example.com");
+  git("config", "commit.gpgsign", "false");
   await mkdir(join(root, "src"));
   const path = join(root, "src", "file.ts");
   await writeFile(path, "export const value = 1;\n");
@@ -32,6 +33,16 @@ async function repository() {
 }
 
 describe("host code loading", () => {
+  it("shows a whole-history walkthrough's files as added against the empty tree", async () => {
+    const { read, harness } = await repository();
+    try {
+      const result = await read({ baseRef: "4b825dc642cb6eb9a060e54bf8d69288fbee4904", includeUncommitted: false });
+      expect(result.patch).toContain("+export const value = 2;");
+      expect(result.sides?.old.content).toBe("");
+      expect(result.sides?.new.content).toBe("export const value = 2;\n");
+    } finally { await harness.experimental_dispose(); }
+  });
+
   it("reads a pinned head commit instead of the checkout, whatever HEAD and the working tree hold", async () => {
     const { read, path, git, harness } = await repository();
     try {

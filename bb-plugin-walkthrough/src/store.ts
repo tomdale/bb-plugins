@@ -119,6 +119,17 @@ export class WalkthroughStore {
       .run(note.id, note.walkthroughId, data, reported ? 1 : 0, note.createdAt);
   }
 
+  /** Records that notes went to the user's thread, without changing what the helper has seen. */
+  markSent(walkthroughId: string, ids: string[], sentAt: number): void {
+    for (const id of ids) {
+      const note = this.note(walkthroughId, id);
+      if (note === null) continue;
+      this.db
+        .prepare(`UPDATE notes SET data = ? WHERE walkthrough_id = ? AND id = ?`)
+        .run(JSON.stringify(noteSchema.parse({ ...note, sentAt })), walkthroughId, id);
+    }
+  }
+
   deleteNote(walkthroughId: string, id: string): boolean {
     return this.db.prepare(`DELETE FROM notes WHERE walkthrough_id = ? AND id = ?`).run(walkthroughId, id).changes > 0;
   }

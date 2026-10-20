@@ -122,10 +122,37 @@ export function Prose({ text, context, className }: { text: string; context: Pro
                 <code>{block.text}</code>
               </pre>
             );
+          case "table":
+            return (
+              <div key={index} className="overflow-x-auto">
+                <table className="w-full border-collapse font-sans text-[13px] leading-snug">
+                  <thead>
+                    <tr>
+                      {block.header.map((cell, cellIndex) => (
+                        <th key={cellIndex} className="border-b border-border px-2 py-1 text-left font-medium">
+                          {inline(cell, context, `${index}-h${cellIndex}`)}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, rowIndex) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, cellIndex) => (
+                          <td key={cellIndex} className="border-b border-border/60 px-2 py-1 align-top">
+                            {inline(cell, context, `${index}-${rowIndex}-${cellIndex}`)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
           case "list": {
             const Tag = block.ordered ? "ol" : "ul";
             return (
-              <Tag key={index} className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}>
+              <Tag key={index} {...(block.ordered ? { start: block.start } : {})} className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}>
                 {block.items.map((item, itemIndex) => (
                   <li key={itemIndex}>{inline(item, context, `${index}-${itemIndex}`)}</li>
                 ))}

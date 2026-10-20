@@ -6,19 +6,31 @@
 export type MarkdownBlock =
   | { kind: "paragraph"; text: string }
   | { kind: "heading"; text: string }
-  | { kind: "list"; ordered: boolean; items: string[] }
-  | { kind: "code"; language: string | null; text: string };
+  | { kind: "list"; ordered: boolean; start: number; items: string[] }
+  | { kind: "code"; language: string | null; text: string }
+  | { kind: "table"; header: string[]; rows: string[][] };
 
 const FENCE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)\s*$/u;
 const BULLET = /^\s*[-*+]\s+(.*)$/u;
-const NUMBERED = /^\s*\d+[.)]\s+(.*)$/u;
+const NUMBERED = /^\s*(\d+)[.)]\s+(.*)$/u;
+const TABLE_ROW = /^\s*\|.*\|\s*$/u;
+const TABLE_RULE = /^\s*\|?(\s*:?-{2,}:?\s*\|)+(\s*:?-{2,}:?\s*)?\|?\s*$/u;
 const HEADING = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/u;
+
+/** Cells of one `| a | b |` row; `\|` stays a literal pipe. */
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\||\|$/gu, "")
+    .split(/(?<!\\)\|/u)
+    .map((cell) => cell.trim().replace(/\\\|/gu, "|"));
+}
 
 export function parseMarkdownBlocks(source: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const lines = source.replace(/\r\n?/gu, "\n").trim().split("\n");
   let paragraph: string[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
+  let list: { ordered: boolean; start: number; items: string[] } | null = null;
 
   const flushParagraph = () => {
     if (paragraph.length > 0) blocks.push({ kind: "paragraph", text: paragraph.join(" ") });
@@ -47,7 +59,20 @@ export function parseMarkdownBlocks(source: string): MarkdownBlock[] {
     }
     if (line.trim() === "") {
       flushParagraph();
+      // Blank lines between items are one loose list, not several.
+      const following = lines.slice(index + 1).find((candidate) => candidate.trim() !== "");
+      const continues = list && following !== undefined && (list.ordered ? NUMBERED : BULLET).test(following);
+      if (!continues) flushList();
+      continue;
+    }
+    if (TABLE_ROW.test(line) && TABLE_RULE.test(lines[index + 1] ?? "")) {
+      flushParagraph();
       flushList();
+      const rows: string[][] = [];
+      let cursor = index + 2;
+      while (cursor < lines.length && TABLE_ROW.test(lines[cursor]!)) rows.push(tableCells(lines[cursor++]!));
+      blocks.push({ kind: "table", header: tableCells(line), rows });
+      index = cursor - 1;
       continue;
     }
     const heading = HEADING.exec(line);
@@ -59,13 +84,12 @@ export function parseMarkdownBlocks(source: string): MarkdownBlock[] {
     }
     const bullet = BULLET.exec(line);
     const numbered = bullet ? null : NUMBERED.exec(line);
-    const item = bullet ?? numbered;
-    if (item) {
+    if (bullet || numbered) {
       flushParagraph();
       const ordered = numbered !== null;
       if (list && list.ordered !== ordered) flushList();
-      list ??= { ordered, items: [] };
-      list.items.push(item[1]!);
+      list ??= { ordered, start: numbered ? Number(numbered[1]) : 1, items: [] };
+      list.items.push((numbered ? numbered[2] : bullet![1])!);
       continue;
     }
     // An indented line right after a list item continues that item.

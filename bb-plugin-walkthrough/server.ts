@@ -57,6 +57,9 @@ export default function plugin(bb: BbPluginApi) {
     void service.onWorkerIdle(thread.id, lastAssistantText);
     void service.onThreadIdle(thread.id);
   });
+  bb.events.on("thread.archived", ({ thread }) => {
+    service.onThreadArchived(thread.id);
+  });
   bb.events.on("thread.failed", ({ thread, error }) => {
     service.onWorkerFailed(thread.id, error);
   });

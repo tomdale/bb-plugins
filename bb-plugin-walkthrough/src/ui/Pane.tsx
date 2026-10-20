@@ -146,14 +146,16 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
 
   // Opening the drawer moves focus into it, unless a child (the note box) has already taken it.
   useEffect(() => {
-    if (drawer && drawerRef.current && !drawerRef.current.contains(document.activeElement)) drawerRef.current.focus();
+    if (!drawer || !drawerRef.current || drawerRef.current.contains(document.activeElement)) return;
+    // Opening Notes is usually to write one, so land in its composer.
+    (drawerRef.current.querySelector<HTMLElement>("textarea") ?? drawerRef.current).focus();
   }, [drawer]);
 
   // Escape closes the drawer from anywhere on the page, except while a dialog (Post…, Finish) has its own Escape.
   useEffect(() => {
     if (!drawer) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[role=dialog]")) return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector("[role=dialog]:not([data-state=closed])")) return;
       closeDrawer();
     };
     document.addEventListener("keydown", onKeyDown);
@@ -285,9 +287,12 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
 /** What the walkthrough is about: the PR it reviews, or the base the changes are measured against. */
 function Subject({ walkthrough }: { walkthrough: Walkthrough }) {
   const { pr } = walkthrough;
-  if (walkthrough.mode !== "pr" || !pr) return <>your changes {comparedWith(walkthrough)}</>;
+  if (walkthrough.mode !== "pr" || !pr) {
+    const compared = comparedWith(walkthrough);
+    return <>{compared.startsWith("everything") ? compared : `your changes ${compared}`}</>;
+  }
   // `pr.title` is GitHub's; the walkthrough's own title is the helper's paraphrase.
-  const label = `#${pr.number} ${pr.title ?? walkthrough.title}`;
+  const label = `#${pr.number} ${pr.title ?? walkthrough.title}${pr.state && pr.state !== "open" ? ` (${pr.state})` : ""}`;
   if (!pr.url) return <>PR {label}</>;
   return (
     <UrlLink href={pr.url} className="underline-offset-2 hover:underline" title="Open the pull request on GitHub">
@@ -617,15 +622,17 @@ function PartPage({
       ) : part.status === "failed" ? (
         <div className="space-y-3">
           {part.message ? <Prose text={part.message} context={{ files: walkthrough, codePath: null }} /> : null}
-          <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: index }).catch((cause: unknown) => toast.error(errorMessage(cause)))}>
-            Try again
-          </Button>
+          {closed ? null : (
+            <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: index }).catch((cause: unknown) => toast.error(errorMessage(cause)))}>
+              Try again
+            </Button>
+          )}
         </div>
       ) : closed ? (
-        <p className="font-serif text-[15px] text-muted-foreground">{part.summary ? `${part.summary} ` : ""}This part was not written before the walkthrough finished.</p>
+        <p className="font-serif text-[15px] text-muted-foreground">{part.summary ? `${part.summary} — ` : ""}This part was not written before the walkthrough finished.</p>
       ) : (
         <p className="animate-pulse font-serif text-[15px] text-muted-foreground">
-          {part.summary ? `${part.summary} ` : ""}Writing this part…
+          {part.summary ? `${part.summary} — ` : ""}Writing this part…
         </p>
       )}
 
@@ -702,7 +709,7 @@ function Discussion({ walkthrough, place, part, rpc, closed }: { walkthrough: Wa
           ) : null}
           <AskBox
             className="mt-3"
-            placeholder={place === "wrap-up" ? "Ask anything, or tell the agent what to do next…" : "Ask anything about this part…"}
+            placeholder={place === "wrap-up" ? "Ask anything, or say what you want to follow up on…" : "Ask anything about this part…"}
             onSubmit={async (text) => {
               const intent = parseCommand(text);
               if (intent.kind === "record") return record(intent.noteKind, intent.text);
@@ -793,7 +800,7 @@ function WrapUp({
     setSending(true);
     try {
       const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id });
-      toast[sent ? "success" : "info"](sent ? "Sent the open notes to your thread." : "There are no open todos or questions to send.");
+      toast[sent ? "success" : "info"](sent ? "Sent the open notes to your thread." : "There are no new open todos or questions to send.");
     } catch (cause) {
       toast.error(errorMessage(cause));
     } finally {
@@ -812,9 +819,11 @@ function WrapUp({
       ) : part.status === "failed" ? (
         <div className="space-y-3">
           {part.message ? <Prose text={part.message} context={{ files: walkthrough, codePath: null }} /> : null}
-          <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: "wrap-up" })}>
-            Try again
-          </Button>
+          {closed ? null : (
+            <Button type="button" variant="outline" size="sm" onClick={() => void rpc.call("retry", { walkthroughId: walkthrough.id, place: "wrap-up" })}>
+              Try again
+            </Button>
+          )}
         </div>
       ) : (
         <p className="animate-pulse font-serif text-[15px] text-muted-foreground">Going over your notes and answering what it can…</p>
