@@ -26,7 +26,7 @@ you read.
   box saves a note instead.
 - **Note:** select any text or code and choose **Leave a note**, or use the
   Notes drawer. Notes can point at a file and line range, and are mirrored to
-  `.agent/review-notes.md` in the workspace.
+  `.agent/review-notes/<walkthrough id>.md` in the workspace (the folder ignores itself in Git).
 - **Wrap up:** the helper answers recorded questions, reports what is still
   open, and offers follow-ups. In PR reviews it drafts a review on request;
   the Review drawer previews it and **Post…** asks the helper to submit it.

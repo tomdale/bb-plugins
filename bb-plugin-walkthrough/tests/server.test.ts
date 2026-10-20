@@ -211,7 +211,8 @@ describe("walkthrough orchestration", () => {
     await settle();
     await rpc("addNote", { walkthroughId, kind: "todo", text: "Name the cap", groupIndex: 0, location: { path: "tts.ts", startLine: 3 } });
     await settle();
-    expect(writes.at(-1)?.path).toBe("/work/repo/.agent/review-notes.md");
+    expect(writes.at(-1)?.path).toBe(`/work/repo/.agent/review-notes/${walkthroughId}.md`);
+    expect(writes.find((write) => write.path.endsWith(".gitignore"))).toMatchObject({ path: "/work/repo/.agent/review-notes/.gitignore", content: "*\n" });
     expect(writes.at(-1)?.content).toContain("[Keeping speech requests small · tts.ts:3] Name the cap (n1)");
 
     await rpc("wrapUp", { walkthroughId });

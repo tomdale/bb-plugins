@@ -5,7 +5,8 @@
 // time (plan, write a part, answer a question, wrap up) and learns the
 // outcome from the worker's tool calls plus its final message when the turn
 // ends. SQLite is the source of truth; the pane re-reads it on every change
-// signal, and `.agent/review-notes.md` mirrors the notes once one exists.
+// signal, and `.agent/review-notes/<walkthrough id>.md` mirrors the notes once
+// one exists.
 import { randomUUID } from "node:crypto";
 import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
@@ -169,7 +170,7 @@ export class WalkthroughService {
       workspacePath: workspace.path,
       notesFile: {
         enabled: true,
-        path: workspace.path ? `${workspace.path}/.agent/review-notes.md` : null,
+        path: workspace.path ? `${workspace.path}/.agent/review-notes/${id}.md` : null,
         written: false,
         error: null,
       },
@@ -530,7 +531,7 @@ export class WalkthroughService {
     await this.bb.sdk.threads.send({
       threadId: walkthrough.threadId,
       mode: "auto",
-      input: [{ type: "text", text: `From my walkthrough of ${walkthrough.title}:\n\n${lines.join("\n")}`, mentions: [] }],
+      input: [{ type: "text", text: `From my walkthrough of ${walkthrough.title}:\n\n${lines.join("\n")}${walkthrough.notesFile.written && walkthrough.notesFile.path ? `\n\nAll notes: ${walkthrough.notesFile.path}` : ""}`, mentions: [] }],
     });
     return true;
   }
@@ -714,8 +715,14 @@ export class WalkthroughService {
     if (notes.length === 0 && !walkthrough.notesFile.written) return;
     let error: string | null = null;
     try {
+      const host = walkthrough.hostId ? { hostId: walkthrough.hostId } : {};
+      if (!walkthrough.notesFile.written) {
+        // The directory ignores itself, so notes never show up as untracked work.
+        const directory = walkthrough.notesFile.path.slice(0, walkthrough.notesFile.path.lastIndexOf("/"));
+        await this.bb.sdk.files.write({ ...host, path: `${directory}/.gitignore`, content: "*\n", createParents: true });
+      }
       await this.bb.sdk.files.write({
-        ...(walkthrough.hostId ? { hostId: walkthrough.hostId } : {}),
+        ...host,
         path: walkthrough.notesFile.path,
         content: renderNotesMarkdown(walkthrough, notes),
         createParents: true,

@@ -10,7 +10,7 @@ anything.
 - A literate reading view with change, after, and before views of each
   excerpt, and a contents list when the pane is wide.
 - Free-form questions under every part, with suggestions to get you started.
-- Notes from any selection, mirrored to `.agent/review-notes.md`.
+- Notes from any selection, mirrored to `.agent/review-notes/` in the workspace.
 - A wrap-up that answers your recorded questions, and for PR reviews a draft
   review you can preview and post.
 - A full-page view for reading without the thread beside it.

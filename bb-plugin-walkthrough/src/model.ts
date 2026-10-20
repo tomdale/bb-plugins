@@ -87,7 +87,7 @@ function bullet(walkthrough: Walkthrough, note: Note, prefix: string | null): st
   return lines.join("\n");
 }
 
-/** The `.agent/review-notes.md` mirror: nonempty sections only. */
+/** The `.agent/review-notes/<id>.md` mirror: nonempty sections only. */
 export function renderNotesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
   const out = ["# Review Notes", ""];
   const scope = walkthrough.mode === "pr" ? "PR review" : "Local review";
