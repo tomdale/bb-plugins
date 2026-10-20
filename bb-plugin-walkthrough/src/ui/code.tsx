@@ -54,6 +54,7 @@ export function CodeExcerpt({ walkthrough, block, wide }: { walkthrough: Walkthr
                 key={candidate}
                 type="button"
                 disabled={!patchFor(candidate)}
+                title={patchFor(candidate) ? undefined : result === null ? undefined : `The ${candidate} view is not available for this excerpt`}
                 aria-pressed={effectiveView === candidate}
                 onClick={() => setView(candidate)}
                 className={cn(

@@ -842,7 +842,18 @@ export class WalkthroughService {
     if (walkthrough.environmentId === null) return null;
     const environmentId = walkthrough.environmentId;
     const mergeBaseRef = await this.mergeBase(walkthrough).catch(() => null);
-    if (mergeBaseRef === null) return null;
+    // With nothing to merge-base against (the base is HEAD itself), the
+    // uncommitted view still has both sides: HEAD and the working tree.
+    const sideQuery =
+      mergeBaseRef !== null
+        ? { target: this.diffTarget(walkthrough), mergeBaseRef }
+        : walkthrough.includeUncommitted
+          ? { target: "uncommitted" as const }
+          : null;
+    if (sideQuery === null) {
+      this.bb.log.debug(`no merge base for ${walkthrough.baseRef} in ${environmentId}; after and before views are unavailable`);
+      return null;
+    }
     // An added file has no old side and a deleted file no new side.
     const absent = { old: /^--- \/dev\/null$/mu.test(patch), new: /^\+\+\+ \/dev\/null$/mu.test(patch) };
     const side = async (which: "old" | "new") => {
@@ -852,8 +863,7 @@ export class WalkthroughService {
           environmentId,
           path,
           side: which,
-          target: this.diffTarget(walkthrough),
-          mergeBaseRef,
+          ...sideQuery,
         });
         if (file.contentEncoding !== "utf8" || file.sizeBytes > MAX_FULL_FILE_BYTES) return null;
         return { path, content: file.content };
