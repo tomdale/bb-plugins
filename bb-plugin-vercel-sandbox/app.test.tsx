@@ -419,7 +419,7 @@ describe("settings section", () => {
 
   const NOT_CONNECTED: Account = {
     available: false,
-    message: "Run vc login and vc link on a machine, then connect it.",
+    message: "Run vc login on a machine, then choose a team and project.",
     hostId: null,
     directory: null,
     accountId: null,
@@ -494,7 +494,16 @@ describe("settings section", () => {
       settingsSlot(),
       {},
       {
-        rpc: { "launch.options": () => LAUNCH_OPTIONS, ...rpc } as never,
+        rpc: {
+          "launch.options": () => LAUNCH_OPTIONS,
+          "account.teams": () => ({
+            choices: [{ id: "team_abc", name: "My team" }],
+          }),
+          "account.projects": () => ({
+            choices: [{ id: "prj_def", name: "My project" }],
+          }),
+          ...rpc,
+        } as never,
         sdk: { hosts: { list: hostsList } } as never,
       },
     );
@@ -506,7 +515,20 @@ describe("settings section", () => {
     );
   }
 
-  it("names the machine and linked project without claiming launch entitlement", async () => {
+  async function chooseProject(slot: ReturnType<typeof renderSettings>) {
+    openMenu(await slot.findByRole("button", { name: /Team Choose a team/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "My team" }),
+    );
+    openMenu(
+      await slot.findByRole("button", { name: /Project Choose a project/ }),
+    );
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "My project" }),
+    );
+  }
+
+  it("names the machine and project without claiming launch entitlement", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
     await slot.findByText(
       "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
@@ -515,7 +537,7 @@ describe("settings section", () => {
       slot.getByText(/doesn't confirm your plan's sandbox limits/),
     ).toBeTruthy();
     const details = slot
-      .getByText("Linked folder", { selector: "dt" })
+      .getByText("Authentication folder", { selector: "dt" })
       .closest("dl");
     expect(details?.textContent).toContain("/Users/me/vercel-bb");
     expect(details?.textContent).toContain("tom (user_abc)");
@@ -524,9 +546,7 @@ describe("settings section", () => {
     expect(
       slot.getByRole("heading", { name: "Change connection" }),
     ).toBeTruthy();
-    expect(
-      (slot.getByLabelText("Linked folder") as HTMLInputElement).value,
-    ).toBe("/Users/me/vercel-bb");
+    expect(slot.queryByLabelText("Linked folder")).toBeNull();
     expect(
       slot.getByRole("button", { name: /Machine Tom's MacBook/ }),
     ).toBeTruthy();
@@ -550,7 +570,7 @@ describe("settings section", () => {
     ).toBeNull();
   });
 
-  it("guides terminal sign-in and linking when nothing is connected", async () => {
+  it("guides terminal sign-in and GUI project selection when nothing is connected", async () => {
     const slot = renderSettings({ "account.inspect": () => NOT_CONNECTED });
     await slot.findByText(/Not connected/);
     expect(slot.getByText(NOT_CONNECTED.message)).toBeTruthy();
@@ -563,17 +583,13 @@ describe("settings section", () => {
     expect(steps[0]).toContain("vc login");
     expect(steps[0]).toContain("same OS user that runs BB");
     expect(steps[0]).toContain("58.3.0 or later");
-    expect(steps[1]).toContain("vc link --cwd /absolute/path/to/folder");
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "/Users/me/My App" },
-    });
-    expect(slot.getByText("vc link --cwd '/Users/me/My App'")).toBeTruthy();
-    expect(
-      slot.getByRole("button", { name: "Connect linked project" }),
-    ).toBeTruthy();
+    expect(steps[1]).toContain("select the Vercel team and project");
+    expect(slot.queryByText(/vc link/)).toBeNull();
+    expect(slot.queryByLabelText("Linked folder")).toBeNull();
+    expect(slot.getByRole("button", { name: "Connect project" })).toBeTruthy();
   });
 
-  it("lists only enrolled machines and connects the chosen machine and folder", async () => {
+  it("lists only enrolled machines and connects the chosen machine, team and project", async () => {
     const pending = deferred<Account>();
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
@@ -588,12 +604,8 @@ describe("settings section", () => {
     );
     expect(choices).toEqual(["Tom's MacBook", "StudioOffline", "Build box"]);
     fireEvent.click(slot.getByRole("menuitemradio", { name: /Build box/ }));
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "  /srv/vercel-bb  " },
-    });
-    fireEvent.click(
-      slot.getByRole("button", { name: "Connect linked project" }),
-    );
+    await chooseProject(slot);
+    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
     const busy = await slot.findByRole("button", { name: "Connecting…" });
     expect(busy.hasAttribute("disabled")).toBe(true);
     expect(connectCalls(slot)).toEqual([
@@ -601,7 +613,8 @@ describe("settings section", () => {
         method: "account.connect",
         input: {
           hostId: "host-linux",
-          directory: "/srv/vercel-bb",
+          teamId: "team_abc",
+          projectId: "prj_def",
           adoptLegacyAllocations: false,
           expectedLegacyIdentity: null,
         },
@@ -611,7 +624,7 @@ describe("settings section", () => {
       pending.resolve({
         ...CONNECTED,
         hostId: "host-linux",
-        directory: "/srv/vercel-bb",
+        directory: null,
       });
       await pending.promise;
     });
@@ -623,30 +636,142 @@ describe("settings section", () => {
     expect(slot.getByRole("button", { name: "Reconnect" })).toBeTruthy();
   });
 
-  it("shows the server's safe reason when connecting is refused", async () => {
+  it("clears project selection on team or machine changes and ignores stale project responses", async () => {
+    const oldProjects = deferred<{ choices: { id: string; name: string }[] }>();
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
-      "account.connect": () => {
-        throw safeError(
-          "Link an existing Vercel project in the selected directory with vc link, then reconnect.",
-        );
-      },
+      "account.teams": () => ({
+        choices: [
+          { id: "team_abc", name: "My team" },
+          { id: "team_other", name: "Other team" },
+        ],
+      }),
+      "account.projects": (input: { teamId: string }) =>
+        input.teamId === "team_abc"
+          ? oldProjects.promise
+          : { choices: [{ id: "prj_other", name: "Other project" }] },
+      "account.connect": () => CONNECTED,
     });
-    await slot.findByText(/Not connected/);
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "/Users/me/other" },
+    openMenu(await slot.findByRole("button", { name: /Machine/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: /Build box/ }),
+    );
+    openMenu(await slot.findByRole("button", { name: /Team Choose/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "My team" }),
+    );
+    await slot.findByText("Loading projects…");
+    openMenu(slot.getByRole("button", { name: /Team My team/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "Other team" }),
+    );
+    await act(async () => {
+      oldProjects.resolve({
+        choices: [{ id: "prj_stale", name: "Stale project" }],
+      });
+      await oldProjects.promise;
     });
+    openMenu(await slot.findByRole("button", { name: /Project Choose/ }));
+    expect(
+      slot.queryByRole("menuitemradio", { name: "Stale project" }),
+    ).toBeNull();
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "Other project" }),
+    );
     openMenu(slot.getByRole("button", { name: /Machine/ }));
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
     );
+    submitConnect(slot);
+    await slot.findByText("Choose a team and project before connecting.");
+    expect(connectCalls(slot)).toEqual([]);
+    expect(
+      slot.queryByRole("button", { name: /Project Other project/ }),
+    ).toBeNull();
+  });
+
+  it("offers retry for discovery failures and handles empty teams and projects", async () => {
+    let teams = 0;
+    let projects = 0;
+    const slot = renderSettings({
+      "account.inspect": () => NOT_CONNECTED,
+      "account.teams": () => {
+        if (++teams === 1) throw new Error("secret raw failure");
+        return { choices: [{ id: "team_abc", name: "My team" }] };
+      },
+      "account.projects": () => {
+        if (++projects === 1) throw new Error("secret raw failure");
+        return { choices: [] };
+      },
+    });
+    openMenu(await slot.findByRole("button", { name: /Machine/ }));
     fireEvent.click(
-      slot.getByRole("button", { name: "Connect linked project" }),
+      await slot.findByRole("menuitemradio", { name: /Build box/ }),
     );
+    fireEvent.click(await slot.findByRole("button", { name: "Retry teams" }));
+    openMenu(await slot.findByRole("button", { name: /Team Choose/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: "My team" }),
+    );
+    fireEvent.click(
+      await slot.findByRole("button", { name: "Retry projects" }),
+    );
+    await slot.findByText("No projects available for this selection.");
+    expect(slot.queryByText(/secret raw failure/)).toBeNull();
+    slot.lifecycle.unmount();
+    const empty = renderSettings({
+      "account.inspect": () => NOT_CONNECTED,
+      "account.teams": () => ({ choices: [] }),
+    });
+    openMenu(await empty.findByRole("button", { name: /Machine/ }));
+    fireEvent.click(
+      await empty.findByRole("menuitemradio", { name: /Build box/ }),
+    );
+    await empty.findByText("No teams available for this selection.");
+  });
+
+  it("allows adoption with a directory-free connection", async () => {
+    const slot = renderSettings({
+      "account.inspect": () => ({
+        ...CONNECTED,
+        directory: null,
+        legacyAllocations: LEGACY,
+      }),
+      "account.connect": () => ({
+        ...CONNECTED,
+        directory: null,
+        adoptedAllocations: 2,
+      }),
+    });
+    fireEvent.click(
+      await slot.findByRole("checkbox", { name: /manage and clean up/ }),
+    );
+    fireEvent.click(slot.getByRole("button", { name: /Use this account/ }));
+    await slot.findByText(/BB now manages 2 earlier sandboxes/);
+    expect(connectCalls(slot)[0]?.input).toMatchObject({
+      teamId: "team_abc",
+      projectId: "prj_def",
+      adoptLegacyAllocations: true,
+    });
+    expect(connectCalls(slot)[0]?.input).not.toHaveProperty("directory");
+  });
+
+  it("shows the server's safe reason when connecting is refused", async () => {
+    const slot = renderSettings({
+      "account.inspect": () => NOT_CONNECTED,
+      "account.connect": () => {
+        throw safeError("Project access was refused. Choose another project.");
+      },
+    });
+    await slot.findByText(/Not connected/);
+    openMenu(slot.getByRole("button", { name: /Machine/ }));
+    fireEvent.click(
+      await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
+    );
+    await chooseProject(slot);
+    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
     const alert = await slot.findByText(/Couldn't connect/);
-    expect(alert.textContent).toContain(
-      "Link an existing Vercel project in the selected directory with vc link",
-    );
+    expect(alert.textContent).toContain("Project access was refused");
   });
 
   it("replaces a failed connect call with generic next steps and rechecks", async () => {
@@ -665,15 +790,11 @@ describe("settings section", () => {
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: /Build box/ }),
     );
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "/Users/me/app" },
-    });
-    fireEvent.click(
-      slot.getByRole("button", { name: "Connect linked project" }),
-    );
+    await chooseProject(slot);
+    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
     const alert = await slot.findByText(/Couldn't connect/);
     expect(alert.textContent).toContain(
-      "vc login and vc link finished there as the OS user that runs BB",
+      "vc login finished there as the OS user that runs BB",
     );
     await waitFor(() => expect(inspects).toBe(2));
     await slot.findByText(/Not connected/);
@@ -683,11 +804,11 @@ describe("settings section", () => {
       slot.getByRole("button", { name: /Machine Build box/ }),
     ).toBeTruthy();
     expect(
-      (slot.getByLabelText("Linked folder") as HTMLInputElement).value,
-    ).toBe("/Users/me/app");
+      slot.getByRole("button", { name: /Project My project/ }),
+    ).toBeTruthy();
     expect(
       slot
-        .getByRole("button", { name: "Connect linked project" })
+        .getByRole("button", { name: "Connect project" })
         .hasAttribute("disabled"),
     ).toBe(false);
   });
@@ -736,12 +857,12 @@ describe("settings section", () => {
     const trigger = slot.getByRole("button", { name: /Machine/ });
     expect(seen[0]?.element).toBe(trigger);
     expect(seen[0]?.described).toContain(
-      "Choose the machine where you ran vc login and vc link.",
+      "Choose the machine where you ran vc login.",
     );
     expect(connectCalls(slot)).toEqual([]);
   });
 
-  it("focuses an invalid folder with its error already attached on the first blocked submit", async () => {
+  it("blocks connection until a team and project are selected", async () => {
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
       "account.connect": () => CONNECTED,
@@ -751,16 +872,10 @@ describe("settings section", () => {
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: /Build box/ }),
     );
-    const folder = slot.getByLabelText("Linked folder");
-    fireEvent.change(folder, { target: { value: "projects/app" } });
-    const seen = recordFocus();
     submitConnect(slot);
-    await waitFor(() =>
-      expect(seen.some((entry) => entry.element === folder)).toBe(true),
-    );
-    const first = seen.find((entry) => entry.element === folder);
-    expect(first?.invalid).toBe("true");
-    expect(first?.described).toContain("Use an absolute path");
+    expect(
+      await slot.findByText("Choose a team and project before connecting."),
+    ).toBeTruthy();
     expect(connectCalls(slot)).toEqual([]);
   });
 
@@ -770,9 +885,6 @@ describe("settings section", () => {
       "account.connect": () => CONNECTED,
     });
     await slot.findByText(/Not connected/);
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "/Users/me/app" },
-    });
     openMenu(slot.getByRole("button", { name: /Machine/ }));
     fireEvent.click(await slot.findByRole("menuitemradio", { name: /Studio/ }));
     const seen = recordFocus();
@@ -821,7 +933,7 @@ describe("settings section", () => {
     const alert = slot.getByRole("alert");
     expect(alert.textContent).toContain("signed in as a different user");
     expect(
-      slot.getByText("Linked folder", { selector: "dt" }).closest("dl")
+      slot.getByText("Authentication folder", { selector: "dt" }).closest("dl")
         ?.textContent,
     ).toContain("prj_def");
     fireEvent.click(slot.getByRole("button", { name: "Check again" }));
@@ -850,12 +962,8 @@ describe("settings section", () => {
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),
     );
-    fireEvent.change(slot.getByLabelText("Linked folder"), {
-      target: { value: "/Users/me/vercel-bb" },
-    });
-    fireEvent.click(
-      slot.getByRole("button", { name: "Connect linked project" }),
-    );
+    await chooseProject(slot);
+    fireEvent.click(slot.getByRole("button", { name: "Connect project" }));
     await slot.findByText(/Connected. New sandboxes use/);
     await act(async () => {
       recheck.resolve(NOT_CONNECTED);
@@ -902,12 +1010,14 @@ describe("settings section", () => {
     });
     expect(apply.hasAttribute("disabled")).toBe(true);
     fireEvent.click(apply);
+    await chooseProject(slot);
     fireEvent.click(slot.getByRole("button", { name: "Reconnect" }));
     await slot.findByRole("button", { name: "Connecting…" });
     expect(connectCalls(slot).map((call) => call.input)).toEqual([
       {
         hostId: "host-mac",
-        directory: "/Users/me/vercel-bb",
+        teamId: "team_abc",
+        projectId: "prj_def",
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       },
@@ -986,6 +1096,7 @@ describe("settings section", () => {
         .getByRole("checkbox", { name: /Let tom \(user_abc\)/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
+    await chooseProject(slot);
     fireEvent.click(slot.getByRole("button", { name: "Reconnect" }));
     const consent = await slot.findByRole("checkbox", {
       name: /Let sam \(user_other\) on Tom's MacBook/,

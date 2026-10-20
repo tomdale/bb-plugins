@@ -20,7 +20,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { Input } from "@/components/ui/input";
+import { ProjectFields, type ProjectChoice } from "./project-fields.js";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -549,10 +549,9 @@ type ConnectState =
   | { status: "connecting" }
   | { status: "failed"; reason: string | null };
 
-const LINK_PATH_PLACEHOLDER = "/absolute/path/to/folder";
 const MIN_VC_VERSION = "58.3.0";
 const CONNECT_FAILED_MESSAGE =
-  "Couldn't connect. Check that the machine is online and that vc login and vc link finished there as the OS user that runs BB, then try again.";
+  "Couldn't connect. Check that the machine is online and that vc login finished there as the OS user that runs BB, then try again.";
 const TOKEN_SHAPED = /eyJ[\w-]{8,}|\bvca_|\bbearer\s|token\s*[=:]/i;
 
 function serverReason(error: unknown): string | null {
@@ -579,16 +578,6 @@ function FailureReason({ reason }: { reason: string | null }) {
   return (
     <span className="block break-words text-muted-foreground">{reason}</span>
   );
-}
-
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-function shellArgument(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value)
-    ? value
-    : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function useAccountHosts() {
@@ -628,7 +617,7 @@ function ConnectionDetails({
 }) {
   const rows = [
     { term: "Machine", value: machineName, mono: false },
-    { term: "Linked folder", value: account.directory, mono: true },
+    { term: "Authentication folder", value: account.directory, mono: true },
     {
       term: "Vercel account",
       value:
@@ -740,7 +729,7 @@ function ConnectionStatus({
           </span>
         </p>
         <p className="pl-5.5 leading-relaxed text-muted-foreground">
-          This confirms the CLI can get a short-lived token for the linked
+          This confirms the CLI can get a short-lived token for the selected
           project. It doesn't confirm your plan's sandbox limits; Vercel checks
           those when a sandbox starts.
         </p>
@@ -859,25 +848,24 @@ function ConnectForm({
   const rpc = useRpc<Contract>();
   const idPrefix = useId();
   const machineLabelId = `${idPrefix}-machine`;
-  const directoryId = `${idPrefix}-directory`;
-  const directoryErrorId = `${idPrefix}-directory-error`;
   const hostProblemId = `${idPrefix}-machine-problem`;
   const machineTriggerRef = useRef<HTMLButtonElement>(null);
-  const directoryRef = useRef<HTMLInputElement>(null);
   const [hostChoice, setHostChoice] = useState<string | null>(null);
-  const [directoryDraft, setDirectoryDraft] = useState<string | null>(null);
+  const [projectChoice, setProjectChoice] = useState<ProjectChoice | null>(
+    null,
+  );
+  const chooseProject = useCallback((choice: ProjectChoice | null) => {
+    setProjectChoice(choice);
+    setConnect({ status: "idle" });
+  }, []);
   const [attempted, setAttempted] = useState(false);
   const [focusRequest, setFocusRequest] = useState<{
-    target: "machine" | "directory";
+    target: "machine";
     attempt: number;
   } | null>(null);
   useEffect(() => {
     if (focusRequest === null) return;
-    const target =
-      focusRequest.target === "machine"
-        ? machineTriggerRef.current
-        : directoryRef.current;
-    target?.focus();
+    machineTriggerRef.current?.focus();
   }, [focusRequest]);
   const [connect, setConnect] = useState<ConnectState>({ status: "idle" });
   const mounted = useRef(true);
@@ -892,19 +880,11 @@ function ConnectForm({
   const onlyHost = hostList.length === 1 ? hostList[0] : undefined;
   const hostId = hostChoice ?? account?.hostId ?? onlyHost?.id ?? null;
   const selectedHost = hostList.find((host) => host.id === hostId) ?? null;
-  const directory = directoryDraft ?? account?.directory ?? "";
-  const trimmed = directory.trim();
-  const directoryError =
-    trimmed === ""
-      ? "Enter the linked folder's absolute path."
-      : isAbsolutePath(trimmed)
-        ? null
-        : "Use an absolute path, like /Users/you/projects/app.";
-  const showDirectoryError = attempted && directoryError !== null;
+  const scope = projectChoice?.hostId === hostId ? projectChoice : null;
   const hostProblem =
     selectedHost === null
       ? attempted && hosts.status === "ready" && hostList.length > 0
-        ? "Choose the machine where you ran vc login and vc link."
+        ? "Choose the machine where you ran vc login."
         : null
       : selectedHost.online
         ? null
@@ -923,20 +903,12 @@ function ConnectForm({
       }));
       return;
     }
-    if (directoryError !== null) {
-      setFocusRequest((previous) => ({
-        target: "directory",
-        attempt: (previous?.attempt ?? 0) + 1,
-      }));
-      return;
-    }
+    if (scope === null) return;
     setHostChoice(selectedHost.id);
-    setDirectoryDraft(trimmed);
     setConnect({ status: "connecting" });
     rpc
       .call("account.connect", {
-        hostId: selectedHost.id,
-        directory: trimmed,
+        ...scope,
         adoptLegacyAllocations: false,
         expectedLegacyIdentity: null,
       })
@@ -954,10 +926,6 @@ function ConnectForm({
       );
   };
 
-  const linkCommand = `vc link --cwd ${
-    directoryError === null ? shellArgument(trimmed) : LINK_PATH_PLACEHOLDER
-  }`;
-
   return (
     <form
       noValidate
@@ -974,62 +942,49 @@ function ConnectForm({
           and finish Vercel's sign-in in your browser.
         </li>
         <li>
-          In the same terminal, link a folder to an existing Vercel project:{" "}
-          <code className="break-all font-mono text-foreground">
-            {linkCommand}
-          </code>
+          Choose that machine, then select the Vercel team and project to use
+          for sandboxes.
         </li>
-        <li>Choose that machine and folder here, then connect.</li>
       </ol>
 
-      <div className="space-y-1.5">
-        <Label id={machineLabelId} className="text-xs">
-          Machine
-        </Label>
-        <MachineField
-          labelId={machineLabelId}
-          describedById={hostProblem === null ? undefined : hostProblemId}
-          triggerRef={machineTriggerRef}
-          hosts={hosts}
-          hostId={hostId}
-          onRetry={retryHosts}
-          onChoose={(next) => {
-            setHostChoice(next);
-            setConnect({ status: "idle" });
-          }}
-        />
-        {hostProblem === null ? null : (
-          <p id={hostProblemId} className="text-xs text-warning-text">
-            {hostProblem}
-          </p>
-        )}
-      </div>
+      <fieldset disabled={connecting} className="space-y-3">
+        <div className="space-y-1.5">
+          <Label id={machineLabelId} className="text-xs">
+            Machine
+          </Label>
+          <MachineField
+            labelId={machineLabelId}
+            describedById={hostProblem === null ? undefined : hostProblemId}
+            triggerRef={machineTriggerRef}
+            hosts={hosts}
+            hostId={hostId}
+            onRetry={retryHosts}
+            onChoose={(next) => {
+              setHostChoice(next);
+              setProjectChoice(null);
+              setConnect({ status: "idle" });
+            }}
+          />
+          {hostProblem === null ? null : (
+            <p id={hostProblemId} className="text-xs text-warning-text">
+              {hostProblem}
+            </p>
+          )}
+        </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor={directoryId} className="text-xs">
-          Linked folder
-        </Label>
-        <Input
-          ref={directoryRef}
-          id={directoryId}
-          value={directory}
-          placeholder={LINK_PATH_PLACEHOLDER}
-          spellCheck={false}
-          autoCapitalize="off"
-          aria-invalid={showDirectoryError}
-          aria-describedby={showDirectoryError ? directoryErrorId : undefined}
-          className="font-mono sm:w-96"
-          onChange={(event) => {
-            setDirectoryDraft(event.target.value);
-            setConnect({ status: "idle" });
-          }}
-        />
-        {showDirectoryError ? (
-          <p id={directoryErrorId} className="text-xs text-destructive-text">
-            {directoryError}
+        {hostId !== null && selectedHost?.online ? (
+          <ProjectFields
+            key={hostId}
+            hostId={hostId}
+            onChoose={chooseProject}
+          />
+        ) : null}
+        {attempted && scope === null ? (
+          <p role="alert" className="text-xs text-destructive-text">
+            Choose a team and project before connecting.
           </p>
         ) : null}
-      </div>
+      </fieldset>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button
@@ -1045,7 +1000,7 @@ function ConnectForm({
             ? "Connecting…"
             : reconnect
               ? "Reconnect"
-              : "Connect linked project"}
+              : "Connect project"}
         </Button>
         {connect.status === "failed" ? (
           <p role="alert" className="text-xs text-destructive-text">
@@ -1057,13 +1012,12 @@ function ConnectForm({
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         Your Vercel sign-in stays in the CLI on that machine. For a CLI
-        connection, BB saves only the machine, the folder, and the account,
-        team, and project IDs, and asks the CLI for a short-lived token for each
-        operation. This page can't remove an access token saved by an earlier
-        version of this plugin; revoke that token in Vercel if you no longer use
-        it. If you sign in as a different Vercel user or link the folder to
-        another project, connect again. A new connection applies to new
-        sandboxes; existing sandboxes keep the one they started with.
+        connection, BB saves only the machine and the account, team, and project
+        IDs, and asks the CLI for a short-lived token for each operation. This
+        page can't remove an access token saved by an earlier version of this
+        plugin; revoke that token in Vercel if you no longer use it. If you sign
+        in as a different Vercel user, connect again. A new connection applies
+        to new sandboxes; existing sandboxes keep the one they started with.
       </p>
     </form>
   );
@@ -1195,7 +1149,8 @@ function LegacyAllocations({
   const canAdopt =
     account.available &&
     hostId !== null &&
-    directory !== null &&
+    account.teamId !== null &&
+    account.projectId !== null &&
     accountId !== null &&
     adopt.status !== "adopting";
   const submit = () => {
@@ -1204,7 +1159,9 @@ function LegacyAllocations({
     rpc
       .call("account.connect", {
         hostId,
-        directory,
+        ...(directory !== null
+          ? { directory }
+          : { teamId: account.teamId!, projectId: account.projectId! }),
         adoptLegacyAllocations: true,
         expectedLegacyIdentity: {
           accountId,

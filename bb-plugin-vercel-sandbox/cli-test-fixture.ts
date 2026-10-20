@@ -32,6 +32,16 @@ export async function cliFixture() {
           email: "private-email@example.invalid",
         },
       });
+    if (args[1]?.startsWith("/v2/teams?"))
+      return JSON.stringify({
+        teams: [{ id: scope.teamId, name: "Test team" }],
+        pagination: { next: null },
+      });
+    if (args[1]?.startsWith("/v9/projects?"))
+      return JSON.stringify({
+        projects: [{ id: scope.projectId, name: "Test project" }],
+        pagination: { next: null },
+      });
     if (args[1]?.startsWith("/v1/projects/")) {
       const token = `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({ owner_id: tokenScope.teamId, project_id: tokenScope.projectId, exp: expiry / 1000, iat: Date.now() / 1000 })).toString("base64url")}.secret-${tokens.length}`;
       tokens.push(token);

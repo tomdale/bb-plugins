@@ -47,6 +47,18 @@ async function setup(
     machineResource: async () => stored,
     experimental_callHostRpc: async ({ method, input, signal }) => {
       switch (method) {
+        case "teams":
+          return worker.experimental_call(
+            "teams",
+            hostContract.teams.input.parse(input),
+            { signal },
+          );
+        case "projects":
+          return worker.experimental_call(
+            "projects",
+            hostContract.projects.input.parse(input),
+            { signal },
+          );
         case "connect":
           return worker.experimental_call(
             "connect",
@@ -162,6 +174,90 @@ async function setup(
 }
 
 describe("Vercel machine allocation", () => {
+  it("discovers choices, connects explicit IDs through RPC and CLI, and pins directory-free allocations through reload and cleanup", async () => {
+    const test = await setup();
+    expect(
+      await test.harness.behavior.callRpc("account.teams", {
+        hostId: "host_auth",
+      }),
+    ).toEqual({ choices: [{ id: "team_test", name: "Test team" }] });
+    expect(
+      await test.harness.behavior.callRpc("account.projects", {
+        hostId: "host_auth",
+        teamId: "team_test",
+      }),
+    ).toEqual({ choices: [{ id: "prj_test", name: "Test project" }] });
+    expect(
+      await test.harness.behavior.callRpc("account.connect", {
+        hostId: "host_auth",
+        ...test.cli.scope,
+      }),
+    ).toMatchObject({ available: true, directory: null, ...test.cli.scope });
+    const result = await test.harness.behavior.runCli([
+      "account",
+      "connect",
+      "--host",
+      "host_auth",
+      "--team",
+      "team_test",
+      "--project",
+      "prj_test",
+      "--json",
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      available: true,
+      directory: null,
+    });
+    expect(await test.machine.create(test.context)).toMatchObject({
+      status: "created",
+    });
+    const resource = resourceSchema.parse(test.stored);
+    expect(resource.connection).toMatchObject({
+      directory: null,
+      ...test.cli.scope,
+    });
+    await test.cli.link({ teamId: "team_other", projectId: "prj_other" });
+    const replacement = await test.harness.lifecycle.reload(
+      createVercelSandboxPlugin(),
+    );
+    expect(
+      await replacement.harness.behavior.callRpc("account.inspect", {}),
+    ).toMatchObject({ available: true, directory: null });
+    const reloaded =
+      replacement.harness.registrations.machineProviders.get("vercel-sandbox")!;
+    expect(
+      await reloaded.remove({
+        hostId: "host_vercel",
+        resource,
+        signal: test.context.signal,
+        report,
+      }),
+    ).toEqual({ status: "removed" });
+    expect(test.vendor.sessions.get(resource.sessionId!)?.status).toBe(
+      "stopped",
+    );
+  });
+
+  it("rejects partial, ambiguous, and injected project selections before host calls", async () => {
+    const test = await setup();
+    const count = test.harness.experimental_hostRpcCalls.length;
+    for (const input of [
+      { hostId: "host_auth" },
+      { hostId: "host_auth", teamId: "team_test" },
+      {
+        hostId: "host_auth",
+        teamId: "team_test",
+        projectId: "prj_bad?teamId=team_other",
+      },
+      { hostId: "host_auth", directory: test.cli.directory, ...test.cli.scope },
+    ])
+      await expect(
+        test.harness.behavior.callRpc("account.connect", input),
+      ).rejects.toThrow();
+    expect(test.harness.experimental_hostRpcCalls).toHaveLength(count);
+  });
+
   it.each([
     ["defaultVcpus", 3],
     ["defaultTimeoutMinutes", 4],

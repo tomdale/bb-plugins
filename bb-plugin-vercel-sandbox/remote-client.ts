@@ -1,7 +1,11 @@
 import type { BbPluginApi, MachineExecutor } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { SafeError } from "./configuration.js";
-import type { Connection } from "./auth-contract.js";
+import type {
+  Connection,
+  connectionInputSchema,
+  projectsInputSchema,
+} from "./auth-contract.js";
 import type { Resource } from "./allocations.js";
 import { hostContract, sandboxViewSchema } from "./host-contract.js";
 
@@ -20,8 +24,27 @@ export function remoteVercelClient(bb: BbPluginApi) {
     return result.value;
   };
   return {
+    teams: (input: { hostId: string }, signal: AbortSignal) =>
+      unwrap(
+        host.call("teams", input, {
+          hostId: input.hostId,
+          signal,
+          timeoutMs: 60_000,
+        }),
+      ),
+    projects: (
+      input: z.infer<typeof projectsInputSchema>,
+      signal: AbortSignal,
+    ) =>
+      unwrap(
+        host.call("projects", input, {
+          hostId: input.hostId,
+          signal,
+          timeoutMs: 60_000,
+        }),
+      ),
     connect: (
-      input: { hostId: string; directory: string },
+      input: z.infer<typeof connectionInputSchema>,
       signal: AbortSignal,
     ) =>
       unwrap(

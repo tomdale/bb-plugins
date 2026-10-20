@@ -78,6 +78,12 @@ export function createVercelHostEntry(
   return experimental_defineHostEntry({
     contract: hostContract,
     handlers: {
+      teams: (_input, context) =>
+        guarded(context.signal, () => auth.teams(context.signal)),
+      projects: (input, context) =>
+        guarded(context.signal, () =>
+          auth.projects(input.teamId, context.signal),
+        ),
       connect: (input, context) =>
         guarded(context.signal, async () => {
           const { connection } = await auth.connect(input, context.signal);
@@ -137,9 +143,7 @@ export function createVercelHostEntry(
         }),
       stop: (input, context) =>
         guarded(context.signal, async () => {
-          await (
-            await owned(input, context.signal)
-          )
+          await (await owned(input, context.signal))
             .currentSession()
             .stop({ signal: context.signal });
           return {};

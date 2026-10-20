@@ -45,7 +45,7 @@ export function createVercelSandboxPlugin() {
       const result = connectionSchema.safeParse(stored);
       if (!result.success)
         throw new SafeError(
-          "On an enrolled machine, run vc login and vc link, then connect its linked directory in Vercel Sandbox settings.",
+          "On an enrolled machine, run vc login, then choose its team and project in Vercel Sandbox settings.",
         );
       return result.data;
     };
@@ -123,7 +123,7 @@ export function createVercelSandboxPlugin() {
         return accountResult(
           connection,
           true,
-          "CLI login, linked project, OIDC authentication, and scoped listing succeeded on the connected machine. Create permission and plan capacity are checked at launch.",
+          "CLI login, selected project, OIDC authentication, and scoped listing succeeded on the connected machine. Create permission and plan capacity are checked at launch.",
           0,
           accountName,
         );
@@ -146,7 +146,12 @@ export function createVercelSandboxPlugin() {
             "Choose a persistent enrolled machine to own Vercel authentication.",
           );
         const { connection, accountName } = await remote.connect(
-          { hostId: input.hostId, directory: input.directory },
+          {
+            hostId: input.hostId,
+            ...(input.directory != null
+              ? { directory: input.directory }
+              : { teamId: input.teamId, projectId: input.projectId }),
+          },
           combinedSignal,
         );
         const expected = input.expectedLegacyIdentity;
@@ -158,7 +163,7 @@ export function createVercelSandboxPlugin() {
             expected.projectId !== connection.projectId
           )
             throw new SafeError(
-              "The CLI account or linked project differs from the inspected migration consent. Reinspect before authorizing adoption; no bindings or default connection were changed.",
+              "The CLI account or selected project differs from the inspected migration consent. Reinspect before authorizing adoption; no bindings or default connection were changed.",
             );
           adopted = await allocations.bindConnection(
             connection,
@@ -171,7 +176,7 @@ export function createVercelSandboxPlugin() {
         return accountResult(
           connection,
           true,
-          "Connected CLI login and linked project. Future allocations use this connection; existing allocations retain their original machine and account.",
+          "Connected CLI login and selected project. Future allocations use this connection; existing allocations retain their original machine and account.",
           adopted,
           accountName,
         );
@@ -243,6 +248,22 @@ export function createVercelSandboxPlugin() {
           throw new Error(safeMessage(error));
         }
       },
+      "account.teams": async (input) => {
+        const host = await bb.sdk.hosts.get({ hostId: input.hostId });
+        if (host.type !== "persistent")
+          throw new SafeError(
+            "Choose a persistent enrolled authentication machine.",
+          );
+        return remote.teams(input, operationSignal(undefined, 60_000));
+      },
+      "account.projects": async (input) => {
+        const host = await bb.sdk.hosts.get({ hostId: input.hostId });
+        if (host.type !== "persistent")
+          throw new SafeError(
+            "Choose a persistent enrolled authentication machine.",
+          );
+        return remote.projects(input, operationSignal(undefined, 60_000));
+      },
       "account.inspect": () => inspectAccount(),
       "account.connect": (input) => connectAccount(input),
       "machine.inspect": async (input) => {
@@ -272,7 +293,7 @@ export function createVercelSandboxPlugin() {
         commands: {
           "account connect": cliCommand({
             summary:
-              "Connect an enrolled machine's CLI login and linked Vercel project",
+              "Connect an enrolled machine's CLI login to a Vercel team and project",
             options: {
               ...jsonOption,
               host: {
@@ -302,9 +323,10 @@ export function createVercelSandboxPlugin() {
                 description:
                   "Inspected positive unbound allocation count authorizing adoption",
               },
+              team: { type: "string", description: "Vercel team ID" },
+              project: { type: "string", description: "Vercel project ID" },
               directory: {
                 type: "string",
-                required: true,
                 description:
                   "Absolute directory linked with vc link on that machine",
               },
@@ -315,6 +337,8 @@ export function createVercelSandboxPlugin() {
                   accountConnectInputSchema.parse({
                     hostId: input.options.host,
                     directory: input.options.directory,
+                    teamId: input.options.team,
+                    projectId: input.options.project,
                     adoptLegacyAllocations:
                       input.options["adopt-legacy-allocations"],
                     expectedLegacyIdentity: [

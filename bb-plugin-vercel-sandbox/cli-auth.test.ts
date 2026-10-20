@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { cliAuthentication, runVc } from "./cli-auth.js";
 import { cliFixture } from "./cli-test-fixture.js";
@@ -26,6 +26,94 @@ async function fixture() {
 const signal = () => new AbortController().signal;
 
 describe("CLI authentication boundary", () => {
+  it("discovers teams and scoped projects and authenticates explicit IDs without any linked directory", async () => {
+    const cli = await fixture();
+    await rm(join(cli.directory, ".vercel"), { recursive: true });
+    const vendor = vendorTransport();
+    const worker = experimental_createHostEntryHarness(
+      createVercelHostEntry(vendor.transport, cli.run),
+    );
+    disposals.push(() => worker.experimental_dispose());
+    expect(
+      await worker.experimental_call("teams", { hostId: "host_auth" }),
+    ).toEqual({
+      ok: true,
+      value: { choices: [{ id: "team_test", name: "Test team" }] },
+    });
+    expect(
+      await worker.experimental_call("projects", {
+        hostId: "host_auth",
+        teamId: "team_test",
+      }),
+    ).toEqual({
+      ok: true,
+      value: { choices: [{ id: "prj_test", name: "Test project" }] },
+    });
+    const connected = await worker.experimental_call("connect", {
+      hostId: "host_auth",
+      ...cli.scope,
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) throw new Error(connected.message);
+    expect(connected.value.connection).toEqual({
+      hostId: "host_auth",
+      directory: null,
+      accountId: "user_test",
+      ...cli.scope,
+    });
+    expect(
+      await worker.experimental_call("inspect", connected.value.connection),
+    ).toMatchObject({ ok: true });
+    expect(
+      cli.commands.some(
+        (args) => args[1] === "/v9/projects?limit=100&teamId=team_test",
+      ),
+    ).toBe(true);
+    expect(
+      cli.commands.some((args) => ["link", "login"].includes(args[0]!)),
+    ).toBe(false);
+    cli.tokenScope = { ...cli.scope, projectId: "prj_other" };
+    expect(
+      await worker.experimental_call("inspect", connected.value.connection),
+    ).toMatchObject({ ok: false });
+    cli.tokenScope = cli.scope;
+    cli.accountId = "user_other";
+    expect(
+      await worker.experimental_call("inspect", connected.value.connection),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("paginates discovery and discards results when the CLI account changes", async () => {
+    const cli = await fixture();
+    let pages = 0;
+    const auth = cliAuthentication(async (args, directory, signal) => {
+      if (args[1]?.startsWith("/v2/teams?")) {
+        pages++;
+        if (pages === 2) {
+          expect(args[1]).toContain("until=100");
+          return JSON.stringify({
+            teams: [{ id: "team_second", name: "Second" }],
+            pagination: { next: null },
+          });
+        }
+        return JSON.stringify({
+          teams: [{ id: "team_first", name: "First" }],
+          pagination: { next: 100 },
+        });
+      }
+      return cli.run(args, directory, signal);
+    });
+    expect(
+      (await auth.teams(signal())).choices.map((choice) => choice.id),
+    ).toEqual(["team_first", "team_second"]);
+    const changed = cliAuthentication(async (args, directory, signal) => {
+      const result = await cli.run(args, directory, signal);
+      if (args[1]?.startsWith("/v2/teams?")) cli.accountId = "user_other";
+      return result;
+    });
+    await expect(changed.teams(signal())).rejects.toThrow("account changed");
+  });
+
   it("refreshes project OIDC through noninteractive vc without passing credentials in arguments or allowing implicit SDK refresh", async () => {
     const cli = await fixture();
     const vendor = vendorTransport();

@@ -1,19 +1,49 @@
 import { z } from "zod";
 import { scopeSchema } from "./configuration.js";
-export const connectionInputSchema = z
+export const accountHostInputSchema = z
   .object({
     hostId: z.string().min(1).max(200),
-    directory: z
-      .string()
-      .min(1)
-      .max(4096)
-      .refine(
-        (value) =>
-          /^(\/|[A-Za-z]:[\\/])/.test(value) && !/[\r\n\0]/.test(value),
-        "Choose an absolute linked directory.",
-      ),
   })
   .strict();
+export const projectsInputSchema = accountHostInputSchema
+  .extend({
+    teamId: scopeSchema.shape.teamId,
+  })
+  .strict();
+const choiceSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    name: z.string().min(1).max(200),
+  })
+  .strict();
+export const accountChoicesSchema = z
+  .object({
+    choices: z.array(choiceSchema).max(5000),
+  })
+  .strict();
+const directorySchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (value) => /^(\/|[A-Za-z]:[\\/])/.test(value) && !/[\r\n\0]/.test(value),
+    "Choose an absolute linked directory.",
+  );
+export const connectionInputSchema = z
+  .object({
+    hostId: accountHostInputSchema.shape.hostId,
+    directory: directorySchema.nullable().optional(),
+    teamId: scopeSchema.shape.teamId.optional(),
+    projectId: scopeSchema.shape.projectId.optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.directory != null
+        ? value.teamId === undefined && value.projectId === undefined
+        : value.teamId !== undefined && value.projectId !== undefined,
+    "Choose a team and project, or supply a linked directory.",
+  );
 export const legacyIdentitySchema = scopeSchema
   .extend({
     accountId: z.string().min(1).max(200),
@@ -21,7 +51,7 @@ export const legacyIdentitySchema = scopeSchema
   })
   .strict();
 export const accountConnectInputSchema = connectionInputSchema
-  .extend({
+  .safeExtend({
     adoptLegacyAllocations: z.boolean().default(false),
     expectedLegacyIdentity: legacyIdentitySchema.nullable().default(null),
   })
@@ -33,7 +63,8 @@ export const accountConnectInputSchema = connectionInputSchema
   );
 export const connectionSchema = scopeSchema
   .extend({
-    ...connectionInputSchema.shape,
+    hostId: accountHostInputSchema.shape.hostId,
+    directory: directorySchema.nullable(),
     accountId: z.string().min(1).max(200),
   })
   .strict();

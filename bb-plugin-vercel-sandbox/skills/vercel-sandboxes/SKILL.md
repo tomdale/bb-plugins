@@ -7,12 +7,12 @@ description: Configure, launch, inspect, and remove disposable BB machines on Ve
 
 Install the plugin from `~/Code/Repos/toolbelt/main/bb-plugin-vercel-sandbox`. Choose a persistent
 enrolled BB machine to own Vercel authentication. On that machine, install Vercel
-CLI 58.3.0 or later, run `vc login` and approve its OAuth browser/device flow,
-then run `vc link --cwd /absolute/directory` to select an existing team project.
-The machine's daemon user owns the CLI login. Connect with `bb vercel-sandbox
-account connect --host HOST --directory /absolute/directory --json`, or use the
-plugin settings connection form. Login and linking require explicit user action;
-installation, inspection, launch, and cleanup never start them.
+CLI 58.3.0 or later, run `vc login` and approve its OAuth browser/device flow as
+the machine's daemon user. In the plugin's Settings connection form, choose that
+machine, select a team and project from its Vercel account, then connect. For CLI
+setup, use `bb vercel-sandbox account connect --host HOST --team TEAM_ID --project
+PROJECT_ID --json`. Login and project selection require explicit user action;
+installation, inspection, launch, and cleanup never start login.
 
 `vc` manages OAuth access-token refresh and issues project OIDC tokens through
 noninteractive API requests. The plugin's host extension consumes tokens privately
@@ -22,17 +22,21 @@ credentials in core machine environment settings. Core machine server access mus
 let the sandbox reach the BB server.
 
 Run `bb vercel-sandbox account inspect --json` to check the connected machine's
-CLI account, linked project, OIDC scope/expiry, and authenticated listing without
+CLI account, selected project, OIDC scope/expiry, and authenticated listing without
 compute. Inspection may refresh authentication. Successful listing does not prove
 allocation permission or plan capacity. `bb vercel-sandbox launch options --json`
 reads image, resource limits, and launch defaults without vendor allocation.
 
-Each allocation pins its original authentication machine, directory, CLI account,
-team, and project. Connect affects future launches; retries and cleanup use the
-recorded connection. Restore its original CLI login and project link if they change.
+Each allocation pins its original authentication machine, CLI account, team, and
+project. Connect affects future launches; retries and cleanup use the recorded
+connection. Restore its original CLI login if it changes. Directory-backed
+connections created with `--directory PATH` also pin that folder's Vercel project
+link. To set one up, run `vc link --cwd PATH` on the authentication machine, then
+connect with `bb vercel-sandbox account connect --host HOST --directory PATH`.
+Preserve the folder and link for allocations using those connections.
 Allocations recorded without CLI identity require explicit migration consent:
 inspect the matching unbound count, verify you have authority for their recorded
-team/project, then connect the same host/directory with `--adopt-legacy-allocations
+team/project, then connect the same host and scope with `--adopt-legacy-allocations
 --expected-account ACCOUNT --expected-team TEAM --expected-project PROJECT
 --expected-count COUNT`, using the inspected IDs and positive count. This authorizes the
 currently verified CLI account once; historical account identity is unavailable.
@@ -80,8 +84,12 @@ requires operator investigation.
 
 CLI commands have typed RPC equivalents in `vercelRpcContract` (`rpc.ts`):
 `account.inspect` and `launch.options` take `{}`, `machine.inspect` takes `{hostId}`,
-and `account.connect` takes
-`{hostId,directory,adoptLegacyAllocations?,expectedLegacyIdentity?}`. Adoption defaults
+`account.teams` takes `{hostId}` and `account.projects` takes `{hostId,teamId}`;
+both return `{choices:[{id,name}]}` through the authentication machine's CLI.
+`account.connect` takes
+`{hostId,teamId,projectId,adoptLegacyAllocations?,expectedLegacyIdentity?}`.
+For directory-backed connections, supply `directory` in place of `teamId` and
+`projectId`. Direct-ID connections return `directory:null`. Adoption defaults
 to false. Adoption requires `expectedLegacyIdentity:{accountId,teamId,projectId,count}`
 from inspection; ordinary connect uses null. Inspect/connect return sanitized
 connection IDs, nullable display-only `accountName` username, availability,

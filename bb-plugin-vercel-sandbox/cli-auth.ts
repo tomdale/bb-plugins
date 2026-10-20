@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { z } from "zod";
 import {
   accountNameSchema,
   connectionSchema,
   type Connection,
+  connectionInputSchema,
 } from "./auth-contract.js";
 import { SafeError, scopeSchema, type Credentials } from "./configuration.js";
 
@@ -15,7 +17,7 @@ export type CliRunner = (
   signal: AbortSignal,
 ) => Promise<string>;
 const CLI_FAILURE =
-  "Vercel CLI authentication failed on the selected machine. Install vc 58.3.0 or later, run vc login, link an existing project with vc link, and reconnect. Inspection never starts login.";
+  "Vercel CLI authentication failed on the selected machine. Install vc 58.3.0 or later, run vc login, and choose a team and project in Settings. Inspection never starts login.";
 export const runVc: CliRunner = async (args, directory, signal) => {
   signal.throwIfAborted();
   const devin = await access("/opt/.devin").then(
@@ -142,17 +144,74 @@ export function cliAuthentication(run: CliRunner = runVc) {
     )
       throw new SafeError(CLI_FAILURE);
   };
+  const choices = async (
+    kind: "teams" | "projects",
+    teamId: string | undefined,
+    signal: AbortSignal,
+  ) => {
+    const directory = homedir();
+    await assertVersion(directory, signal);
+    const user = await identity(directory, signal);
+    const entries: { id: string; name: string }[] = [];
+    let until: number | undefined;
+    for (let page = 0; page < 50; page++) {
+      const query = new URLSearchParams({ limit: "100" });
+      if (teamId) query.set("teamId", teamId);
+      if (until !== undefined) query.set("until", String(until));
+      const endpoint = kind === "teams" ? "/v2/teams" : "/v9/projects";
+      const response = JSON.parse(
+        await command(
+          ["api", `${endpoint}?${query}`, "--raw"],
+          directory,
+          signal,
+        ),
+      );
+      const item = z.object({
+        id: z.string().min(1).max(200),
+        name: z.string().min(1).max(200),
+      });
+      const items = z.array(item).max(100).parse(response[kind]);
+      const pagination = z
+        .object({ next: z.number().int().nonnegative().nullable() })
+        .parse(response.pagination);
+      entries.push(...items);
+      const next = pagination.next;
+      if (next === null) {
+        if ((await identity(directory, signal)).id !== user.id)
+          throw new SafeError(
+            "The Vercel CLI account changed while loading choices. Reload the team and project lists.",
+          );
+        return { choices: entries };
+      }
+      if (until !== undefined && next >= until) break;
+      until = next;
+    }
+    throw new SafeError(
+      "Too many Vercel teams or projects to list. Use the CLI to connect explicit team and project IDs.",
+    );
+  };
   return {
+    teams: (signal: AbortSignal) => choices("teams", undefined, signal),
+    projects: (teamId: string, signal: AbortSignal) =>
+      choices("projects", teamId, signal),
     async connect(
-      input: { hostId: string; directory: string },
+      input: z.infer<typeof connectionInputSchema>,
       signal: AbortSignal,
     ) {
-      await assertVersion(input.directory, signal);
-      const scope = await linkedScope(input.directory);
-      const user = await identity(input.directory, signal);
+      const directory = input.directory ?? homedir();
+      await assertVersion(directory, signal);
+      const scope =
+        input.directory != null
+          ? await linkedScope(input.directory)
+          : scopeSchema.parse({
+              teamId: input.teamId,
+              projectId: input.projectId,
+            });
+      const user = await identity(directory, signal);
       return {
         connection: connectionSchema.parse({
-          ...input,
+          hostId: input.hostId,
+          directory: input.directory ?? null,
           ...scope,
           accountId: user.id,
         }),
@@ -163,8 +222,12 @@ export function cliAuthentication(run: CliRunner = runVc) {
       connection: Connection,
       signal: AbortSignal,
     ): Promise<Credentials & { accountName: string | null }> {
-      await assertVersion(connection.directory, signal);
-      const scope = await linkedScope(connection.directory);
+      const directory = connection.directory ?? homedir();
+      await assertVersion(directory, signal);
+      const scope =
+        connection.directory === null
+          ? { teamId: connection.teamId, projectId: connection.projectId }
+          : await linkedScope(connection.directory);
       if (
         scope.teamId !== connection.teamId ||
         scope.projectId !== connection.projectId
@@ -172,10 +235,7 @@ export function cliAuthentication(run: CliRunner = runVc) {
         throw new SafeError(
           "The linked Vercel project changed. Restore this machine's original linked directory before inspection or cleanup; reconnect for future launches.",
         );
-      if (
-        (await identity(connection.directory, signal)).id !==
-        connection.accountId
-      )
+      if ((await identity(directory, signal)).id !== connection.accountId)
         throw new SafeError(
           "The Vercel CLI account changed. Log in with this allocation's original account before inspection or cleanup; reconnect for future launches.",
         );
@@ -191,7 +251,7 @@ export function cliAuthentication(run: CliRunner = runVc) {
           JSON.parse(
             await command(
               ["api", endpoint, "--method", "POST", "--raw"],
-              connection.directory,
+              directory,
               signal,
             ),
           ),
@@ -218,12 +278,15 @@ export function cliAuthentication(run: CliRunner = runVc) {
         throw new SafeError(
           "Vercel OIDC token scope or expiry does not match the pinned allocation. Reconnect after checking project OIDC access.",
         );
-      const user = await identity(connection.directory, signal);
+      const user = await identity(directory, signal);
       if (user.id !== connection.accountId)
         throw new SafeError(
           "The Vercel CLI account changed during OIDC refresh. Restore the original login and retry.",
         );
-      const after = await linkedScope(connection.directory);
+      const after =
+        connection.directory === null
+          ? scope
+          : await linkedScope(connection.directory);
       if (
         after.teamId !== connection.teamId ||
         after.projectId !== connection.projectId

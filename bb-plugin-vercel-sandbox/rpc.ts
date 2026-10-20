@@ -3,6 +3,9 @@ import { z } from "zod";
 import { resolvedInputsSchema, vcpusSchema } from "./configuration.js";
 import {
   accountInspectionSchema,
+  accountHostInputSchema,
+  projectsInputSchema,
+  accountChoicesSchema,
   accountConnectInputSchema,
 } from "./auth-contract.js";
 export const stateSchema = z.enum([
@@ -34,6 +37,14 @@ export const vercelRpcContract = defineRpcContract({
         memoryMiBPerVcpu: z.number(),
       })
       .strict(),
+  },
+  "account.teams": {
+    input: accountHostInputSchema,
+    output: accountChoicesSchema,
+  },
+  "account.projects": {
+    input: projectsInputSchema,
+    output: accountChoicesSchema,
   },
   "account.inspect": {
     input: z.object({}).strict(),
