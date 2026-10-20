@@ -117,6 +117,85 @@ export function noteLocus(walkthrough: Walkthrough, note: Note): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Where a new note is anchored
+// ---------------------------------------------------------------------------
+
+/** What a selection hands the notes form: the quote, where it was read, and the excerpt it sits in. */
+export interface NoteDraft {
+  quote: string;
+  groupIndex: number | null;
+  /** The code excerpt the selection was made in, when it was made in one. */
+  location?: Location | null;
+  sequence: number;
+}
+
+/** The part of a note's anchor that outlives typing: which part, file, and quote it will be saved against. */
+export interface NoteTarget {
+  groupIndex: number | null;
+  location: Location | null;
+  quote: string | null;
+}
+
+/** A note written from scratch belongs to the part on screen and to no file or quote. */
+export function blankTarget(currentPart: number | null): NoteTarget {
+  return { groupIndex: currentPart, location: null, quote: null };
+}
+
+/** A note started from a selection is anchored to exactly what the selection implies, and nothing left over from an earlier note. */
+export function targetFromDraft(draft: NoteDraft): NoteTarget {
+  return { groupIndex: draft.groupIndex, location: draft.location ?? null, quote: draft.quote };
+}
+
+/**
+ * The files and ranges a note can point at: the current part's code excerpts
+ * first, then the other files it touches, then `keep` (an anchor already chosen).
+ */
+export function locationChoices(walkthrough: Walkthrough, groupIndex: number | null, keep: Location | null = null): Location[] {
+  const part = groupIndex === null ? undefined : walkthrough.parts[groupIndex];
+  const excerpts = (part?.blocks ?? []).flatMap((block) => (block.kind === "code" ? [{ path: block.path, startLine: block.startLine, endLine: block.endLine }] : []));
+  const seen = new Set<string>();
+  return [...excerpts, ...(part?.locations ?? []), ...(keep ? [keep] : [])].filter((location) => {
+    const key = formatLocation(location) ?? location.path;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** The lines text for a location: "12", "12-40", or "" for a whole file. */
+export function linesText(location: Location | null): string {
+  if (!location || location.startLine === undefined) return "";
+  return location.endLine !== undefined && location.endLine !== location.startLine ? `${location.startLine}-${location.endLine}` : `${location.startLine}`;
+}
+
+/** Applies typed lines ("12", "12-40", or empty for the whole file) to a chosen file; text that is not a range keeps the choice's own range. */
+export function noteLocation(choice: Location | null, lines: string): Location | null {
+  if (!choice) return null;
+  if (lines.trim() === "") return { path: choice.path };
+  const match = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/u.exec(lines);
+  if (!match) return choice;
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : start;
+  return { path: choice.path, startLine: Math.min(start, end), ...(start === end ? {} : { endLine: Math.max(start, end) }) };
+}
+
+/**
+ * Where to put the "Leave a note" button, relative to the page it floats in.
+ * The host's code viewer can render in a shadow root, where a selection's
+ * bounding rect comes back empty, so an empty rect falls back to the pointer.
+ */
+export function noteButtonPosition(
+  rect: { top: number; bottom: number; left: number; right: number; width: number; height: number },
+  pointer: { x: number; y: number },
+  page: { top: number; left: number },
+): { top: number; left: number } {
+  const empty = rect.width === 0 && rect.height === 0;
+  return empty
+    ? { top: pointer.y - page.top + 12, left: Math.max(0, pointer.x - page.left) }
+    : { top: rect.bottom - page.top + 6, left: Math.max(0, rect.left - page.left) };
+}
+
+// ---------------------------------------------------------------------------
 // Dotted commands typed into a question box
 // ---------------------------------------------------------------------------
 

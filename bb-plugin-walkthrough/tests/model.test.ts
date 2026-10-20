@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comparedWith, defaultExcerptView, excerptCode, formatStarted, hasChangedLines, parseCommand, renderNotesMarkdown, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
+import { blankTarget, comparedWith, linesText, locationChoices, noteButtonPosition, noteLocation, targetFromDraft, defaultExcerptView, excerptCode, formatStarted, hasChangedLines, parseCommand, renderNotesMarkdown, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
 import { filterPatchToRange } from "../src/patch.ts";
 import type { Note, Walkthrough } from "../src/schemas.ts";
 
@@ -187,5 +187,52 @@ describe("excerpt views", () => {
     expect(excerptCode(changed, "after")).toBe("one\nTWO");
     expect(excerptCode(changed, "before")).toBe("one\ntwo");
     expect(excerptCode(changed, "change")).toBe(" one\n-two\n+TWO");
+  });
+});
+
+describe("note anchors", () => {
+  it("starts a typed note on the current part with no file or quote", () => {
+    expect(blankTarget(2)).toEqual({ groupIndex: 2, location: null, quote: null });
+    expect(blankTarget(null)).toEqual({ groupIndex: null, location: null, quote: null });
+  });
+
+  it("anchors a selection to what it implies and nothing else", () => {
+    expect(targetFromDraft({ quote: "q", groupIndex: 1, sequence: 1 })).toEqual({ groupIndex: 1, location: null, quote: "q" });
+    const location = { path: "src/a.ts", startLine: 3, endLine: 9 };
+    expect(targetFromDraft({ quote: "q", groupIndex: 1, location, sequence: 2 })).toEqual({ groupIndex: 1, location, quote: "q" });
+  });
+
+  it("offers the part's code excerpts first, then its files, without duplicates", () => {
+    const base = walkthrough();
+    const withBlocks = walkthrough({
+      parts: [
+        {
+          ...base.parts[0]!,
+          locations: [{ path: "src/b.ts" }, { path: "src/a.ts", startLine: 3, endLine: 9 }],
+          blocks: [{ kind: "prose", text: "x" }, { kind: "code", caption: "c", path: "src/a.ts", startLine: 3, endLine: 9, notes: [] }],
+        },
+      ],
+    });
+    expect(locationChoices(withBlocks, 0)).toEqual([{ path: "src/a.ts", startLine: 3, endLine: 9 }, { path: "src/b.ts" }]);
+    expect(locationChoices(withBlocks, null)).toEqual([]);
+    expect(locationChoices(withBlocks, null, { path: "z.ts" })).toEqual([{ path: "z.ts" }]);
+  });
+
+  it("applies typed lines to the chosen file", () => {
+    const choice = { path: "src/a.ts", startLine: 3, endLine: 9 };
+    expect(linesText(choice)).toBe("3-9");
+    expect(linesText({ path: "src/a.ts" })).toBe("");
+    expect(noteLocation(null, "4")).toBeNull();
+    expect(noteLocation(choice, "")).toEqual({ path: "src/a.ts" });
+    expect(noteLocation(choice, "12")).toEqual({ path: "src/a.ts", startLine: 12 });
+    expect(noteLocation(choice, "40-12")).toEqual({ path: "src/a.ts", startLine: 12, endLine: 40 });
+    expect(noteLocation(choice, "soon")).toEqual(choice);
+  });
+
+  it("places the note button by the pointer when the selection has no rect", () => {
+    const empty = { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+    const rect = { top: 200, bottom: 220, left: 50, right: 150, width: 100, height: 20 };
+    expect(noteButtonPosition(rect, { x: 90, y: 215 }, { top: 100, left: 10 })).toEqual({ top: 126, left: 40 });
+    expect(noteButtonPosition(empty, { x: 90, y: 215 }, { top: 100, left: 10 })).toEqual({ top: 127, left: 80 });
   });
 });

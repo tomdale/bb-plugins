@@ -7,27 +7,22 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { formatLocation, NOTE_KIND_LABEL, NOTE_SECTIONS, noteKindsFor, partLabel } from "../model.ts";
-import type { Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
+import {
+  blankTarget,
+  formatLocation,
+  linesText,
+  locationChoices,
+  NOTE_KIND_LABEL,
+  NOTE_SECTIONS,
+  noteKindsFor,
+  noteLocation,
+  partLabel,
+  targetFromDraft,
+  type NoteDraft,
+} from "../model.ts";
+import type { Location, Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
 import { errorMessage, type WalkthroughRpc } from "./hooks.ts";
 import { DiffView, LocationLink, Muted } from "./parts.tsx";
-
-/** Applies a typed "12" or "12-40" to a location; anything else keeps the location's own range. */
-function withLines(location: Walkthrough["parts"][number]["locations"][number] | null, lines: string) {
-  if (!location) return null;
-  const match = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/u.exec(lines);
-  if (!match) return location;
-  const start = Number(match[1]);
-  const end = match[2] ? Number(match[2]) : start;
-  return { path: location.path, startLine: Math.min(start, end), ...(start === end ? {} : { endLine: Math.max(start, end) }) };
-}
-
-export interface NoteDraft {
-  quote: string;
-  groupIndex: number | null;
-  sequence: number;
-}
-
 
 export function NotesTab({ view, rpc, draft, onDraftUsed }: { view: WalkthroughView; rpc: WalkthroughRpc; draft: NoteDraft | null; onDraftUsed: () => void }) {
   const { walkthrough, notes } = view;
@@ -83,22 +78,43 @@ function NoteComposer({
   const [text, setText] = useState("");
   const [quote, setQuote] = useState<string | null>(null);
   const [groupIndex, setGroupIndex] = useState<number | null>(walkthrough.currentPart);
-  const [locationIndex, setLocationIndex] = useState(-1);
+  // The file the note points at, and the lines typed for it; null until the user (or a selection in an excerpt) picks one.
+  const [choice, setChoice] = useState<Location | null>(null);
+  const [lines, setLines] = useState("");
   const [busy, setBusy] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const anchorTo = (location: Location | null) => {
+    setChoice(location);
+    setLines(linesText(location));
+  };
+  const reset = (currentPart: number | null) => {
+    const blank = blankTarget(currentPart);
+    setGroupIndex(blank.groupIndex);
+    anchorTo(blank.location);
+    setQuote(blank.quote);
+  };
   useEffect(() => {
     if (!draft) return;
-    setQuote(draft.quote);
-    setGroupIndex(draft.groupIndex);
+    const target = targetFromDraft(draft);
+    setQuote(target.quote);
+    setGroupIndex(target.groupIndex);
+    anchorTo(target.location);
     onDraftUsed();
     textRef.current?.focus();
   }, [draft, onDraftUsed]);
+  // Turning to another part starts the next note on that part, with no file carried over.
+  const currentPart = walkthrough.currentPart;
+  const firstRender = useRef(true);
   useEffect(() => {
-    setGroupIndex(walkthrough.currentPart);
-    setLocationIndex(-1);
-  }, [walkthrough.currentPart]);
-  const locations = groupIndex === null ? [] : walkthrough.parts[groupIndex]?.locations ?? [];
-  const [lines, setLines] = useState("");
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    setGroupIndex(currentPart);
+    anchorTo(null);
+  }, [currentPart]);
+  const choices = locationChoices(walkthrough, groupIndex, choice);
+  const choiceIndex = choice ? choices.findIndex((candidate) => formatLocation(candidate) === formatLocation(choice)) : -1;
   const save = async () => {
     const trimmed = text.trim();
     if (trimmed === "") return;
@@ -109,11 +125,12 @@ function NoteComposer({
         kind,
         text: trimmed,
         groupIndex,
-        location: locationIndex >= 0 ? withLines(locations[locationIndex] ?? null, lines) : null,
+        location: noteLocation(choice, lines),
         quote,
       });
       setText("");
-      setQuote(null);
+      // The next note starts from the part on screen, not from where this one was anchored.
+      reset(walkthrough.currentPart);
       toast.success(`Recorded ${NOTE_KIND_LABEL[kind].toLowerCase()} ${note.id}`);
     } catch (cause) {
       toast.error(errorMessage(cause));
@@ -175,7 +192,7 @@ function NoteComposer({
           onChange={(event) => {
             const value = Number(event.target.value);
             setGroupIndex(value < 0 ? null : value);
-            setLocationIndex(-1);
+            anchorTo(null);
           }}
           aria-label="Group"
           className="h-7 max-w-[12rem] rounded-md border border-input bg-transparent px-1.5 text-xs"
@@ -187,32 +204,27 @@ function NoteComposer({
             </option>
           ))}
         </select>
-        {locations.length > 0 ? (
+        {choices.length > 0 ? (
           <select
-            value={locationIndex}
-            onChange={(event) => {
-              const index = Number(event.target.value);
-              setLocationIndex(index);
-              const chosen = locations[index];
-              setLines(chosen?.startLine ? `${chosen.startLine}${chosen.endLine && chosen.endLine !== chosen.startLine ? `-${chosen.endLine}` : ""}` : "");
-            }}
+            value={choiceIndex}
+            onChange={(event) => anchorTo(choices[Number(event.target.value)] ?? null)}
             aria-label="File"
             className="h-7 max-w-[12rem] rounded-md border border-input bg-transparent px-1.5 text-xs"
           >
             <option value={-1}>No file</option>
-            {locations.map((location, index) => (
-              <option key={`${location.path}:${index}`} value={index}>
+            {choices.map((location, index) => (
+              <option key={`${formatLocation(location)}:${index}`} value={index}>
                 {formatLocation(location)}
               </option>
             ))}
           </select>
         ) : null}
-        {locationIndex >= 0 ? (
+        {choice ? (
           <input
             value={lines}
             onChange={(event) => setLines(event.target.value)}
             aria-label="Lines"
-            placeholder="lines"
+            placeholder="all lines"
             className="h-7 w-20 rounded-md border border-input bg-transparent px-1.5 text-xs"
           />
         ) : null}

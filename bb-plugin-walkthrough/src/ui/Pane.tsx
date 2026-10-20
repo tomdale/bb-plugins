@@ -8,12 +8,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
-import { comparedWith, NOTE_KIND_LABEL, parseCommand } from "../model.ts";
-import { PAGE_PATH, PANEL_ACTION_ID, type Block, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
+import { comparedWith, noteButtonPosition, NOTE_KIND_LABEL, parseCommand, type NoteDraft } from "../model.ts";
+import { PAGE_PATH, PANEL_ACTION_ID, type Block, type Location, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
 import { CodeExcerpt } from "./code.tsx";
 import { errorMessage, useThreadWalkthroughs, useWalkthrough, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { openPane, StartForm } from "./Starter.tsx";
-import { NotesTab, ReviewTab, type NoteDraft } from "./notes.tsx";
+import { NotesTab, ReviewTab } from "./notes.tsx";
 import { Muted, SummaryRow } from "./parts.tsx";
 import { Prose, type ProseContext } from "./prose.tsx";
 
@@ -170,8 +170,8 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
     call(() => rpc.call("openPart", { walkthroughId: walkthrough.id, index }));
   };
   const openWrapUp = () => setLeftWrapUp(false);
-  const noteFromSelection = (quote: string) => {
-    setDraft({ quote, groupIndex: walkthrough.currentPart, sequence: Date.now() });
+  const noteFromSelection = (quote: string, location: Location | null) => {
+    setDraft({ quote, groupIndex: walkthrough.currentPart, location, sequence: Date.now() });
     setDrawer("notes");
   };
 
@@ -408,6 +408,27 @@ function nextReadyHint(walkthrough: Walkthrough) {
   return <p className="mt-4 text-[11px] text-muted-foreground">{part.status === "ready" ? "The next part is ready." : part.status === "writing" ? "Writing the next part…" : null}</p>;
 }
 
+/**
+ * The file and lines of the code excerpt a selection was made in, read from the
+ * figure's data attributes. The host's viewer may render inside a shadow root,
+ * which retargets both the selection's anchor and the event's target to its
+ * host element, so either one leads back to the figure.
+ */
+function excerptLocation(range: Range, target: EventTarget): Location | null {
+  const node = range.commonAncestorContainer;
+  const element = node instanceof Element ? node : node.parentElement;
+  const figure = element?.closest<HTMLElement>("figure[data-code-path]") ?? (target instanceof Element ? target.closest<HTMLElement>("figure[data-code-path]") : null);
+  const path = figure?.dataset.codePath;
+  if (!figure || !path) return null;
+  const startLine = Number(figure.dataset.codeStart);
+  const endLine = Number(figure.dataset.codeEnd);
+  return {
+    path,
+    ...(Number.isInteger(startLine) && startLine > 0 ? { startLine } : {}),
+    ...(Number.isInteger(endLine) && endLine > startLine ? { endLine } : {}),
+  };
+}
+
 function Page({
   walkthrough,
   rpc,
@@ -425,11 +446,11 @@ function Page({
   wrapUpShown: boolean;
   onOpen: (index: number | null) => void;
   onOpenWrapUp: () => void;
-  onNote: (quote: string) => void;
+  onNote: (quote: string, location: Location | null) => void;
   threadId: string;
   showContents: boolean;
 }) {
-  const [selection, setSelection] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [selection, setSelection] = useState<{ text: string; top: number; left: number; location: Location | null } | null>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const onMouseUp = (event: MouseEvent) => {
     // The note button's own mouseup must not dismiss it before its click lands.
@@ -440,9 +461,9 @@ function Page({
       setSelection(null);
       return;
     }
-    const range = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
-    const box = page.getBoundingClientRect();
-    setSelection({ text: text.slice(0, 2000), top: range.bottom - box.top + 6, left: Math.max(0, range.left - box.left) });
+    const range = window.getSelection()!.getRangeAt(0);
+    const place = noteButtonPosition(range.getBoundingClientRect(), { x: event.clientX, y: event.clientY }, page.getBoundingClientRect());
+    setSelection({ text: text.slice(0, 2000), ...place, location: excerptLocation(range, event.target) });
   };
 
   let content;
@@ -465,7 +486,7 @@ function Page({
           style={{ top: selection.top, left: selection.left }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => {
-            onNote(selection.text);
+            onNote(selection.text, selection.location);
             setSelection(null);
             window.getSelection()?.removeAllRanges();
           }}

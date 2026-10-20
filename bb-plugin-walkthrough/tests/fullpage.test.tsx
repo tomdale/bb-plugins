@@ -221,3 +221,40 @@ describe("notes drawer", () => {
     expect(slot.queryByRole("complementary", { name: "Notes" })).toBeNull();
   });
 });
+
+describe("note composer", () => {
+  it("starts the next note with no file after saving one anchored to a file", async () => {
+    const codePart = {
+      title: "Schema",
+      summary: "",
+      locations: [{ path: "src/other.ts" }],
+      status: "ready" as const,
+      blocks: [{ kind: "code" as const, caption: "The schema", path: "src/a.ts", startLine: 3, endLine: 9, notes: [] }],
+      suggestions: [],
+      message: null,
+      discussion: [],
+    };
+    const note = { id: "n1", walkthroughId: "wt_1", kind: "question", text: "x", groupIndex: 0, location: null, quote: null, status: "open", resolution: null, author: "user", createdAt: 0, updatedAt: 0 };
+    const slot = await mountPage("wt_1", {
+      get: () => ({ view: { walkthrough: walkthrough({ parts: [codePart] }), notes: [] } }),
+      excerpt: () => ({ outcome: "unavailable", message: "n/a" }),
+      addNote: () => note,
+    });
+    fireEvent.click(await slot.findByRole("button", { name: /Notes/u }));
+    const file = (await slot.findByRole("combobox", { name: "File" })) as HTMLSelectElement;
+    // The part's code excerpts come first.
+    expect(Array.from(file.options).map((option) => option.textContent)).toEqual(["No file", "src/a.ts:3-9", "src/other.ts"]);
+    const record = async (text: string) => {
+      fireEvent.change(slot.getByRole("textbox", { name: "Note text" }), { target: { value: text } });
+      fireEvent.click(slot.getByRole("button", { name: "Record" }));
+      await vi.waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "addNote")).toHaveLength(text === "first" ? 1 : 2));
+    };
+    fireEvent.change(file, { target: { value: "0" } });
+    expect((slot.getByRole("textbox", { name: "Lines" }) as HTMLInputElement).value).toBe("3-9");
+    await record("first");
+    await vi.waitFor(() => expect((slot.getByRole("combobox", { name: "File" }) as HTMLSelectElement).value).toBe("-1"));
+    await record("second");
+    const inputs = slot.inspection.rpcCalls.filter((call) => call.method === "addNote").map((call) => call.input as { location: unknown });
+    expect(inputs.map((input) => input.location)).toEqual([{ path: "src/a.ts", startLine: 3, endLine: 9 }, null]);
+  });
+});
