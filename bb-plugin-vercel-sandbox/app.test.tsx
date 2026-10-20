@@ -954,6 +954,29 @@ describe("settings section", () => {
     expect(connectCalls(slot)).toEqual([]);
   });
 
+  it("rechecks the machine list when the chosen machine is offline", async () => {
+    let online = false;
+    const slot = renderSettings(
+      { "account.inspect": () => NOT_CONNECTED },
+      () =>
+        HOSTS.map((entry) =>
+          entry.id === "host-studio" && online
+            ? { ...entry, status: "connected" }
+            : entry,
+        ),
+    );
+    await slot.findByText(/Not connected/);
+    expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
+    openMenu(slot.getByRole("button", { name: /Machine/ }));
+    fireEvent.click(await slot.findByRole("menuitemradio", { name: /Studio/ }));
+    expect(slot.getByText(/Studio is offline/)).toBeTruthy();
+    online = true;
+    fireEvent.click(slot.getByRole("button", { name: "Check again" }));
+    await waitFor(() =>
+      expect(slot.queryByText(/Studio is offline/)).toBeNull(),
+    );
+  });
+
   it("focuses an offline machine with the offline reason described", async () => {
     const slot = renderSettings({
       "account.inspect": () => NOT_CONNECTED,
@@ -991,11 +1014,7 @@ describe("settings section", () => {
       },
     );
     expect(slot.getByText("Checking the Vercel connection…")).toBeTruthy();
-    expect(
-      slot
-        .getByRole("button", { name: "Check again" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
     await act(async () => {
       first.resolve({
         ...CONNECTED,
@@ -1015,6 +1034,7 @@ describe("settings section", () => {
     await slot.findByText(
       "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
     );
+    expect(slot.queryByRole("button", { name: "Check again" })).toBeNull();
     expect(calls).toBe(2);
     expect(hostLists).toBe(2);
     expect(connectCalls(slot)).toEqual([]);
@@ -1023,16 +1043,20 @@ describe("settings section", () => {
 
   it("keeps a connect result when an older check lands afterwards", async () => {
     const recheck = deferred<Account>();
-    let calls = 0;
     const slot = renderSettings({
-      "account.inspect": () => {
-        calls += 1;
-        return calls === 1 ? NOT_CONNECTED : recheck.promise;
-      },
+      "account.saved": () => ({
+        hostId: null,
+        directory: null,
+        accountId: null,
+        accountName: null,
+        teamId: null,
+        projectId: null,
+        teamName: null,
+        projectName: null,
+      }),
+      "account.inspect": () => recheck.promise,
       "account.connect": () => CONNECTED,
     });
-    await slot.findByText(/Not connected/);
-    fireEvent.click(slot.getByRole("button", { name: "Check again" }));
     openMenu(await slot.findByRole("button", { name: /Machine/ }));
     fireEvent.click(
       await slot.findByRole("menuitemradio", { name: /Tom's MacBook/ }),

@@ -807,10 +807,15 @@ function MachineField({
   }
   if (hosts.data.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">
-        No machines are enrolled in BB. Add the machine that runs the Vercel
-        CLI, then check again.
-      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-xs text-muted-foreground">
+          No machines are enrolled in BB. Add the machine that runs the Vercel
+          CLI, then check again.
+        </p>
+        <Button type="button" size="sm" variant="ghost" onClick={onRetry}>
+          Check again
+        </Button>
+      </div>
     );
   }
   const selected = hosts.data.find((host) => host.id === hostId) ?? null;
@@ -1015,9 +1020,21 @@ function ConnectForm({
             }}
           />
           {hostProblem === null ? null : (
-            <p id={hostProblemId} className="text-xs text-warning-text">
-              {hostProblem}
-            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <p id={hostProblemId} className="text-xs text-warning-text">
+                {hostProblem}
+              </p>
+              {selectedHost !== null && !selectedHost.online ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={retryHosts}
+                >
+                  Check again
+                </Button>
+              ) : null}
+            </div>
           )}
         </div>
 
@@ -1362,6 +1379,16 @@ function VercelSettingsSection() {
     checked || !checking
       ? !connected || !current.available || changing
       : savedNone;
+  // Check again is offered only after a check fails: a healthy or empty
+  // connection is already rechecked on every visit. It stays visible while
+  // its own recheck runs.
+  const failed =
+    account.state.status === "error" ||
+    (latest !== null && latest.hostId !== null && !latest.available);
+  const [recheckable, setRecheckable] = useState(false);
+  useEffect(() => {
+    if (!checking) setRecheckable(failed);
+  }, [checking, failed]);
   const connectionLoaded = (next: AccountStatus) => {
     account.replace(next);
     setChanging(false);
@@ -1373,18 +1400,20 @@ function VercelSettingsSection() {
           title="Vercel connection"
           action={
             <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={checking}
-                onClick={checkAgain}
-              >
-                {checking ? (
-                  <Icon name="Spinner" className="size-3.5 animate-spin" />
-                ) : null}
-                Check again
-              </Button>
+              {recheckable ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={checking}
+                  onClick={checkAgain}
+                >
+                  {checking ? (
+                    <Icon name="Spinner" className="size-3.5 animate-spin" />
+                  ) : null}
+                  Check again
+                </Button>
+              ) : null}
               {connected && current.available ? (
                 <Button
                   type="button"
