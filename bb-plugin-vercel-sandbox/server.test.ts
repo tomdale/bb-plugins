@@ -266,6 +266,48 @@ describe("Vercel machine allocation", () => {
     });
   });
 
+  it("reads the saved connection and its labels without contacting the authentication machine", async () => {
+    const test = await setup();
+    await test.harness.behavior.callRpc("account.connect", {
+      hostId: "host_auth",
+      ...test.cli.scope,
+      teamName: "Chosen team",
+      projectName: "Chosen project",
+    });
+    const count = test.harness.experimental_hostRpcCalls.length;
+    expect(await test.harness.behavior.callRpc("account.saved", {})).toEqual({
+      hostId: "host_auth",
+      directory: null,
+      accountId: "user_test",
+      accountName: "fixture-user",
+      ...test.cli.scope,
+      teamName: "Chosen team",
+      projectName: "Chosen project",
+    });
+    expect(test.harness.experimental_hostRpcCalls).toHaveLength(count);
+    await test.bb.storage.kv.set("connection-names", {
+      ...test.cli.scope,
+      teamName: "Chosen team",
+      projectName: "Chosen project",
+      accountId: "user_other",
+      accountName: "someone-else",
+    });
+    expect(
+      await test.harness.behavior.callRpc("account.saved", {}),
+    ).toMatchObject({ accountName: null, teamName: "Chosen team" });
+    await test.bb.storage.kv.delete("cli-connection");
+    expect(await test.harness.behavior.callRpc("account.saved", {})).toEqual({
+      hostId: null,
+      directory: null,
+      accountId: null,
+      accountName: null,
+      teamId: null,
+      projectId: null,
+      teamName: null,
+      projectName: null,
+    });
+  });
+
   it("rejects partial, ambiguous, and injected project selections before host calls", async () => {
     const test = await setup();
     const count = test.harness.experimental_hostRpcCalls.length;
@@ -1295,7 +1337,7 @@ describe("diagnostics and launch validation", () => {
     }
     test.bb.storage.kv.set = write;
   });
-  it("requires expected identity flags for CLI adoption and returns a validated display username without persisting it or disclosing email", async () => {
+  it("requires expected identity flags for CLI adoption and returns a validated display username without persisting it in the connection or disclosing email", async () => {
     const test = await setup();
     const input = [
       "account",

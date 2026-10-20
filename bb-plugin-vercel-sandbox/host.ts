@@ -102,13 +102,16 @@ export function createVercelHostEntry(
             connection,
             context.signal,
           );
-          await createVercelClient(credentials, transport, (signal) =>
-            auth.credentials(connection, signal),
-          ).inspectAccount(context.signal);
-          return {
-            accountName: credentials.accountName,
-            ...(await auth.names(connection, context.signal)),
-          };
+          // Name lookups start only after credentials succeed: the CLI
+          // has just confirmed a fresh login, so concurrent vc calls won't
+          // race to rotate its refresh token.
+          const [, names] = await Promise.all([
+            createVercelClient(credentials, transport, (signal) =>
+              auth.credentials(connection, signal),
+            ).inspectAccount(context.signal),
+            auth.names(connection, context.signal),
+          ]);
+          return { accountName: credentials.accountName, ...names };
         }),
       get: (input, context) =>
         guarded(context.signal, async () => {
@@ -146,7 +149,9 @@ export function createVercelHostEntry(
         }),
       stop: (input, context) =>
         guarded(context.signal, async () => {
-          await (await owned(input, context.signal))
+          await (
+            await owned(input, context.signal)
+          )
             .currentSession()
             .stop({ signal: context.signal });
           return {};

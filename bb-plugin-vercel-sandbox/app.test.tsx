@@ -409,6 +409,8 @@ describe("settings section", () => {
     accountName: string | null;
     teamId: string | null;
     projectId: string | null;
+    teamName?: string | null;
+    projectName?: string | null;
     legacyAllocations: {
       count: number;
       teamId: string;
@@ -575,6 +577,55 @@ describe("settings section", () => {
     expect(
       slot.queryByText(/until someone removes it|Remove it there/),
     ).toBeNull();
+  });
+
+  it("shows the saved connection while the first check runs", async () => {
+    const check = deferred<Account>();
+    const slot = renderSettings({
+      "account.saved": () => ({
+        hostId: "host-mac",
+        directory: null,
+        accountId: "user_abc",
+        accountName: "tom",
+        teamId: "team_abc",
+        projectId: "prj_def",
+        teamName: "My team",
+        projectName: "My project",
+      }),
+      "account.inspect": () => check.promise,
+    });
+    await slot.findByText("Checking the Vercel CLI on Tom's MacBook…");
+    const summary = slot.getByText("Machine", { selector: "dt" }).closest("dl");
+    expect(summary?.textContent).toContain("My team / My project");
+    expect(summary?.textContent).toContain("tom");
+    expect(slot.queryByRole("form")).toBeNull();
+    check.resolve({
+      ...CONNECTED,
+      teamName: "My team",
+      projectName: "My project",
+    });
+    await slot.findByText(
+      "Connected. New sandboxes use the Vercel CLI on Tom's MacBook.",
+    );
+  });
+
+  it("offers setup before the check finishes when nothing is saved", async () => {
+    const slot = renderSettings({
+      "account.saved": () => ({
+        hostId: null,
+        directory: null,
+        accountId: null,
+        accountName: null,
+        teamId: null,
+        projectId: null,
+        teamName: null,
+        projectName: null,
+      }),
+      "account.inspect": () => deferred<Account>().promise,
+    });
+    expect(
+      await slot.findByRole("form", { name: "Connect the Vercel CLI" }),
+    ).toBeTruthy();
   });
 
   it("collapses the change form on cancel", async () => {

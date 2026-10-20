@@ -54,14 +54,13 @@ import { PROVIDER_ID } from "./provider-id.js";
 type Contract = typeof vercelRpcContract;
 type LaunchOptions = PluginRpcResult<Contract["launch.options"]>;
 type AccountStatus = PluginRpcResult<Contract["account.inspect"]>;
+type SavedAccount = PluginRpcResult<Contract["account.saved"]>;
 type MachineStatus = PluginRpcResult<Contract["machine.inspect"]>["values"];
 
 type LaunchInputs = { vcpus?: number; timeoutMinutes?: number };
 
 type Load<T> =
-  | { status: "pending" }
-  | { status: "ready"; data: T }
-  | { status: "error" };
+  { status: "pending" } | { status: "ready"; data: T } | { status: "error" };
 
 const TIMEOUT_LADDER_MINUTES = [15, 30, 45, 60, 120, 240, 480, 1440] as const;
 const HOBBY_MAX_VCPUS = 4;
@@ -612,7 +611,7 @@ function ConnectionDetails({
   account,
   machineName,
 }: {
-  account: AccountStatus;
+  account: SavedAccount;
   machineName: string;
 }) {
   const present = <T extends { value: string | null }>(rows: T[]) =>
@@ -671,20 +670,35 @@ function ConnectionDetails({
 
 function ConnectionStatus({
   state,
+  known,
   hosts,
 }: {
   state: Load<AccountStatus>;
+  /** The saved or last-checked connection, shown while a check runs. */
+  known: SavedAccount | null;
   hosts: Load<AccountHost[]>;
 }) {
   if (state.status === "pending") {
-    return (
+    const checking = (
       <p
         role="status"
         className="flex items-center gap-2 text-xs text-muted-foreground"
       >
-        <Icon name="Spinner" className="size-3.5 animate-spin" />
-        Checking the Vercel connection…
+        <Icon name="Spinner" className="size-3.5 shrink-0 animate-spin" />
+        {known?.hostId
+          ? `Checking the Vercel CLI on ${hostLabel(hosts, known.hostId)}…`
+          : "Checking the Vercel connection…"}
       </p>
+    );
+    if (!known?.hostId) return checking;
+    return (
+      <div className="space-y-2 text-xs">
+        {checking}
+        <ConnectionDetails
+          account={known}
+          machineName={hostLabel(hosts, known.hostId)}
+        />
+      </div>
     );
   }
   if (state.status === "error") {
@@ -856,7 +870,7 @@ function ConnectForm({
   onConnected,
   reinspect,
 }: {
-  account: AccountStatus | null;
+  account: SavedAccount | null;
   compact: boolean;
   hosts: Load<AccountHost[]>;
   retryHosts: () => void;
@@ -1314,6 +1328,10 @@ function VercelSettingsSection() {
     [rpc],
   );
   const account = useLoad(inspectAccount);
+  // The saved connection loads without contacting the authentication
+  // machine, so the page can show it while the slower check runs.
+  const readSaved = useCallback(() => rpc.call("account.saved", {}), [rpc]);
+  const saved = useLoad(readSaved);
   const hosts = useAccountHosts();
   const { state: options, retry: retryOptions } = useLaunchOptions();
   const loaded = options.status === "ready" ? options.data : null;
@@ -1328,16 +1346,22 @@ function VercelSettingsSection() {
     if (latest !== null) setLastKnown(latest);
   }, [latest]);
   const current = latest ?? lastKnown;
+  const known: SavedAccount | null =
+    current ?? (saved.state.status === "ready" ? saved.state.data : null);
   const connected = current !== null && current.hostId !== null;
   const checking = account.state.status === "pending";
   // Keep the form mounted across rechecks so a failed connect keeps its
-  // selections; only the first check holds it back.
+  // selections. Before the first check finishes, show it only once the saved
+  // connection confirms there is nothing to check.
   const [checked, setChecked] = useState(false);
   useEffect(() => {
     if (!checking) setChecked(true);
   }, [checking]);
+  const savedNone = known !== null && known.hostId === null;
   const showForm =
-    (checked || !checking) && (!connected || !current.available || changing);
+    checked || !checking
+      ? !connected || !current.available || changing
+      : savedNone;
   const connectionLoaded = (next: AccountStatus) => {
     account.replace(next);
     setChanging(false);
@@ -1375,7 +1399,11 @@ function VercelSettingsSection() {
             </div>
           }
         />
-        <ConnectionStatus state={account.state} hosts={hosts.state} />
+        <ConnectionStatus
+          state={account.state}
+          known={known}
+          hosts={hosts.state}
+        />
       </section>
 
       <LegacyAllocations
@@ -1391,7 +1419,7 @@ function VercelSettingsSection() {
             {connected ? "Change connection" : "Set up"}
           </h4>
           <ConnectForm
-            account={current}
+            account={known}
             compact={connected}
             hosts={hosts.state}
             retryHosts={hosts.retry}

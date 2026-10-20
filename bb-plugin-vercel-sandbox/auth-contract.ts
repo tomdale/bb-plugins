@@ -101,3 +101,16 @@ export const accountInspectionSchema = z
     projectName: displayNameSchema,
   })
   .strict();
+// The stored connection and its display labels, without verification.
+export const savedAccountSchema = accountInspectionSchema
+  .pick({
+    hostId: true,
+    directory: true,
+    accountId: true,
+    accountName: true,
+    teamId: true,
+    projectId: true,
+    teamName: true,
+    projectName: true,
+  })
+  .strict();

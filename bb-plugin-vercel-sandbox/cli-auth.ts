@@ -207,12 +207,13 @@ export function cliAuthentication(run: CliRunner = runVc) {
         return null;
       }
     };
-    return {
-      teamName: await lookup(`/v2/teams/${connection.teamId}`),
-      projectName: await lookup(
+    const [teamName, projectName] = await Promise.all([
+      lookup(`/v2/teams/${connection.teamId}`),
+      lookup(
         `/v9/projects/${connection.projectId}?teamId=${connection.teamId}`,
       ),
-    };
+    ]);
+    return { teamName, projectName };
   };
   return {
     names,

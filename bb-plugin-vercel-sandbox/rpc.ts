@@ -3,6 +3,7 @@ import { z } from "zod";
 import { resolvedInputsSchema, vcpusSchema } from "./configuration.js";
 import {
   accountInspectionSchema,
+  savedAccountSchema,
   accountHostInputSchema,
   projectsInputSchema,
   accountChoicesSchema,
@@ -45,6 +46,10 @@ export const vercelRpcContract = defineRpcContract({
   "account.projects": {
     input: projectsInputSchema,
     output: accountChoicesSchema,
+  },
+  "account.saved": {
+    input: z.object({}).strict(),
+    output: savedAccountSchema,
   },
   "account.inspect": {
     input: z.object({}).strict(),

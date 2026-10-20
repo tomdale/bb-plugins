@@ -18,6 +18,7 @@ import {
 import { remoteVercelClient } from "./remote-client.js";
 import {
   accountConnectInputSchema,
+  accountNameSchema,
   connectionSchema,
   type Connection,
 } from "./auth-contract.js";
@@ -33,11 +34,15 @@ import {
 import { IMAGE, PROVIDER_ID } from "./provider-id.js";
 import { vercelRpcContract } from "./rpc.js";
 
+// Display labels saved beside the pinned connection; each applies only while
+// the connection still has the scope or account it was recorded for.
 const connectionNamesSchema = z.object({
   teamId: z.string(),
   projectId: z.string(),
   teamName: z.string().nullable(),
   projectName: z.string().nullable(),
+  accountId: z.string().nullable().default(null),
+  accountName: accountNameSchema.default(null),
 });
 
 export function createVercelSandboxPlugin() {
@@ -89,6 +94,42 @@ export function createVercelSandboxPlugin() {
         memoryMiBPerVcpu: 2048,
       };
     };
+    const savedLabels = async (connection: Connection) => {
+      const saved = connectionNamesSchema.safeParse(
+        await bb.storage.kv.get<unknown>("connection-names"),
+      );
+      if (!saved.success) return null;
+      const scoped =
+        saved.data.teamId === connection.teamId &&
+        saved.data.projectId === connection.projectId;
+      return {
+        teamName: scoped ? saved.data.teamName : null,
+        projectName: scoped ? saved.data.projectName : null,
+        accountName:
+          saved.data.accountId === connection.accountId
+            ? saved.data.accountName
+            : null,
+      };
+    };
+    // The saved connection and its labels, read without contacting the
+    // authentication machine, so Settings can render before a check finishes.
+    const savedAccount = async () => {
+      const stored = connectionSchema.safeParse(
+        await bb.storage.kv.get<unknown>("cli-connection"),
+      );
+      const connection = stored.success ? stored.data : null;
+      const labels = connection ? await savedLabels(connection) : null;
+      return {
+        hostId: connection?.hostId ?? null,
+        directory: connection?.directory ?? null,
+        accountId: connection?.accountId ?? null,
+        accountName: labels?.accountName ?? null,
+        teamId: connection?.teamId ?? null,
+        projectId: connection?.projectId ?? null,
+        teamName: labels?.teamName ?? null,
+        projectName: labels?.projectName ?? null,
+      };
+    };
     const accountResult = async (
       connection: Connection | null,
       available: boolean,
@@ -99,18 +140,7 @@ export function createVercelSandboxPlugin() {
       const count = connection
         ? (await allocations.legacyAllocations(connection)).length
         : 0;
-      const names = connection
-        ? connectionNamesSchema.safeParse(
-            await bb.storage.kv.get<unknown>("connection-names"),
-          )
-        : null;
-      const labels =
-        names?.success &&
-        connection &&
-        names.data.teamId === connection.teamId &&
-        names.data.projectId === connection.projectId
-          ? names.data
-          : null;
+      const labels = connection ? await savedLabels(connection) : null;
       return {
         teamName: labels?.teamName ?? null,
         projectName: labels?.projectName ?? null,
@@ -119,7 +149,7 @@ export function createVercelSandboxPlugin() {
         hostId: connection?.hostId ?? null,
         directory: connection?.directory ?? null,
         accountId: connection?.accountId ?? null,
-        accountName,
+        accountName: accountName ?? labels?.accountName ?? null,
         teamId: connection?.teamId ?? null,
         projectId: connection?.projectId ?? null,
         legacyAllocations:
@@ -133,28 +163,35 @@ export function createVercelSandboxPlugin() {
         adoptedAllocations,
       };
     };
-    // Names resolved by the CLI refresh the saved display labels; a name the
-    // lookup could not resolve keeps its saved value for the same scope.
+    // Names resolved by the CLI refresh the saved display labels; a team or
+    // project name the lookup could not resolve keeps its saved value for the
+    // same scope.
     const rememberNames = async (
       connection: Connection,
-      teamName: string | null,
-      projectName: string | null,
+      resolved: {
+        teamName: string | null;
+        projectName: string | null;
+        accountName: string | null;
+      },
     ) => {
-      if (teamName === null && projectName === null) return;
-      const saved = connectionNamesSchema.safeParse(
-        await bb.storage.kv.get<unknown>("connection-names"),
-      );
-      const same =
-        saved.success &&
-        saved.data.teamId === connection.teamId &&
-        saved.data.projectId === connection.projectId
-          ? saved.data
-          : null;
+      const same = await savedLabels(connection);
+      const next = {
+        teamName: resolved.teamName ?? same?.teamName ?? null,
+        projectName: resolved.projectName ?? same?.projectName ?? null,
+        // A verified identity is authoritative, including no username.
+        accountName: resolved.accountName,
+      };
+      if (
+        same?.teamName === next.teamName &&
+        same.projectName === next.projectName &&
+        same.accountName === next.accountName
+      )
+        return;
       await bb.storage.kv.set("connection-names", {
         teamId: connection.teamId,
         projectId: connection.projectId,
-        teamName: teamName ?? same?.teamName ?? null,
-        projectName: projectName ?? same?.projectName ?? null,
+        accountId: connection.accountId,
+        ...next,
       });
     };
     const inspectAccount = async (signal?: AbortSignal) => {
@@ -165,7 +202,11 @@ export function createVercelSandboxPlugin() {
           connection,
           operationSignal(signal, 60_000),
         );
-        await rememberNames(connection, teamName, projectName);
+        await rememberNames(connection, {
+          teamName,
+          projectName,
+          accountName,
+        });
         return accountResult(
           connection,
           true,
@@ -219,13 +260,14 @@ export function createVercelSandboxPlugin() {
         }
         combinedSignal.throwIfAborted();
         await bb.storage.kv.set("cli-connection", connection);
-        if (input.teamName !== null || input.projectName !== null)
-          await bb.storage.kv.set("connection-names", {
-            teamId: connection.teamId,
-            projectId: connection.projectId,
-            teamName: input.teamName,
-            projectName: input.projectName,
-          });
+        await bb.storage.kv.set("connection-names", {
+          teamId: connection.teamId,
+          projectId: connection.projectId,
+          teamName: input.teamName,
+          projectName: input.projectName,
+          accountId: connection.accountId,
+          accountName,
+        });
         return accountResult(
           connection,
           true,
@@ -317,6 +359,7 @@ export function createVercelSandboxPlugin() {
           );
         return remote.projects(input, operationSignal(undefined, 60_000));
       },
+      "account.saved": () => savedAccount(),
       "account.inspect": () => inspectAccount(),
       "account.connect": (input) => connectAccount(input),
       "machine.inspect": async (input) => {
