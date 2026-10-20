@@ -462,8 +462,13 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   per call, against about 1.2 s for a direct completion).
 - **Workaround:** a `bb.host` entry calls AI Gateway directly with the key Pi
   already has, for gateway models; other picks run in hidden worker threads.
+  SDK 0.6.5's `ThreadSpawnArgs` has no output-schema or output-token-budget
+  fields, and `threads.output` returns only text. Worker answers therefore use
+  post-generation validation instead of constrained generation; their trace
+  usage is unavailable rather than reported as zero.
 - **Possible API:** `bb.sdk.ai.complete({ prompt, model?:
-ProviderModelPickerValue, maxTokens, signal })` that runs one tool-free completion
+ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
+  and nullable usage/reasoning metadata, that runs one tool-free completion
   through the chosen provider without a thread, plus a picker `catalog: "all"`
   (or a `models`
   prop) for providers whose scoped list is a subset of what they can reach.
