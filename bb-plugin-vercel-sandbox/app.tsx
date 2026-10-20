@@ -1322,10 +1322,22 @@ function VercelSettingsSection() {
     account.retry();
     hosts.retry();
   };
-  const current = account.state.status === "ready" ? account.state.data : null;
+  const latest = account.state.status === "ready" ? account.state.data : null;
+  const [lastKnown, setLastKnown] = useState<AccountStatus | null>(null);
+  useEffect(() => {
+    if (latest !== null) setLastKnown(latest);
+  }, [latest]);
+  const current = latest ?? lastKnown;
   const connected = current !== null && current.hostId !== null;
-  const showForm = !connected || !current.available || changing;
   const checking = account.state.status === "pending";
+  // Keep the form mounted across rechecks so a failed connect keeps its
+  // selections; only the first check holds it back.
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    if (!checking) setChecked(true);
+  }, [checking]);
+  const showForm =
+    (checked || !checking) && (!connected || !current.available || changing);
   const connectionLoaded = (next: AccountStatus) => {
     account.replace(next);
     setChanging(false);
