@@ -79,17 +79,17 @@ function ChoiceField({
   return (
     <FieldRow label={label} labelId={id}>
       <DropdownMenu>
-        <IdTooltip id={value}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={unavailable}
-              aria-labelledby={`${id} ${id}-value`}
-              aria-busy={waiting}
-              className={INLINE_TRIGGER_CLASS}
-            >
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={unavailable}
+            aria-labelledby={`${id} ${id}-value`}
+            aria-busy={waiting}
+            className={INLINE_TRIGGER_CLASS}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
               <span
                 id={`${id}-value`}
                 className={cn(
@@ -99,16 +99,17 @@ function ChoiceField({
               >
                 {triggerLabel}
               </span>
-              <Icon
-                name={waiting ? "Spinner" : "ChevronDown"}
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground",
-                  waiting && "animate-spin",
-                )}
-              />
-            </Button>
-          </DropdownMenuTrigger>
-        </IdTooltip>
+              {name !== null && value !== null ? <IdInfo id={value} /> : null}
+            </span>
+            <Icon
+              name={waiting ? "Spinner" : "ChevronDown"}
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground",
+                waiting && "animate-spin",
+              )}
+            />
+          </Button>
+        </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"
           mobileTitle={label}
@@ -156,18 +157,21 @@ function ChoiceField({
   );
 }
 
-/** Shows the picked Vercel ID when hovering or focusing a picker. */
-function IdTooltip({
-  id,
-  children,
-}: {
-  id: string | null;
-  children: ReactNode;
-}) {
-  if (id === null) return children;
+/**
+ * A small info icon beside a display name whose tooltip, shown only while
+ * hovering the icon, carries the underlying Vercel ID.
+ */
+export function IdInfo({ id }: { id: string }) {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipTrigger asChild>
+        <span
+          data-vercel-id={id}
+          className="inline-flex shrink-0 text-muted-foreground hover:text-foreground"
+        >
+          <Icon name="Info" className="size-3" />
+        </span>
+      </TooltipTrigger>
       <TooltipContent className="font-mono">{id}</TooltipContent>
     </Tooltip>
   );

@@ -537,7 +537,7 @@ describe("settings section", () => {
     await pick(slot, "Project", "My project");
   }
 
-  const READY = "Ready. BB can create sandboxes in this project.";
+  const READY = "Ready.";
 
   it("shows the saved account as pickers without claiming launch entitlement", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
@@ -564,28 +564,29 @@ describe("settings section", () => {
     // Launch defaults live in the host's Configuration fields, not here.
     expect(slot.queryByRole("heading", { name: "New sandboxes" })).toBeNull();
     expect(slot.queryByText("2 vCPU · 4 GiB")).toBeNull();
-    expect(slot.getByText(/stops for good at its time limit/)).toBeTruthy();
-    expect(slot.getByText("vercel/sandbox/universal:latest")).toBeTruthy();
     expect(
-      slot.getByText(/Vercel bills your team while a sandbox runs/),
-    ).toBeTruthy();
+      slot.queryByRole("heading", { name: "Data and billing" }),
+    ).toBeNull();
     expect(document.body.textContent).not.toMatch(TOKEN_SHAPED);
     expect(slot.queryByLabelText(/token/i)).toBeNull();
   });
 
   it("shows team, project, and account IDs on hover instead of inline", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
-    const name = await slot.findByText("tom");
-    fireEvent.focus(name);
-    fireEvent.pointerMove(name);
+    await slot.findByText("tom");
+    const info = (id: string) =>
+      document.querySelector(`[data-vercel-id="${id}"]`)!;
+    fireEvent.pointerMove(info("user_abc"));
     await waitFor(() =>
       expect(document.body.textContent).toContain("user_abc"),
     );
     await waitFor(() =>
       expect(trigger(slot, "Team").textContent).toContain("My team"),
     );
-    expect(document.body.textContent).not.toContain("team_abc");
     fireEvent.pointerMove(trigger(slot, "Team"));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(document.body.textContent).not.toContain("team_abc");
+    fireEvent.pointerMove(info("team_abc"));
     await waitFor(() =>
       expect(document.body.textContent).toContain("team_abc"),
     );
@@ -632,6 +633,23 @@ describe("settings section", () => {
     });
     await slot.findByText(READY);
     expect(connectCalls(slot)).toEqual([]);
+  });
+
+  it("hides the machine row when only one machine can be used", async () => {
+    const slot = renderSettings(
+      { "account.inspect": () => NOT_CONNECTED },
+      () => [
+        host("host-mac", "Tom's MacBook"),
+        host("host-sandbox", "vercel-sandbox-1", {
+          type: "ephemeral",
+          machineProviderId: PROVIDER_ID,
+        }),
+      ],
+    );
+    await slot.findByText(/Not set up/);
+    expect(await slot.findByRole("button", { name: /^Team / })).toBeTruthy();
+    expect(slot.queryByRole("button", { name: /^Machine / })).toBeNull();
+    expect(slot.queryByText("Machine")).toBeNull();
   });
 
   it("offers setup before the check finishes when nothing is saved", async () => {

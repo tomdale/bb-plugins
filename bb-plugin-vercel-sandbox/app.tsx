@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
   FieldRow,
+  IdInfo,
   INLINE_TRIGGER_CLASS,
   ProjectFields,
   type ProjectSelection,
@@ -64,7 +65,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { vercelRpcContract } from "./rpc.js";
-import { IMAGE, PROVIDER_ID } from "./provider-id.js";
+import { PROVIDER_ID } from "./provider-id.js";
 
 type Contract = typeof vercelRpcContract;
 type LaunchOptions = PluginRpcResult<Contract["launch.options"]>;
@@ -622,21 +623,14 @@ function hostLabel(hosts: Load<AccountHost[]>, hostId: string): string {
   return host?.name ?? hostId;
 }
 
-/** A display name whose underlying Vercel ID appears on hover or focus. */
+/** A display name with its underlying Vercel ID behind an info icon. */
 function NamedId({ name, id }: { name: string | null; id: string }) {
   if (name === null) return <span className="break-all font-mono">{id}</span>;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          tabIndex={0}
-          className="w-fit cursor-default rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {name}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="font-mono">{id}</TooltipContent>
-    </Tooltip>
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span className="min-w-0 truncate">{name}</span>
+      <IdInfo id={id} />
+    </span>
   );
 }
 
@@ -772,7 +766,7 @@ function ConnectionStatus({
   }
   return (
     <StatusLine icon="CircleCheck" tone="success">
-      Ready. BB can create sandboxes in this project.
+      Ready.
     </StatusLine>
   );
 }
@@ -946,6 +940,15 @@ function AccountForm({
   const hostId = hostChoice ?? saved.hostId ?? onlyHost?.id ?? null;
   const selectedHost = hostList.find((host) => host.id === hostId) ?? null;
   const onSavedHost = configured && hostId === saved.hostId;
+  // With a single usable machine there is nothing to choose, so its row
+  // appears only when there is a choice, a problem, or a saved machine that
+  // is no longer the one available.
+  const showMachine =
+    hosts.status === "error" ||
+    (hosts.status === "ready" &&
+      (hostList.length !== 1 ||
+        !hostList[0]!.online ||
+        (configured && saved.hostId !== hostList[0]!.id)));
   const initialScope =
     onSavedHost && saved.teamId !== null && saved.projectId !== null
       ? {
@@ -1127,45 +1130,48 @@ function AccountForm({
             finish Vercel's sign-in in your browser.
           </li>
           <li>
-            Choose that machine, then select the Vercel team and project to use
-            for sandboxes. BB connects as soon as you pick the project.
+            {showMachine ? "Choose that machine, then select" : "Select"} the
+            Vercel team and project to use for sandboxes. BB connects as soon as
+            you pick the project.
           </li>
         </ol>
       )}
 
       <fieldset disabled={connecting} className={ROW_GRID_CLASS}>
-        <FieldRow label="Machine" labelId={machineLabelId}>
-          <MachineField
-            labelId={machineLabelId}
-            describedById={hostProblem === null ? undefined : hostProblemId}
-            triggerRef={machineTriggerRef}
-            hosts={hosts}
-            hostId={hostId}
-            onRetry={retryHosts}
-            onChoose={(next) => {
-              if (next === hostId) return;
-              attempted.current = null;
-              setHostChoice(next);
-              setSelection(null);
-              setConnect({ status: "idle" });
-            }}
-          />
-          {hostProblem === null ? null : (
-            <div className="flex flex-wrap items-center gap-3">
-              <p id={hostProblemId} className="text-xs text-warning-text">
-                {hostProblem}
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={retryHosts}
-              >
-                Check again
-              </Button>
-            </div>
-          )}
-        </FieldRow>
+        {showMachine ? (
+          <FieldRow label="Machine" labelId={machineLabelId}>
+            <MachineField
+              labelId={machineLabelId}
+              describedById={hostProblem === null ? undefined : hostProblemId}
+              triggerRef={machineTriggerRef}
+              hosts={hosts}
+              hostId={hostId}
+              onRetry={retryHosts}
+              onChoose={(next) => {
+                if (next === hostId) return;
+                attempted.current = null;
+                setHostChoice(next);
+                setSelection(null);
+                setConnect({ status: "idle" });
+              }}
+            />
+            {hostProblem === null ? null : (
+              <div className="flex flex-wrap items-center gap-3">
+                <p id={hostProblemId} className="text-xs text-warning-text">
+                  {hostProblem}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={retryHosts}
+                >
+                  Check again
+                </Button>
+              </div>
+            )}
+          </FieldRow>
+        ) : null}
 
         {hostId === null ? null : selectedHost === null ||
           selectedHost.online ? (
@@ -1485,10 +1491,11 @@ function VercelSettingsSection() {
   const failed =
     account.state.status === "error" ||
     (latest !== null && latest.hostId !== null && !latest.available);
-  const [recheckable, setRecheckable] = useState(false);
+  const [failedBeforeCheck, setFailedBeforeCheck] = useState(false);
   useEffect(() => {
-    if (!checking) setRecheckable(failed);
+    if (!checking) setFailedBeforeCheck(failed);
   }, [checking, failed]);
+  const recheckable = checking ? failedBeforeCheck : failed;
   const connectionLoaded = useCallback(
     (next: AccountStatus) => account.replace(next),
     [account.replace],
@@ -1531,27 +1538,6 @@ function VercelSettingsSection() {
           onConnected={connectionLoaded}
           reinspect={account.retry}
         />
-
-        <section className="space-y-3 border-t border-border pt-5">
-          <SettingsHeading title="Data and billing" />
-          <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
-            <li>
-              Each sandbox is a disposable BB machine running{" "}
-              <code className="font-mono text-foreground">{IMAGE}</code>. It
-              stops for good at its time limit; BB can't extend, pause,
-              snapshot, or restore it.
-            </li>
-            <li>
-              Uncommitted files are lost when the sandbox stops, when its
-              machine is removed, or when its thread is archived. Push work you
-              want to keep.
-            </li>
-            <li>
-              Vercel bills your team while a sandbox runs, whether or not the
-              agent is working. Remove machines you're done with.
-            </li>
-          </ul>
-        </section>
       </div>
     </TooltipProvider>
   );
