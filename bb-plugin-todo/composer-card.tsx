@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { experimental_Icon as Icon, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
-import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, todoCount, type CardRow, type CardTreeNode } from "./card.js";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow, type CardTreeNode } from "./card.js";
 import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
@@ -107,8 +107,10 @@ export function TodoCard() {
   const visible = !!threadId && !finishedAndExpired && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
   const gutter = placement !== null;
-  // The gutter lane has no collapse control, so it always shows the full list; `expanded` is the banner's own state.
-  const showAll = gutter || expanded;
+  // A one-task plan is its own full list. The gutter lane has no collapse control, so it also always shows the full
+  // list; `expanded` is the banner's own state.
+  const single = card.total === 1;
+  const showAll = gutter || single || expanded;
 
   const updateListLayout = useCallback(() => {
     const el = listRef.current;
@@ -202,7 +204,7 @@ export function TodoCard() {
   if (!visible) return null;
 
   const handleCardClick = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (gutter) return;
+    if (gutter || single) return;
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, [role="button"]')) return;
     if (typeof window !== "undefined" && window.getSelection()?.toString().trim()) return;
@@ -270,14 +272,14 @@ export function TodoCard() {
             <span className="todo-summary-text">{collapsedSummary(card)}</span>
           </div>
         )}
-        {!gutter && <div className="todo-actions">
+        {!gutter && !single && <div className="todo-actions">
           <button
             type="button"
             id={toggleId}
             className="todo-view-toggle"
             aria-expanded={expanded}
             aria-controls={listId}
-            aria-label={expanded ? "Show compact todos" : `Show all ${todoCount(card.total)}`}
+            aria-label={expanded ? "Show compact todos" : `Show all ${card.total} todos`}
             onClick={(e) => {
               e.stopPropagation();
               toggleExpanded();

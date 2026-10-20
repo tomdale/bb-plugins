@@ -27,12 +27,9 @@ export function tasksForRunState(tasks: readonly Task[], isRunning: boolean): re
   return tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" } : task);
 }
 
-/** "1 todo", "3 todos". */
-export const todoCount = (count: number) => `${count} ${count === 1 ? "todo" : "todos"}`;
-
 export function collapsedSummary(view: CardView): string {
-  if (view.allComplete) return `${todoCount(view.total)} complete`;
-  return `${view.completed} of ${todoCount(view.total)} done`;
+  if (view.allComplete) return `${view.total} todos complete`;
+  return `${view.completed} of ${view.total} todos done`;
 }
 
 export function buildCardView(tasks: readonly Task[]): CardView {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, todoCount } from "./card.ts";
+import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState } from "./card.ts";
 import type { Task } from "./model.ts";
 
 const task = (id: number, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, subject: `Task ${id}`, status, ...extra });
@@ -37,12 +37,6 @@ test("summarizes progress and detects a finished plan", () => {
   assert.equal(done.allComplete, true);
   assert.equal(collapsedSummary(done), "2 todos complete");
   assert.equal(buildCardView([]).allComplete, false);
-});
-
-test("summaries say todo for one task and todos otherwise", () => {
-  assert.deepEqual([0, 1, 2].map(todoCount), ["0 todos", "1 todo", "2 todos"]);
-  assert.equal(collapsedSummary(buildCardView([task(1, "pending")])), "0 of 1 todo done");
-  assert.equal(collapsedSummary(buildCardView([task(1, "completed")])), "1 todo complete");
 });
 
 test("an idle thread shows in-progress tasks as pending", () => {
