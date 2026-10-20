@@ -1,7 +1,8 @@
 /*
  * Composer card. Its chrome matches the host's composer context banners
  * (rounded-lg, border, raised surface, 12px text) so the stack above the
- * prompt reads as one family. The panel and header use Tailwind host tokens.
+ * prompt reads as one family. Colors, radii, and surfaces come from the host's
+ * theme variables.
  */
 .todo-card {
   container-type: inline-size;
@@ -25,7 +26,7 @@
 /*
  * Gutter lane. The card leaves the composer and sits in the thread's left gutter,
  * so it drops the banner frame: no border, surface, shadow, or hover fill, and no
- * collapse or edit controls. Only the rows and the "Todos" link remain.
+ * count or collapse control. Only the rows remain.
  */
 .todo-card-floating,
 .todo-card-floating:hover {
