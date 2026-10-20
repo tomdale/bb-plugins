@@ -11,11 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   SETTINGS_MENU_CLASS,
   SETTINGS_TRIGGER_CLASS,
   SettingRow,
@@ -95,17 +90,14 @@ function ChoiceField({
             aria-busy={waiting}
             className={SETTINGS_TRIGGER_CLASS}
           >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span
-                id={`${id}-value`}
-                className={cn(
-                  "min-w-0 truncate",
-                  name === null && "text-muted-foreground",
-                )}
-              >
-                {triggerLabel}
-              </span>
-              {name !== null && value !== null ? <IdInfo id={value} /> : null}
+            <span
+              id={`${id}-value`}
+              className={cn(
+                "min-w-0 truncate",
+                name === null && "text-muted-foreground",
+              )}
+            >
+              {triggerLabel}
             </span>
             <Icon
               name={waiting ? "Spinner" : "ChevronDown"}
@@ -166,26 +158,6 @@ function ChoiceField({
         </p>
       ) : null}
     </SettingRow>
-  );
-}
-
-/**
- * A small info icon beside a display name whose tooltip, shown only while
- * hovering the icon, carries the underlying Vercel ID.
- */
-export function IdInfo({ id }: { id: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span
-          data-vercel-id={id}
-          className="inline-flex shrink-0 text-muted-foreground hover:text-foreground"
-        >
-          <Icon name="Info" className="size-3" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent className="font-mono">{id}</TooltipContent>
-    </Tooltip>
   );
 }
 

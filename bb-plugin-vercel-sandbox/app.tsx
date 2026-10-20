@@ -20,11 +20,7 @@ import {
 } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import {
-  IdInfo,
-  ProjectFields,
-  type ProjectSelection,
-} from "./project-fields.js";
+import { ProjectFields, type ProjectSelection } from "./project-fields.js";
 import {
   SETTINGS_MENU_CLASS,
   SETTINGS_PANEL_CLASS,
@@ -32,12 +28,6 @@ import {
   SettingRow,
   StaticValue,
 } from "./settings-rows.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -626,15 +616,10 @@ function hostLabel(hosts: Load<AccountHost[]>, hostId: string): string {
   return host?.name ?? hostId;
 }
 
-/** A display name with its underlying Vercel ID behind an info icon. */
+/** A display name, or the Vercel ID when no name is known. */
 function NamedId({ name, id }: { name: string | null; id: string }) {
   if (name === null) return <span className="break-all font-mono">{id}</span>;
-  return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <span className="min-w-0 truncate">{name}</span>
-      <IdInfo id={id} />
-    </span>
-  );
+  return <span className="min-w-0 truncate">{name}</span>;
 }
 
 /** Rows that come from the CLI login rather than a choice in Settings. */
@@ -1550,42 +1535,40 @@ function VercelSettingsSection() {
     <ConnectionStatus state={account.state} known={known} hosts={hosts.state} />
   );
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="w-full min-w-0 space-y-6">
-        <section>
-          {known === null ? (
-            // Before the saved connection loads, show only the check so the
-            // setup steps never flash for an already-connected account.
-            <div className="space-y-3">
-              <SettingsHeading title="Account" />
-              {status}
-            </div>
-          ) : (
-            <AccountForm
-              saved={known}
-              status={status}
-              unavailable={
-                latest !== null && latest.hostId !== null && !latest.available
-              }
-              checking={checking}
-              recheckable={recheckable}
-              onCheckAgain={checkAgain}
-              hosts={hosts.state}
-              retryHosts={hosts.retry}
-              onConnected={connectionLoaded}
-              reinspect={account.retry}
-            />
-          )}
-        </section>
+    <div className="w-full min-w-0 space-y-6">
+      <section>
+        {known === null ? (
+          // Before the saved connection loads, show only the check so the
+          // setup steps never flash for an already-connected account.
+          <div className="space-y-3">
+            <SettingsHeading title="Account" />
+            {status}
+          </div>
+        ) : (
+          <AccountForm
+            saved={known}
+            status={status}
+            unavailable={
+              latest !== null && latest.hostId !== null && !latest.available
+            }
+            checking={checking}
+            recheckable={recheckable}
+            onCheckAgain={checkAgain}
+            hosts={hosts.state}
+            retryHosts={hosts.retry}
+            onConnected={connectionLoaded}
+            reinspect={account.retry}
+          />
+        )}
+      </section>
 
-        <LegacyAllocations
-          state={account.state}
-          hosts={hosts.state}
-          onConnected={connectionLoaded}
-          reinspect={account.retry}
-        />
-      </div>
-    </TooltipProvider>
+      <LegacyAllocations
+        state={account.state}
+        hosts={hosts.state}
+        onConnected={connectionLoaded}
+        reinspect={account.retry}
+      />
+    </div>
   );
 }
 

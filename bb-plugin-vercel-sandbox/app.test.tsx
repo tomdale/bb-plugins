@@ -571,25 +571,15 @@ describe("settings section", () => {
     expect(slot.queryByLabelText(/token/i)).toBeNull();
   });
 
-  it("shows team, project, and account IDs on hover instead of inline", async () => {
+  it("shows names without exposing IDs", async () => {
     const slot = renderSettings({ "account.inspect": () => CONNECTED });
-    await slot.findByText("tom");
-    const info = (id: string) =>
-      document.querySelector(`[data-vercel-id="${id}"]`)!;
-    fireEvent.pointerMove(info("user_abc"));
-    await waitFor(() =>
-      expect(document.body.textContent).toContain("user_abc"),
-    );
     await waitFor(() =>
       expect(trigger(slot, "Team").textContent).toContain("My team"),
     );
     fireEvent.pointerMove(trigger(slot, "Team"));
     await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(document.body.textContent).not.toContain("team_abc");
-    fireEvent.pointerMove(info("team_abc"));
-    await waitFor(() =>
-      expect(document.body.textContent).toContain("team_abc"),
-    );
+    expect(document.body.textContent).not.toMatch(/team_abc|prj_def|user_abc/);
+    expect(document.querySelector("[data-vercel-id]")).toBeNull();
   });
 
   it("shows saved names and opens pickers while the check and listings load", async () => {

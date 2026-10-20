@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { resourceSchema } from "./allocations.js";
 import { createVercelSandboxPlugin } from "./server.js";
 import { vendorTransport } from "./vendor-test-transport.js";
-import { launchInputsSchema } from "./configuration.js";
+import { launchInputsSchema, SETTING_DESCRIPTORS } from "./configuration.js";
 
 import { experimental_createHostEntryHarness } from "@get-bb/plugin-sdk/testing/host";
 import { createVercelHostEntry } from "./host.js";
@@ -327,54 +327,58 @@ describe("Vercel machine allocation", () => {
     expect(test.harness.experimental_hostRpcCalls).toHaveLength(count);
   });
 
-  it.each([
-    ["defaultVcpus", 3],
-    ["defaultTimeoutMinutes", 4],
-  ] as const)(
-    "keeps existing machines inspectable, recoverable, and removable after invalid launch defaults %s=%s",
-    async (name, value) => {
-      const test = await setup();
-      expect(await test.machine.create(test.context)).toMatchObject({
-        status: "created",
-      });
-      const resource = resourceSchema.parse(test.stored);
-      await test.harness.behavior.setSettings({ [name]: value });
-      expect(
-        await test.harness.behavior.callRpc("machine.inspect", {
-          hostId: "host_vercel",
-        }),
-      ).toMatchObject({
-        values: { state: "running", sessionId: resource.sessionId },
-      });
-      expect(
-        await test.harness.behavior.callRpc("account.inspect", {}),
-      ).toMatchObject({ available: true });
-      expect(
-        await test.machine.create({ ...test.context, attempt: 2 }),
-      ).toMatchObject({ status: "created", resource });
-      expect(test.vendor.allocationCount).toBe(1);
-      const beforeNewLaunch = test.vendor.requests.length;
-      expect(
-        await test.machine.create({ ...test.context, key: "new-machine-key" }),
-      ).toMatchObject({
-        status: "failed",
-        message: expect.stringContaining("Default vCPUs"),
-      });
-      expect(test.vendor.requests).toHaveLength(beforeNewLaunch);
-      expect(
-        await test.machine.remove({
-          hostId: "host_vercel",
-          resource,
-          signal: test.context.signal,
-          report,
-        }),
-      ).toEqual({ status: "removed" });
-      expect(test.vendor.sessions.get(resource.sessionId!)?.status).toBe(
-        "stopped",
-      );
-      expect(test.vendor.allocations.size).toBe(0);
-    },
-  );
+  it("offers launch defaults as labeled choices and refuses values outside them", async () => {
+    const test = await setup();
+    const schema = SETTING_DESCRIPTORS;
+    expect(schema.defaultVcpus).toMatchObject({
+      type: "select",
+      options: [
+        "1",
+        "2",
+        "4",
+        "6",
+        "8",
+        "10",
+        "12",
+        "14",
+        "16",
+        "18",
+        "20",
+        "22",
+        "24",
+        "26",
+        "28",
+        "30",
+        "32",
+      ],
+    });
+    expect(schema.defaultVcpus.experimental_optionLabels).toMatchObject({
+      "1": "1 vCPU · 2 GiB",
+      "4": "4 vCPUs · 8 GiB",
+      "6": "6 vCPUs · 12 GiB (Pro and up)",
+      "16": "16 vCPUs · 32 GiB (Enterprise)",
+    });
+    expect(schema.defaultTimeoutMinutes).toMatchObject({
+      type: "select",
+      options: ["15", "30", "45", "60", "120", "240", "480", "1440"],
+    });
+    expect(
+      schema.defaultTimeoutMinutes.experimental_optionLabels,
+    ).toMatchObject({
+      "45": "45 minutes",
+      "60": "1 hour (Pro and up)",
+      "1440": "24 hours (Pro and up)",
+    });
+    await expect(
+      test.harness.behavior.setSettings({ defaultVcpus: "3" }),
+    ).rejects.toThrow();
+    await expect(
+      test.harness.behavior.setSettings({ defaultTimeoutMinutes: "4" }),
+    ).rejects.toThrow();
+    expect(
+      await test.harness.behavior.callRpc("launch.options", {}),
+    ).toMatchObject({ defaultInputs: { vcpus: 2, timeoutMinutes: 30 } });
+  });
 
   it.each([401, 403, 404, 422])(
     "recovers allocation accepted before a %s create response rather than discarding intent",
@@ -795,8 +799,8 @@ describe("Vercel machine allocation", () => {
     await test.machine.create(test.context);
     const before = test.stored;
     await test.harness.behavior.setSettings({
-      defaultVcpus: 4,
-      defaultTimeoutMinutes: 40,
+      defaultVcpus: "4",
+      defaultTimeoutMinutes: "60",
     });
     const replacement = await test.harness.lifecycle.reload(
       createVercelSandboxPlugin(),
@@ -1479,7 +1483,7 @@ describe("diagnostics and launch validation", () => {
     await expect(inspect()).rejects.toThrow("session changed");
     expect(test.vendor.requests).toHaveLength(before);
   });
-  it("validates CPU defaults and emits the allowed launch CPU choices through RPC/CLI without credentials", async () => {
+  it("accepts only allowed CPU defaults and emits the allowed launch CPU choices through RPC/CLI without credentials", async () => {
     const test = await setup();
     const choices = [
       1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32,
@@ -1487,18 +1491,11 @@ describe("diagnostics and launch validation", () => {
     expect(
       await test.harness.behavior.callRpc("launch.options", {}),
     ).toMatchObject({ limits: { allowedVcpus: choices } });
-    await test.harness.behavior.setSettings({ defaultVcpus: 3 });
     await expect(
-      test.harness.behavior.callRpc("launch.options", {}),
-    ).rejects.toThrow("1 or an even count");
-    expect(await test.machine.validate!({ inputs: null })).toMatchObject({
-      action: "refuse",
-    });
-    expect(await test.machine.create(test.context)).toMatchObject({
-      status: "failed",
-    });
+      test.harness.behavior.setSettings({ defaultVcpus: "3" }),
+    ).rejects.toThrow();
     expect(test.vendor.requests).toHaveLength(0);
-    await test.harness.behavior.setSettings({ defaultVcpus: 1 });
+    await test.harness.behavior.setSettings({ defaultVcpus: "1" });
     expect(await test.machine.create(test.context)).toMatchObject({
       status: "created",
     });

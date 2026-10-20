@@ -10,7 +10,7 @@ The server persists a secret-free connection. Its host extension uses fixed, non
 
 SDK 3.5.1 executes compute operations on that authentication machine. A private transport supplies the validated OIDC token while the SDK receives an opaque credential marker, preventing SDK JWT inference or automatic refresh from rebinding scope. Expiring credentials refresh through the same CLI path before a request; a changed account or project blocks it. The standalone `sandbox` CLI 2.0.3 uses SDK 1.3.2 session commands and can implicitly login; it cannot preserve BB's named sandbox tags, generations, stop proof, and mutation retry suppression. `vc` owns authentication; the typed SDK owns this durable compute lifecycle.
 
-Settings `defaultVcpus` and `defaultTimeoutMinutes` default to 2 and 30. Editing defaults affects future allocations; recovery keeps the recorded allocation settings.
+Select settings `defaultVcpus` (1 or an even count up to 32) and `defaultTimeoutMinutes` (15, 30, 45, 60, 120, 240, 480, or 1440 minutes) store their choice as a string and default to `"2"` and `"30"`; choices above Hobby plan limits are labeled with the plans that allow them. Editing defaults affects future allocations; recovery keeps the recorded allocation settings.
 
 The server must be reachable from the sandbox. Configure core machine server access in Settings → Machines. BB owns daemon installation, private enrollment, credentials, work draining, checkout cloning, and `.bb-env-setup.sh`. Agent authentication uses BB's ordinary machine environment and provider configuration. A sandbox image's installed CLIs do not supply agent account credentials.
 
