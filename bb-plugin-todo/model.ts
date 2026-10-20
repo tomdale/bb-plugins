@@ -83,7 +83,7 @@ function checkDependencies(state: State, id: number, deps: number[], field: stri
   };
   if (deps.some(visit)) fail(`${field} would create a cycle in the blockedBy graph`);
 }
-function ordered(state: State, status?: Status, includeDeleted = false): Task[] {
+export function ordered(state: State, status?: Status, includeDeleted = false): Task[] {
   const visible = state.tasks.filter(task => (includeDeleted || task.status !== "deleted") && (!status || task.status === status));
   const ids = new Set(visible.map(task => task.id));
   const result: Task[] = [];

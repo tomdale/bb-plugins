@@ -1,6 +1,7 @@
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { apply, emptyState, type Input, type State } from "./model.ts";
+import { agentInput, applyAgentCall } from "./agent.ts";
+import { apply, emptyState, type Input, type Outcome, type State } from "./model.ts";
 
 const id = z.number().int().positive();
 const status = z.enum(["pending", "in_progress", "completed", "deleted"]);
@@ -33,26 +34,6 @@ const input = z.object({
   blockedBy: z.array(id).optional(), addBlockedBy: z.array(id).optional(), removeBlockedBy: z.array(id).optional(),
   owner: z.string().optional(), metadata: metadata.optional(), includeDeleted: z.boolean().optional(),
   move: z.enum(["up", "down"]).optional().describe("Only pass to reorder a task. Omit when updating status or subject."),
-});
-
-const agentStatus = z.enum(["pending", "in_progress", "completed"]);
-
-const agentInput = z.object({
-  action: z.enum(["set", "update", "list", "get", "clear"]).describe(
-    "Action to perform: 'set' to declare or replace the active plan, 'update' to modify tasks, 'list' to read the active plan, 'get' for task details, 'clear' to reset.",
-  ),
-  tasks: z.array(setTask).optional().describe("For 'set': complete array of tasks with local IDs (1, 2, 3...). Array order defines sequence."),
-  id: id.optional().describe("For 'update' / 'get': local task ID"),
-  subject: z.string().optional().describe("For 'update': revised subject"),
-  status: agentStatus.optional().describe("For 'update': new status ('pending', 'in_progress', 'completed'); for 'list': optional status filter"),
-  activeForm: z.string().optional().describe("Present-tense working label when in progress (e.g. 'Implementing X')"),
-  description: z.string().optional().describe("For 'update': task notes"),
-  parentId: id.nullable().optional().describe("For 'update': parent task ID for nesting. Pass null to detach to root."),
-  blockedBy: z.array(id).optional().describe("For 'update': full replacement of prerequisite task IDs"),
-  addBlockedBy: z.array(id).optional().describe("For 'update': prerequisite task IDs to add"),
-  removeBlockedBy: z.array(id).optional().describe("For 'update': prerequisite task IDs to remove"),
-  owner: z.string().optional(),
-  metadata: metadata.optional(),
 });
 
 export const rpcContract = defineRpcContract({
@@ -92,19 +73,19 @@ export default function plugin(bb: BbPluginApi) {
     db.prepare("INSERT INTO todo_plan_archives (thread_id, plan_json, completed_at) VALUES (?, ?, ?)")
       .run(threadId, JSON.stringify(tasks), new Date().toISOString());
   };
-  const mutate = (threadId: string, change: Input) => {
+  /** Runs one change against a thread's plan; `replacesPlan` archives a plan that has completed work first. */
+  const transact = (threadId: string, produce: (current: State) => Outcome, replacesPlan: boolean) => {
     const result = db.transaction(() => {
       const current = read(threadId);
-      if (change.action === "set" && current.tasks.some(t => t.status === "completed")) {
-        archivePlan(threadId, current.tasks);
-      }
-      const next = apply(current, change);
+      if (replacesPlan && current.tasks.some(t => t.status === "completed")) archivePlan(threadId, current.tasks);
+      const next = produce(current);
       if (next.changed) save.run(threadId, JSON.stringify(next.state));
       return next;
     })();
     if (result.changed) bb.realtime.publish("todo-changed", { threadId });
     return result;
   };
+  const mutate = (threadId: string, change: Input) => transact(threadId, current => apply(current, change), change.action === "set");
   bb.rpc.register(rpcContract, {
     snapshot: ({ threadId }) => read(threadId),
     mutate: ({ threadId, change }) => mutate(threadId, change).state,
@@ -134,12 +115,12 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   bb.agents.registerTool({
-    name: "todo", description: "Manage a per-thread working plan with parent tasks and dependencies. Actions: set, update, list, get, clear.",
-    instructions: "Use todo for work with three or more steps or a user-supplied task list; skip trivial requests. Use action 'set' with a tasks array to declare or replace the plan with local IDs (1, 2, 3...). Array order defines task order. Replacing a plan archives the previous plan if any task in it was completed. Before working on a task, update it to {id, status: 'in_progress', activeForm: 'Implementing X'} with a present-tense working label; multiple tasks may be in progress for concurrent work. When finished, mark it completed immediately only after work and checks pass; completed tasks cannot reopen. Keep blocked, queued, and paused work pending, and satisfy blockedBy prerequisites before starting a task. Use parentId for subtasks, and complete a parent only after its required subtasks and checks pass. Update adds or removes prerequisite edges with addBlockedBy/removeBlockedBy. Invalid parentId or blockedBy references and cycles are rejected. Unfinished in-progress tasks reset to pending at turn end. After user/UI edits and on continuation, call 'list' before updating or resuming tasks, then mark resumed work in_progress again. Keep statuses current so the collapsed card reflects active work and completion accurately. list returns current tasks in display order, optionally filtered by status. Use 'clear' only when the plan is obsolete or the user requests a reset, because it clears the plan and resets local IDs.",
+    name: "todo", description: "Track a checklist for multi-step work with tasks, add, done, and start; a successful call returns the plan.",
+    instructions: "Use todo for work with three or more steps or a user-supplied task list; skip trivial requests. Declare the plan once with todo({tasks:[\"Inspect X\",\"Fix Y\",\"Verify\"]}); task 1 starts. When a task is done and verified, todo({done:[1]}) completes it and, when nothing else is in progress, starts the next unblocked pending task. add appends tasks, including follow-up work, since completed tasks stay completed. start marks parallel work, or work resumed in a later turn because turn end returns in-progress tasks to pending; never start a task that waits on another. Send todo alongside your next action rather than alone, so it costs no extra turn. Each successful call returns the current plan with ids; an unknown id is reported alongside it.",
     parameters: agentInput,
-    async execute(params: z.infer<typeof agentInput>, { threadId }) {
+    async execute(params, { threadId }) {
       try {
-        return mutate(threadId, params as Input).message;
+        return transact(threadId, current => applyAgentCall(current, params), params.tasks !== undefined).message;
       } catch (error) {
         return { content: [{ type: "text", text: `Todo: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
       }

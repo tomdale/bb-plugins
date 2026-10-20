@@ -50,7 +50,7 @@
     "vitest": "^4.1.11"
   },
   "scripts": {
-    "test": "node --test model.test.ts card.test.ts editor-model.test.ts server.test.ts && vitest run app.test.tsx layout.test.tsx",
+    "test": "node --test model.test.ts agent.test.ts card.test.ts editor-model.test.ts server.test.ts && vitest run app.test.tsx layout.test.tsx",
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build"
   },
@@ -58,6 +58,7 @@
     "README.md",
     "server.ts",
     "model.ts",
+    "agent.ts",
     "card.ts",
     "layout.ts",
     "editor-model.ts",

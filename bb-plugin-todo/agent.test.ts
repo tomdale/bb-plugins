@@ -1,0 +1,95 @@
+import { test } from "node:test";
+import { strict as assert } from "node:assert";
+import { agentInput, applyAgentCall, renderPlan } from "./agent.ts";
+import { apply, emptyState, type State } from "./model.ts";
+
+const call = (state: State, args: Record<string, unknown>) => applyAgentCall(state, agentInput.parse(args));
+const plan = (...subjects: string[]) => call(emptyState(), { tasks: subjects }).state;
+const statuses = (state: State) => state.tasks.map(task => task.status);
+
+test("tasks declares a plan whose first task starts", () => {
+  const { state, message, changed } = call(emptyState(), { tasks: ["Inspect", "Fix", "Verify"] });
+  assert.deepEqual(state.tasks.map(task => [task.id, task.subject, task.status]), [[1, "Inspect", "in_progress"], [2, "Fix", "pending"], [3, "Verify", "pending"]]);
+  assert.equal(message, "Plan 0/3 done\n▶ 1 Inspect\n○ 2 Fix\n○ 3 Verify");
+  assert.equal(changed, true);
+});
+
+test("tasks replaces an existing plan and restarts ids", () => {
+  const state = call(plan("A", "B"), { tasks: ["C"] }).state;
+  assert.deepEqual(state.tasks.map(task => [task.id, task.subject]), [[1, "C"]]);
+});
+
+test("done completes a task and starts the next pending one", () => {
+  const first = call(plan("A", "B", "C"), { done: [1] });
+  assert.deepEqual(statuses(first.state), ["completed", "in_progress", "pending"]);
+  assert.equal(first.message, "Plan 1/3 done\n✓ 1 A\n▶ 2 B\n○ 3 C");
+  assert.deepEqual(statuses(call(first.state, { done: [2, 3] }).state), ["completed", "completed", "completed"]);
+});
+
+test("done leaves a task that is still in progress as the current one", () => {
+  const state = call(plan("A", "B", "C"), { start: [2] }).state;
+  assert.deepEqual(statuses(state), ["in_progress", "in_progress", "pending"]);
+  assert.deepEqual(statuses(call(state, { done: [1] }).state), ["completed", "in_progress", "pending"]);
+});
+
+test("an explicit start in the same call suppresses the automatic one", () => {
+  assert.deepEqual(statuses(call(plan("A", "B", "C"), { done: [1], start: [3] }).state), ["completed", "pending", "in_progress"]);
+});
+
+test("the automatic start skips tasks with unfinished blockers", () => {
+  let state = plan("A", "B", "C");
+  state = apply(state, { action: "update", id: 2, addBlockedBy: [3] }).state;
+  const next = call(state, { done: [1] });
+  assert.deepEqual(statuses(next.state), ["completed", "pending", "in_progress"]);
+  assert.match(renderPlan(state), /○ 2 B \(waits on #3\)/);
+});
+
+test("start resumes pending work and reports completed tasks", () => {
+  let state = plan("A", "B");
+  state = call(state, { done: [1] }).state;
+  const reply = call(state, { start: [1] });
+  assert.match(reply.message, /^#1 is already completed\n/);
+  assert.equal(reply.changed, false);
+  const paused = apply(state, { action: "update", id: 2, status: "pending" }).state;
+  assert.deepEqual(statuses(call(paused, { start: [2] }).state), ["completed", "in_progress"]);
+});
+
+test("add appends tasks and starts one when nothing is in progress", () => {
+  const appended = call(plan("A", "B"), { add: ["C"] });
+  assert.deepEqual(appended.state.tasks.map(task => [task.id, task.status]), [[1, "in_progress"], [2, "pending"], [3, "pending"]]);
+  const finished = call(call(plan("A"), { done: [1] }).state, { add: ["B"] });
+  assert.deepEqual(statuses(finished.state), ["completed", "in_progress"]);
+  assert.deepEqual(statuses(call(emptyState(), { add: ["A", "B"] }).state), ["in_progress", "pending"]);
+});
+
+test("unknown and repeated ids are reported while the rest applies", () => {
+  const reply = call(plan("A", "B"), { done: [1, 1, 7], start: [8] });
+  assert.deepEqual(statuses(reply.state), ["completed", "in_progress"]);
+  assert.match(reply.message, /^No task #7, #8\nPlan 1\/2 done/);
+});
+
+test("deleted tasks are unknown and hidden from the plan", () => {
+  const state = apply(plan("A", "B"), { action: "delete", id: 2 }).state;
+  const reply = call(state, { done: [2] });
+  assert.match(reply.message, /^No task #2\nPlan 0\/1 done\n▶ 1 A$/);
+});
+
+test("an empty call reads the plan without changing it", () => {
+  const state = plan("A");
+  const reply = call(state, {});
+  assert.equal(reply.changed, false);
+  assert.equal(reply.state, state);
+  assert.equal(call(emptyState(), {}).message, "No tasks");
+});
+
+test("blank values are absent and bare items become lists", () => {
+  const parsed = (args: Record<string, unknown>) => JSON.parse(JSON.stringify(agentInput.parse(args)));
+  assert.deepEqual(parsed({ tasks: "", add: [], done: null, start: {} }), {});
+  assert.deepEqual(parsed({ tasks: [" A ", "", "  "], done: 2, start: ["3"] }), { tasks: ["A"], done: [2], start: [3] });
+});
+
+test("unknown fields and invalid ids are rejected", () => {
+  assert.throws(() => agentInput.parse({ action: "update", id: 1 }), /Unrecognized keys/);
+  assert.throws(() => agentInput.parse({ done: [0] }));
+  assert.throws(() => agentInput.parse({ tasks: [{ subject: "A" }] }));
+});
