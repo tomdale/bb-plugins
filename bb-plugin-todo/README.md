@@ -6,7 +6,7 @@ The `todo` agent tool takes `tasks`, `add`, `under`, `done`, and `start` (`agent
 
 - `tasks: string[]` replaces the plan with these subjects, numbered 1..n; the first task starts. Replacing a plan that has completed work archives it to `todo_plan_archives`.
 - `add: string[]` appends tasks. On an empty plan it behaves like `tasks`.
-- `under: number` makes the tasks in `add` subtasks of that task id; an unknown id skips the add.
+- `under: number[]` holds at most one task id and makes the tasks in `add` its subtasks; an unknown id skips the add.
 - `done: number[]` completes tasks.
 - `start: number[]` marks pending tasks in progress, for parallel or resumed work.
 

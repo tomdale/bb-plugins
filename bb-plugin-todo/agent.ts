@@ -17,22 +17,20 @@ import { apply, ordered, type Input, type Outcome, type State, type Task } from 
 const blank = (value: unknown): boolean =>
   value == null || (typeof value === "string" && !value.trim()) || (typeof value === "object" && Object.keys(value).length === 0);
 
-/** An optional list that also accepts one bare item and drops blank items. */
-const list = <T extends z.ZodType>(item: T, description: string) => z.preprocess(value => {
+/**
+ * An optional list that also accepts one bare item and drops blank items.
+ * Every field is a list so that a model filling in all of them has one empty
+ * value, `[]`, for "not used" and never needs to invent an id or a subject.
+ */
+const list = <T extends z.ZodType>(item: T, description: string, max?: number) => z.preprocess(value => {
   const items = (Array.isArray(value) ? value : [value]).filter(entry => !blank(entry));
   return items.length > 0 ? items : undefined;
-}, z.array(item).optional().describe(description));
-
-/** An optional id that treats 0 as absent, since ids start at 1. */
-const optionalId = (description: string) => z.preprocess(
-  value => blank(value) || value === 0 ? undefined : value,
-  z.coerce.number().int().positive().optional().describe(description),
-);
+}, (max === undefined ? z.array(item) : z.array(item).max(max)).optional().describe(description));
 
 export const agentInput = z.strictObject({
   tasks: list(z.string().trim(), "Replace the plan with these task subjects, in order. The first task starts. A replaced plan with completed work is archived."),
   add: list(z.string().trim(), "Append these task subjects to the plan."),
-  under: optionalId("With add: the id of the task the added tasks are subtasks of."),
+  under: list(z.coerce.number().int().positive(), "With add: [id] of the task the added tasks are subtasks of.", 1),
   done: list(z.coerce.number().int().positive(), "Task ids to complete. The next unblocked pending task starts when none is in progress."),
   start: list(z.coerce.number().int().positive(), "Task ids to mark in progress, for parallel work or work resumed after a turn ended."),
 });
@@ -63,7 +61,8 @@ export function renderPlan(state: State): string {
  * tasks are never placed somewhere the agent did not name.
  */
 export function applyAgentCall(state: State, call: AgentCall): Outcome {
-  const { tasks, add, under, done, start } = call;
+  const { tasks, add, done, start } = call;
+  const parent = call.under?.[0];
   const notes: string[] = [];
 
   let next = state;
@@ -78,13 +77,13 @@ export function applyAgentCall(state: State, call: AgentCall): Outcome {
   if (tasks) setPlan(tasks);
   let added = false;
   if (add) {
-    if (under !== undefined && !find(under)) missing.push(under);
+    if (parent !== undefined && !find(parent)) missing.push(parent);
     else {
       if (ordered(next).length === 0) setPlan(add);
-      else for (const subject of add) run({ action: "create", subject, parentId: under });
+      else for (const subject of add) run({ action: "create", subject, parentId: parent });
       added = true;
     }
-  } else if (under !== undefined) notes.push("under applies to add");
+  } else if (parent !== undefined) notes.push("under applies to add");
   let completed = false;
   for (const id of new Set(done)) {
     const task = find(id);

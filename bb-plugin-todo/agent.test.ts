@@ -84,7 +84,7 @@ test("an empty call reads the plan without changing it", () => {
 
 test("blank values are absent and bare items become lists", () => {
   const parsed = (args: Record<string, unknown>) => JSON.parse(JSON.stringify(agentInput.parse(args)));
-  assert.deepEqual(parsed({ tasks: "", add: [], done: null, start: {} }), {});
+  assert.deepEqual(parsed({ tasks: "", add: [], under: [], done: null, start: {} }), {});
   assert.deepEqual(parsed({ tasks: [" A ", "", "  "], done: 2, start: ["3"] }), { tasks: ["A"], done: [2], start: [3] });
 });
 
@@ -95,13 +95,13 @@ test("unknown fields and invalid ids are rejected", () => {
 });
 
 test("add with under creates subtasks that render beneath their parent", () => {
-  const reply = call(plan("Inspect", "Build", "Verify"), { start: [2], add: ["Parser", "Tests"], under: 2 });
+  const reply = call(plan("Inspect", "Build", "Verify"), { start: [2], add: ["Parser", "Tests"], under: [2] });
   assert.deepEqual(reply.state.tasks.map(task => [task.id, task.parentId]), [[1, undefined], [2, undefined], [3, undefined], [4, 2], [5, 2]]);
   assert.equal(reply.message, "Plan 0/5 done\n▶ 1 Inspect\n▶ 2 Build\n  ○ 4 Parser\n  ○ 5 Tests\n○ 3 Verify");
 });
 
 test("subtasks start in order, then the parent completes, then the next root task starts", () => {
-  let state = call(plan("Build", "Verify"), { add: ["Parser", "Tests"], under: 1 }).state;
+  let state = call(plan("Build", "Verify"), { add: ["Parser", "Tests"], under: [1] }).state;
   assert.deepEqual(statuses(state), ["in_progress", "pending", "in_progress", "pending"]);
   state = call(state, { done: [3] }).state;
   assert.deepEqual(statuses(state), ["in_progress", "pending", "completed", "in_progress"]);
@@ -113,13 +113,17 @@ test("subtasks start in order, then the parent completes, then the next root tas
 
 test("an unknown under skips the add and is reported", () => {
   const state = plan("A");
-  const reply = call(state, { add: ["B"], under: 9 });
+  const reply = call(state, { add: ["B"], under: [9] });
   assert.equal(reply.changed, false);
   assert.match(reply.message, /^No task #9\nPlan 0\/1 done/);
-  assert.equal(call(state, { under: 1 }).message.split("\n")[0], "under applies to add");
+  assert.equal(call(state, { under: [1] }).message.split("\n")[0], "under applies to add");
 });
 
-test("under 0 or blank is absent", () => {
-  assert.deepEqual(call(plan("A"), { add: ["B"], under: 0 }).state.tasks.map(task => task.parentId), [undefined, undefined]);
-  assert.deepEqual(call(plan("A"), { add: ["B"], under: "" }).state.tasks.map(task => task.parentId), [undefined, undefined]);
+test("a blank under is absent, a bare id is accepted, and two parents are rejected", () => {
+  const parents = (under: unknown) => call(plan("A"), { add: ["B"], under }).state.tasks.map(task => task.parentId);
+  assert.deepEqual(parents([]), [undefined, undefined]);
+  assert.deepEqual(parents(""), [undefined, undefined]);
+  assert.deepEqual(parents(1), [undefined, 1]);
+  assert.throws(() => agentInput.parse({ add: ["B"], under: [1, 2] }));
+  assert.throws(() => agentInput.parse({ add: ["B"], under: [0] }));
 });
