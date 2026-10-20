@@ -20,7 +20,7 @@ async function mount(
   const banner = app.composerCustomizations[0]!.banners![0]!;
   const slot = renderSlot(banner, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot, clearCompleted: () => ({ cleared: true }) },
+    rpc: { snapshot: () => ({ ageMs: 0, ...(snapshot() as object) }) },
     settings,
   });
   const footer = document.createElement("div");
@@ -142,6 +142,24 @@ it("keeps the card in the composer when no measurable side gutter is available",
   slot.lifecycle.unmount();
 });
 
+it("shows nothing from the previous thread while the next thread's plan loads", async () => {
+  let release: (plan: unknown) => void = () => {};
+  const plans: Record<string, unknown> = {
+    "thread-a": { ageMs: 0, tasks: [{ id: 1, subject: "Plan A", status: "pending" }], nextId: 2 },
+  };
+  const app = await loadPluginApp(() => import("./app.js"));
+  const switching = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" } },
+    rpc: { snapshot: ({ threadId }: { threadId: string }) => threadId === "thread-a" ? plans["thread-a"] : new Promise(resolve => { release = resolve; }) },
+  });
+  await switching.findByText("0 of 1 todos done");
+  await switching.behavior.setComposerScope({ kind: "thread", threadId: "thread-b" });
+  expect(switching.container.querySelector(".todo-card")).toBeNull();
+  await act(async () => { release({ ageMs: 0, tasks: [{ id: 1, subject: "Plan B", status: "completed" }, { id: 2, subject: "More B", status: "pending" }], nextId: 3 }); });
+  await switching.findByText("1 of 2 todos done");
+  switching.lifecycle.unmount();
+});
+
 it("announces a stale in-progress snapshot as pending while idle", async () => {
   const slot = await mount(() => ({ tasks: [{ id: 1, subject, status: "in_progress" as const }], nextId: 2 }));
   const summary = await slot.findByText("0 of 1 todos done");
@@ -180,7 +198,7 @@ it("keeps all active todos visible when a running card is collapsed", async () =
   const app = await loadPluginApp(() => import("./app.js"));
   const slot = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" }, isRunning: true },
-    rpc: { snapshot: () => ({ tasks: [
+    rpc: { snapshot: () => ({ ageMs: 0, tasks: [
       { id: 1, subject: "First", status: "in_progress" },
       { id: 2, subject: "Second", status: "in_progress" },
       { id: 3, subject: "Third", status: "in_progress" },
@@ -207,7 +225,7 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
   const app = await loadPluginApp(() => import("./app.js"));
   const completed = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }), clearCompleted: () => ({ cleared: true }) },
+    rpc: { snapshot: () => ({ ageMs: 0, tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
   });
   await act(async () => {});
   expect(completed.getByText("All todos complete")).toBeTruthy();
@@ -225,6 +243,29 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
   await act(async () => { vi.advanceTimersByTime(1); });
   expect(completed.queryByText("All todos complete")).toBeNull();
   completed.lifecycle.unmount();
+});
+
+it("hides a finished card at once when its plan is already older than the delay", async () => {
+  const slot = await mount(() => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2, ageMs: 31_000 }));
+  await act(async () => {});
+  expect(slot.container.querySelector(".todo-card")).toBeNull();
+  slot.lifecycle.unmount();
+});
+
+it("counts the time since the plan changed toward the hide delay", async () => {
+  vi.useFakeTimers();
+  const app = await loadPluginApp(() => import("./app.js"));
+  const slot = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
+    composer: { scope: { kind: "thread", threadId: "thread-a" } },
+    rpc: { snapshot: () => ({ ageMs: 20_000, tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }) },
+  });
+  await act(async () => {});
+  expect(slot.getByText("All todos complete")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(9_999); });
+  expect(slot.getByText("All todos complete")).toBeTruthy();
+  await act(async () => { vi.advanceTimersByTime(1); });
+  expect(slot.queryByText("All todos complete")).toBeNull();
+  slot.lifecycle.unmount();
 });
 
 it("toggles back and forth between collapsed and expanded states at any time", async () => {

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { experimental_Icon as Icon, useComposer, useRpc, useSettings } from "@get-bb/plugin-sdk/app";
+import { experimental_Icon as Icon, useComposer, useSettings } from "@get-bb/plugin-sdk/app";
 import { buildCardView, collapsedSummary, rowIcon, rowState, tasksForRunState, type CardRow, type CardTreeNode } from "./card.js";
 import type { Task } from "./model.js";
 import { ProgressRing } from "./progress-ring.js";
 import { useTodoList } from "./use-todos.js";
 import { useTodoSidePlacement } from "./use-side-placement.js";
-import type { rpcContract } from "./server.js";
 
 const STATUS_TEXT: Record<Task["status"], string> = { in_progress: "In progress", pending: "Pending", completed: "Completed" };
 
@@ -66,12 +65,11 @@ function TodoTreeItem({ node, working }: { node: CardTreeNode; working: boolean 
  */
 export function TodoCard() {
   const composer = useComposer();
-  const rpc = useRpc<typeof rpcContract>();
   const threadId = composer.scope.kind === "thread" || composer.scope.kind === "queued-message" ? composer.scope.threadId : null;
   const { values: settings } = useSettings();
   const hideDelaySeconds = typeof settings?.completedHideDelaySeconds === "number" ? settings.completedHideDelaySeconds : 30;
-  const { state, loaded, error, refresh } = useTodoList(threadId);
-  const [hiddenAfterCompletion, setHiddenAfterCompletion] = useState(false);
+  const { state, ageMs, loaded, error, refresh } = useTodoList(threadId);
+  const [hideTimerElapsed, setHideTimerElapsed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [contentTransitioning, setContentTransitioning] = useState(false);
   const [useTwoColumns, setUseTwoColumns] = useState(false);
@@ -93,24 +91,20 @@ export function TodoCard() {
   useEffect(() => { refresh(); }, [composer.isRunning, refresh]);
 
   const card = useMemo(() => buildCardView(tasksForRunState(state.tasks, composer.isRunning)), [state.tasks, composer.isRunning]);
-  const tasksFingerprint = JSON.stringify(state.tasks);
-
+  // A finished plan stays visible until it has gone unchanged for the hide delay. The server reports how long ago the
+  // plan changed, so a card opened later hides at once and the stored plan is never touched. A refresh error keeps
+  // the card visible, because that age is no longer current and the failure should stay readable.
+  const hideAfterMs = hideDelaySeconds * 1000;
   useEffect(() => {
-    setHiddenAfterCompletion(false);
-    if (!threadId || !loaded || !card.allComplete || error) return;
-    if (hideDelaySeconds === 0) {
-      setHiddenAfterCompletion(true);
-      void rpc.call("clearCompleted", { threadId }).catch(() => {});
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setHiddenAfterCompletion(true);
-      void rpc.call("clearCompleted", { threadId }).catch(() => {});
-    }, hideDelaySeconds * 1000);
+    // Each snapshot carries its own age, so a new one restarts the countdown.
+    setHideTimerElapsed(false);
+    if (!loaded || !card.allComplete || error || ageMs >= hideAfterMs) return;
+    const timer = window.setTimeout(() => setHideTimerElapsed(true), hideAfterMs - ageMs);
     return () => window.clearTimeout(timer);
-  }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds, rpc]);
+  }, [state, loaded, card.allComplete, error, ageMs, hideAfterMs]);
 
-  const visible = !!threadId && !(hiddenAfterCompletion && card.allComplete && !error) && (card.total > 0 || !!error);
+  const finishedAndExpired = loaded && card.allComplete && !error && (hideTimerElapsed || ageMs >= hideAfterMs);
+  const visible = !!threadId && !finishedAndExpired && (card.total > 0 || !!error);
   const { cardRef, placement } = useTodoSidePlacement(threadId, visible, expanded, composer.scope.kind !== "queued-message");
   const gutter = placement !== null;
   // The gutter lane has no collapse control, so it always shows the full list; `expanded` is the banner's own state.

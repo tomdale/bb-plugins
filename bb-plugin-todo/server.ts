@@ -8,10 +8,12 @@ const task = z.object({
   id, subject: z.string(), status: z.enum(["pending", "in_progress", "completed"]), parentId: id.optional(),
 });
 const stateSchema = z.object({ tasks: z.array(task), nextId: id });
+// `updatedAt` is when the plan last changed, in epoch milliseconds; plans saved without it count as long finished.
+const storedSchema = stateSchema.extend({ updatedAt: z.number().default(0) });
 
 export const rpcContract = defineRpcContract({
-  snapshot: { input: z.object({ threadId: z.string().min(1) }), output: stateSchema },
-  clearCompleted: { input: z.object({ threadId: z.string().min(1) }), output: z.object({ cleared: z.boolean() }) },
+  // `ageMs` is the time since the plan last changed, measured on the server so clients need no synchronized clock.
+  snapshot: { input: z.object({ threadId: z.string().min(1) }), output: stateSchema.extend({ ageMs: z.number() }) },
 });
 
 export default function plugin(bb: BbPluginApi) {
@@ -29,36 +31,30 @@ export default function plugin(bb: BbPluginApi) {
     "CREATE TABLE IF NOT EXISTS todo_plan_archives (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, plan_json TEXT NOT NULL, completed_at TEXT NOT NULL)",
     "CREATE INDEX IF NOT EXISTS idx_todo_plan_archives_thread ON todo_plan_archives (thread_id)",
   ]);
-  const read = (threadId: string): State => {
+  const read = (threadId: string): { state: State; updatedAt: number } => {
     const row = db.prepare("SELECT state_json FROM todo_threads WHERE thread_id = ?").get(threadId) as { state_json: string } | undefined;
-    if (!row) return emptyState();
+    if (!row) return { state: emptyState(), updatedAt: 0 };
     const stored = JSON.parse(row.state_json) as { tasks?: Array<{ status?: string }> };
     // Plans saved while tasks could be deleted keep their deleted entries.
-    return stateSchema.parse({ ...stored, tasks: (stored.tasks ?? []).filter(task => task.status !== "deleted") });
+    const { updatedAt, ...state } = storedSchema.parse({ ...stored, tasks: (stored.tasks ?? []).filter(task => task.status !== "deleted") });
+    return { state, updatedAt };
   };
-  const save = db.prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
+  const upsert = db.prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
+  const save = (threadId: string, state: State) => upsert.run(threadId, JSON.stringify({ ...state, updatedAt: Date.now() }));
   /** Runs one change against a thread's plan and publishes it when the plan changed. */
   const transact = <T extends { state: State; changed: boolean }>(threadId: string, produce: (current: State) => T): T => {
     const result = db.transaction(() => {
-      const current = read(threadId);
-      const next = produce(current);
-      if (next.changed) save.run(threadId, JSON.stringify(next.state));
+      const next = produce(read(threadId).state);
+      if (next.changed) save(threadId, next.state);
       return next;
     })();
     if (result.changed) bb.realtime.publish("todo-changed", { threadId });
     return result;
   };
   bb.rpc.register(rpcContract, {
-    snapshot: ({ threadId }) => read(threadId),
-    clearCompleted: ({ threadId }) => {
-      const changed = db.transaction(() => {
-        const current = read(threadId);
-        if (!current.tasks.length || !current.tasks.every(t => t.status === "completed")) return false;
-        save.run(threadId, JSON.stringify(emptyState()));
-        return true;
-      })();
-      if (changed) bb.realtime.publish("todo-changed", { threadId });
-      return { cleared: changed };
+    snapshot: ({ threadId }) => {
+      const { state, updatedAt } = read(threadId);
+      return { ...state, ageMs: Math.max(0, Date.now() - updatedAt) };
     },
   });
   bb.agents.registerTool({
@@ -76,10 +72,9 @@ export default function plugin(bb: BbPluginApi) {
   bb.events.on("thread.active", ({ thread }) => bb.realtime.publish("todo-changed", { threadId: thread.id }));
   const settle = (threadId: string) => {
     const changed = db.transaction(() => {
-      const current = read(threadId);
-      if (!current.tasks.some(task => task.status === "in_progress")) return false;
-      const tasks = current.tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" as const } : task);
-      save.run(threadId, JSON.stringify({ ...current, tasks }));
+      const { state } = read(threadId);
+      if (!state.tasks.some(task => task.status === "in_progress")) return false;
+      save(threadId, { ...state, tasks: state.tasks.map(task => task.status === "in_progress" ? { ...task, status: "pending" as const } : task) });
       return true;
     })();
     if (changed) bb.realtime.publish("todo-changed", { threadId });

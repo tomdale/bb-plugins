@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createFakePluginHost, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.ts";
@@ -40,34 +40,67 @@ for (const event of ["thread.idle", "thread.failed", "thread.archived"] as const
     const signals = harness.realtimeSignals.length;
     await harness.behavior.emitThreadEvent(event, payload);
     assert.equal(harness.realtimeSignals.length, signals);
-    assert.deepEqual(await harness.behavior.callRpc("snapshot", { threadId: "ended" }), settled);
+    const again = await harness.behavior.callRpc("snapshot", { threadId: "ended" });
+    assert.deepEqual(again.tasks, settled.tasks);
     await harness.lifecycle.dispose();
   });
 }
 
-test("declares and completes plans, and clears a finished plan on request", async () => {
+test("declares and completes plans, and a new plan replaces whatever came before", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);
   const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
   const snapshot = () => harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
-  const clear = () => harness.behavior.callRpc("clearCompleted", { threadId: "thread-test" });
 
   await call({ tasks: ["Plan feature", "Build feature", "Test feature"] });
   await call({ done: [1] });
-  assert.deepEqual(await clear(), { cleared: false });
   await call({ done: [2, 3] });
   assert.equal((await snapshot()).tasks.every(t => t.status === "completed"), true);
-  assert.deepEqual(await clear(), { cleared: true });
-  assert.deepEqual((await snapshot()).tasks, []);
-  assert.deepEqual(await clear(), { cleared: false });
 
-  // A fresh plan starts with ids 1, 2, and replaces whatever plan came before
+  // A fresh plan starts with ids 1, 2
   await call({ tasks: ["Next goal step 1", "Next goal step 2"] });
   assert.deepEqual((await snapshot()).tasks.map(t => t.id), [1, 2]);
   await call({ done: [1] });
   await call({ tasks: ["Third goal"] });
   assert.deepEqual((await snapshot()).tasks.map(t => t.subject), ["Third goal"]);
   assert.deepEqual(bb.storage.database().prepare("SELECT id FROM todo_plan_archives").all(), []);
+  await harness.lifecycle.dispose();
+});
+
+test("the snapshot reports how long ago the plan changed", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  await plugin(bb);
+  const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
+  const age = async () => (await harness.behavior.callRpc("snapshot", { threadId: "thread-test" })).ageMs;
+
+  await call({ tasks: ["One", "Two"] });
+  t.mock.timers.tick(10_000);
+  assert.equal(await age(), 10_000);
+
+  // Reading, and calls that change nothing, leave the age running.
+  await call({});
+  await call({ done: [9] });
+  t.mock.timers.tick(5_000);
+  assert.equal(await age(), 15_000);
+
+  // A change restarts it, and so does settling an in-progress task when the thread goes idle.
+  await call({ done: [1] });
+  assert.equal(await age(), 0);
+  t.mock.timers.tick(7_000);
+  await harness.behavior.emitThreadEvent("thread.idle", { thread: makeThreadResponse({ id: "thread-test" }), lastAssistantText: null });
+  assert.equal(await age(), 0);
+  await harness.lifecycle.dispose();
+});
+
+test("a plan saved without a change time counts as long finished", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  await plugin(bb);
+  const saved = { tasks: [{ id: 1, subject: "Done", status: "completed" }], nextId: 2 };
+  bb.storage.database().prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?)").run("thread-test", JSON.stringify(saved));
+  const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  assert.deepEqual(snapshot.tasks, saved.tasks);
+  assert.ok(snapshot.ageMs > 365 * 24 * 60 * 60 * 1000);
   await harness.lifecycle.dispose();
 });
 
@@ -114,7 +147,8 @@ test("reads plans saved with deleted tasks and fields the agent tool no longer s
   };
   bb.storage.database().prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?)").run("thread-test", JSON.stringify(legacy));
   const snapshot = await harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
-  assert.deepEqual(snapshot, { tasks: [{ id: 1, subject: "Kept", status: "completed" }, { id: 3, subject: "Child", status: "pending", parentId: 1 }], nextId: 4 });
+  assert.deepEqual(snapshot.tasks, [{ id: 1, subject: "Kept", status: "completed" }, { id: 3, subject: "Child", status: "pending", parentId: 1 }]);
+  assert.equal(snapshot.nextId, 4);
   assert.equal(await harness.behavior.callAgentTool("todo", { add: ["Next"] }), "Plan 1/3 done\n✓ 1 Kept\n  ▶ 3 Child\n○ 4 Next");
   await harness.lifecycle.dispose();
 });
