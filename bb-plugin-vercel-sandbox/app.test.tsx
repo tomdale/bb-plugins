@@ -589,7 +589,7 @@ describe("settings section", () => {
       .getAllByRole("heading")
       .map((heading) => heading.textContent);
     expect(headings.indexOf("Account")).toBeLessThan(
-      headings.indexOf("New sandboxes"),
+      headings.indexOf("Default configuration"),
     );
     expect(
       (await slot.findByRole("button", { name: /^vCPUs / })).textContent,

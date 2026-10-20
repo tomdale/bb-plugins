@@ -1644,7 +1644,7 @@ function LaunchDefaultsSection({ planKey }: { planKey: string }) {
   const timeoutMinutes = loaded?.defaultInputs.timeoutMinutes ?? null;
   return (
     <section className="space-y-3">
-      <SettingsHeading title="New sandboxes" />
+      <SettingsHeading title="Default configuration" />
       {state.status === "error" ? (
         <div className="flex flex-wrap items-center gap-3">
           <p role="alert" className="text-xs text-destructive-text">
