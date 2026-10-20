@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 // Layout primitives that mirror BB's declarative plugin settings form, so the
 // Account section reads as a continuation of the host-rendered Configuration
 // card above it: the same recessed panel, label and description column,
-// container-query breakpoint, and 16rem control column.
+// container-query breakpoint, and 11rem dropdown column.
 
 /** The recessed panel that holds a group of setting rows. */
 export const SETTINGS_PANEL_CLASS =
@@ -48,7 +48,7 @@ export function SettingRow({
             </p>
           )}
         </div>
-        <div className="flex min-w-0 flex-col gap-1.5 @min-[36rem]/settings:w-64 @min-[36rem]/settings:shrink-0">
+        <div className="flex min-w-0 flex-col gap-1.5 @min-[36rem]/settings:w-44 @min-[36rem]/settings:shrink-0">
           {children}
         </div>
       </div>
