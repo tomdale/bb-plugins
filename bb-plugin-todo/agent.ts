@@ -27,7 +27,7 @@ const list = <T extends z.ZodType>(item: T, description: string, max?: number) =
 }, (max === undefined ? z.array(item) : z.array(item).max(max)).optional().describe(description));
 
 export const agentInput = z.strictObject({
-  tasks: list(z.string().trim(), "Replace the plan with these task subjects, in order. The first task starts. A replaced plan with completed work is archived."),
+  tasks: list(z.string().trim(), "Replace the plan with these task subjects, in order. The first task starts."),
   add: list(z.string().trim(), "Append these task subjects to the plan."),
   under: list(z.coerce.number().int().positive(), "With add: [id] of the task the added tasks are subtasks of.", 1),
   done: list(z.coerce.number().int().positive(), "Task ids to complete. The next pending task starts when none is in progress."),

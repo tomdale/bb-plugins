@@ -20,7 +20,7 @@ async function mount(
   const banner = app.composerCustomizations[0]!.banners![0]!;
   const slot = renderSlot(banner, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot, archiveCompleted: () => ({ archived: true }) },
+    rpc: { snapshot, clearCompleted: () => ({ cleared: true }) },
     settings,
   });
   const footer = document.createElement("div");
@@ -207,7 +207,7 @@ it("states all todos complete with simple copy and hides after 30 seconds by def
   const app = await loadPluginApp(() => import("./app.js"));
   const completed = renderSlot(app.composerCustomizations[0]!.banners![0]!, {}, {
     composer: { scope: { kind: "thread", threadId: "thread-a" } },
-    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }), archiveCompleted: () => ({ archived: true }) },
+    rpc: { snapshot: () => ({ tasks: [{ id: 1, subject, status: "completed" }], nextId: 2 }), clearCompleted: () => ({ cleared: true }) },
   });
   await act(async () => {});
   expect(completed.getByText("All todos complete")).toBeTruthy();

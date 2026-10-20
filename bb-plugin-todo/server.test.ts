@@ -45,39 +45,45 @@ for (const event of ["thread.idle", "thread.failed", "thread.archived"] as const
   });
 }
 
-test("declares, completes, and archives plans through the todo tool", async () => {
+test("declares and completes plans, and clears a finished plan on request", async () => {
   const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
   await plugin(bb);
   const call = (args: Record<string, unknown>) => harness.behavior.callAgentTool("todo", args);
   const snapshot = () => harness.behavior.callRpc("snapshot", { threadId: "thread-test" });
+  const clear = () => harness.behavior.callRpc("clearCompleted", { threadId: "thread-test" });
 
   await call({ tasks: ["Plan feature", "Build feature", "Test feature"] });
   await call({ done: [1] });
+  assert.deepEqual(await clear(), { cleared: false });
   await call({ done: [2, 3] });
   assert.equal((await snapshot()).tasks.every(t => t.status === "completed"), true);
-
-  // archiveCompleted archives the plan and clears the active list
-  const archiveRes = await harness.behavior.callRpc("archiveCompleted", { threadId: "thread-test" });
-  assert.equal(archiveRes.archived, true);
+  assert.deepEqual(await clear(), { cleared: true });
   assert.deepEqual((await snapshot()).tasks, []);
+  assert.deepEqual(await clear(), { cleared: false });
 
-  // A fresh plan starts with ids 1, 2
+  // A fresh plan starts with ids 1, 2, and replaces whatever plan came before
   await call({ tasks: ["Next goal step 1", "Next goal step 2"] });
   assert.deepEqual((await snapshot()).tasks.map(t => t.id), [1, 2]);
-
-  // Replacing a plan that has completed work archives it
   await call({ done: [1] });
   await call({ tasks: ["Third goal"] });
   assert.deepEqual((await snapshot()).tasks.map(t => t.subject), ["Third goal"]);
+  assert.deepEqual(bb.storage.database().prepare("SELECT id FROM todo_plan_archives").all(), []);
+  await harness.lifecycle.dispose();
+});
 
-  const archivedPlans = () => (bb.storage.database()
-    .prepare("SELECT plan_json FROM todo_plan_archives WHERE thread_id = ? ORDER BY id").all("thread-test") as Array<{ plan_json: string }>)
-    .map(row => (JSON.parse(row.plan_json) as unknown[]).length);
-  assert.deepEqual(archivedPlans(), [3, 2]); // The first 3-step plan, then the plan with "Next goal step 1"
-
-  // Replacing a plan with no completed work does not archive it
-  await call({ tasks: ["Fourth goal"] });
-  assert.deepEqual(archivedPlans(), [3, 2]);
+test("deleting a thread removes its plan and any archived plans saved earlier", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "todo" });
+  await plugin(bb);
+  await harness.behavior.callAgentTool("todo", { tasks: ["One"] }, { threadId: "doomed" });
+  await harness.behavior.callAgentTool("todo", { tasks: ["Two"] }, { threadId: "kept" });
+  const db = bb.storage.database();
+  const archive = db.prepare("INSERT INTO todo_plan_archives (thread_id, plan_json, completed_at) VALUES (?, '[]', '2026-10-01T00:00:00.000Z')");
+  archive.run("doomed");
+  archive.run("kept");
+  await harness.behavior.emitThreadEvent("thread.deleted", { thread: makeThreadResponse({ id: "doomed" }) });
+  assert.deepEqual((await harness.behavior.callRpc("snapshot", { threadId: "doomed" })).tasks, []);
+  assert.equal((await harness.behavior.callRpc("snapshot", { threadId: "kept" })).tasks.length, 1);
+  assert.deepEqual(db.prepare("SELECT thread_id FROM todo_plan_archives").all(), [{ thread_id: "kept" }]);
   await harness.lifecycle.dispose();
 });
 

@@ -11,7 +11,7 @@ const stateSchema = z.object({ tasks: z.array(task), nextId: id });
 
 export const rpcContract = defineRpcContract({
   snapshot: { input: z.object({ threadId: z.string().min(1) }), output: stateSchema },
-  archiveCompleted: { input: z.object({ threadId: z.string().min(1) }), output: z.object({ archived: z.boolean() }) },
+  clearCompleted: { input: z.object({ threadId: z.string().min(1) }), output: z.object({ cleared: z.boolean() }) },
 });
 
 export default function plugin(bb: BbPluginApi) {
@@ -23,6 +23,7 @@ export default function plugin(bb: BbPluginApi) {
     },
   });
   const db = bb.storage.database();
+  // Migrations are append-only: the archive table stays declared for installs that have it, and thread.deleted removes its rows.
   bb.storage.migrate(db, [
     "CREATE TABLE IF NOT EXISTS todo_threads (thread_id TEXT PRIMARY KEY, state_json TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS todo_plan_archives (id INTEGER PRIMARY KEY AUTOINCREMENT, thread_id TEXT NOT NULL, plan_json TEXT NOT NULL, completed_at TEXT NOT NULL)",
@@ -36,16 +37,10 @@ export default function plugin(bb: BbPluginApi) {
     return stateSchema.parse({ ...stored, tasks: (stored.tasks ?? []).filter(task => task.status !== "deleted") });
   };
   const save = db.prepare("INSERT INTO todo_threads(thread_id, state_json) VALUES (?, ?) ON CONFLICT(thread_id) DO UPDATE SET state_json = excluded.state_json");
-  const archivePlan = (threadId: string, tasks: readonly unknown[]) => {
-    if (!tasks.length) return;
-    db.prepare("INSERT INTO todo_plan_archives (thread_id, plan_json, completed_at) VALUES (?, ?, ?)")
-      .run(threadId, JSON.stringify(tasks), new Date().toISOString());
-  };
-  /** Runs one change against a thread's plan; `replacesPlan` archives a plan that has completed work first. */
-  const transact = <T extends { state: State; changed: boolean }>(threadId: string, produce: (current: State) => T, replacesPlan: boolean): T => {
+  /** Runs one change against a thread's plan and publishes it when the plan changed. */
+  const transact = <T extends { state: State; changed: boolean }>(threadId: string, produce: (current: State) => T): T => {
     const result = db.transaction(() => {
       const current = read(threadId);
-      if (replacesPlan && current.tasks.some(t => t.status === "completed")) archivePlan(threadId, current.tasks);
       const next = produce(current);
       if (next.changed) save.run(threadId, JSON.stringify(next.state));
       return next;
@@ -55,16 +50,15 @@ export default function plugin(bb: BbPluginApi) {
   };
   bb.rpc.register(rpcContract, {
     snapshot: ({ threadId }) => read(threadId),
-    archiveCompleted: ({ threadId }) => {
+    clearCompleted: ({ threadId }) => {
       const changed = db.transaction(() => {
         const current = read(threadId);
         if (!current.tasks.length || !current.tasks.every(t => t.status === "completed")) return false;
-        archivePlan(threadId, current.tasks);
         save.run(threadId, JSON.stringify(emptyState()));
         return true;
       })();
       if (changed) bb.realtime.publish("todo-changed", { threadId });
-      return { archived: changed };
+      return { cleared: changed };
     },
   });
   bb.agents.registerTool({
@@ -73,7 +67,7 @@ export default function plugin(bb: BbPluginApi) {
     parameters: agentInput,
     async execute(params, { threadId }) {
       try {
-        return transact(threadId, current => applyAgentCall(current, params), params.tasks !== undefined).message;
+        return transact(threadId, current => applyAgentCall(current, params)).message;
       } catch (error) {
         return { content: [{ type: "text", text: `Todo: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
       }

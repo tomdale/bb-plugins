@@ -100,12 +100,12 @@ export function TodoCard() {
     if (!threadId || !loaded || !card.allComplete || error) return;
     if (hideDelaySeconds === 0) {
       setHiddenAfterCompletion(true);
-      void rpc.call("archiveCompleted", { threadId }).catch(() => {});
+      void rpc.call("clearCompleted", { threadId }).catch(() => {});
       return;
     }
     const timer = window.setTimeout(() => {
       setHiddenAfterCompletion(true);
-      void rpc.call("archiveCompleted", { threadId }).catch(() => {});
+      void rpc.call("clearCompleted", { threadId }).catch(() => {});
     }, hideDelaySeconds * 1000);
     return () => window.clearTimeout(timer);
   }, [threadId, loaded, tasksFingerprint, card.allComplete, error, hideDelaySeconds, rpc]);
