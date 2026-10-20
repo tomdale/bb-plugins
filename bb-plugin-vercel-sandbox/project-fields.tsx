@@ -1,9 +1,8 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState } from "react";
 import { useRpc, type PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import type { vercelRpcContract } from "./rpc.js";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Label } from "@/components/ui/label";
 import { Icon } from "@/components/ui/icon";
 import {
   DropdownMenu,
@@ -16,6 +15,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  SETTINGS_MENU_CLASS,
+  SETTINGS_TRIGGER_CLASS,
+  SettingRow,
+} from "./settings-rows.js";
 
 type Contract = typeof vercelRpcContract;
 type Choices = PluginRpcResult<Contract["account.teams"]>["choices"];
@@ -43,6 +47,7 @@ type Listing =
 
 function ChoiceField({
   label,
+  description,
   listing,
   value,
   knownName,
@@ -51,6 +56,7 @@ function ChoiceField({
   onRetry,
 }: {
   label: string;
+  description: string;
   listing: Listing | null;
   value: string | null;
   /** The saved name for `value`, shown until the listing arrives. */
@@ -77,7 +83,7 @@ function ChoiceField({
       ? `No ${lower}s available`
       : (name ?? placeholder);
   return (
-    <FieldRow label={label} labelId={id}>
+    <SettingRow label={label} labelId={id} description={description}>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -87,7 +93,7 @@ function ChoiceField({
             disabled={unavailable}
             aria-labelledby={`${id} ${id}-value`}
             aria-busy={waiting}
-            className={INLINE_TRIGGER_CLASS}
+            className={SETTINGS_TRIGGER_CLASS}
           >
             <span className="flex min-w-0 items-center gap-1.5">
               <span
@@ -111,10 +117,10 @@ function ChoiceField({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
-          align="start"
+          align="end"
           mobileTitle={label}
           aria-labelledby={id}
-          className="max-w-80"
+          className={SETTINGS_MENU_CLASS}
         >
           {loading ? (
             <DropdownMenuItem disabled>
@@ -143,7 +149,13 @@ function ChoiceField({
             Couldn't load {lower}s. Check that the machine is signed in with the
             Vercel CLI.
           </p>
-          <Button type="button" size="sm" variant="ghost" onClick={onRetry}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7"
+            onClick={onRetry}
+          >
             Retry {lower}s
           </Button>
         </div>
@@ -153,7 +165,7 @@ function ChoiceField({
           No {lower}s are available for this selection.
         </p>
       ) : null}
-    </FieldRow>
+    </SettingRow>
   );
 }
 
@@ -174,42 +186,6 @@ export function IdInfo({ id }: { id: string }) {
       </TooltipTrigger>
       <TooltipContent className="font-mono">{id}</TooltipContent>
     </Tooltip>
-  );
-}
-
-// The account grid. Pickers and read-only rows share one row height, and a
-// trigger's outset equals its border plus padding, so picker text lines up
-// with read-only values and the label column.
-export const ROW_GRID_CLASS =
-  "grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm";
-export const ROW_LABEL_CLASS = "flex h-8 items-center text-muted-foreground";
-export const ROW_VALUE_CLASS = "flex min-h-8 min-w-0 flex-col justify-center";
-export const INLINE_TRIGGER_CLASS =
-  "-ml-[13px] w-[min(20rem,calc(100%+13px))] min-w-0 justify-between text-sm font-normal";
-
-/**
- * One label/control row of the account grid, rendered as two grid cells so
- * pickers line up with read-only rows.
- */
-export function FieldRow({
-  label,
-  labelId,
-  children,
-}: {
-  label: string;
-  labelId: string;
-  children: ReactNode;
-}) {
-  return (
-    <>
-      <Label
-        id={labelId}
-        className={cn(ROW_LABEL_CLASS, "text-sm font-normal")}
-      >
-        {label}
-      </Label>
-      <div className={cn(ROW_VALUE_CLASS, "gap-1.5")}>{children}</div>
-    </>
   );
 }
 
@@ -314,6 +290,7 @@ export function ProjectFields({
     <>
       <ChoiceField
         label="Team"
+        description="Owns new sandboxes and is billed for them."
         listing={teams}
         value={teamId}
         knownName={savedTeam ? initial.teamName : null}
@@ -327,6 +304,7 @@ export function ProjectFields({
       />
       <ChoiceField
         label="Project"
+        description="New sandboxes are created in this project."
         listing={
           teamId === null
             ? null

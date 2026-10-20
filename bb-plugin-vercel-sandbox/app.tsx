@@ -21,16 +21,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
-  FieldRow,
   IdInfo,
-  INLINE_TRIGGER_CLASS,
   ProjectFields,
   type ProjectSelection,
-  ROW_GRID_CLASS,
-  ROW_LABEL_CLASS,
-  ROW_VALUE_CLASS,
-  type ProjectChoice,
 } from "./project-fields.js";
+import {
+  SETTINGS_MENU_CLASS,
+  SETTINGS_PANEL_CLASS,
+  SETTINGS_TRIGGER_CLASS,
+  SettingRow,
+  StaticValue,
+} from "./settings-rows.js";
 import {
   Tooltip,
   TooltipContent,
@@ -550,9 +551,11 @@ function SettingsHeading({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-8 items-center justify-between gap-4">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {action}
+    <div className="flex min-h-7 items-center justify-between gap-3">
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      {action === undefined ? null : (
+        <div className="flex shrink-0 items-center gap-1">{action}</div>
+      )}
     </div>
   );
 }
@@ -634,31 +637,40 @@ function NamedId({ name, id }: { name: string | null; id: string }) {
   );
 }
 
-/** A read-only row of the account grid, matching a picker row's size. */
-function StaticRow({ term, children }: { term: string; children: ReactNode }) {
-  return (
-    <>
-      <div className={ROW_LABEL_CLASS}>{term}</div>
-      <div className={cn(ROW_VALUE_CLASS, "break-words text-foreground")}>
-        {children}
-      </div>
-    </>
-  );
-}
-
 /** Rows that come from the CLI login rather than a choice in Settings. */
-function IdentityRows({ account }: { account: SavedAccount }) {
+function IdentityRows({
+  account,
+  machineName,
+}: {
+  account: SavedAccount;
+  machineName: string;
+}) {
   return (
     <>
       {account.accountId === null ? null : (
-        <StaticRow term="Signed in as">
-          <NamedId name={account.accountName} id={account.accountId} />
-        </StaticRow>
+        <SettingRow
+          label="Signed in as"
+          description={
+            <>
+              The Vercel CLI sign-in on {machineName}. To switch users, run{" "}
+              <code className="font-mono">vc login</code> there.
+            </>
+          }
+        >
+          <StaticValue>
+            <NamedId name={account.accountName} id={account.accountId} />
+          </StaticValue>
+        </SettingRow>
       )}
       {account.directory === null ? null : (
-        <StaticRow term="Linked folder">
-          <span className="break-all font-mono">{account.directory}</span>
-        </StaticRow>
+        <SettingRow
+          label="Linked folder"
+          description="The folder linked with vc link for this connection."
+        >
+          <StaticValue className="break-all font-mono">
+            {account.directory}
+          </StaticValue>
+        </SettingRow>
       )}
     </>
   );
@@ -689,7 +701,10 @@ function StatusLine({
   return (
     <div
       role={alert ? "alert" : "status"}
-      className={cn("flex items-start gap-2 text-sm", STATUS_TONES[tone])}
+      className={cn(
+        "flex items-start gap-2 text-xs leading-snug",
+        STATUS_TONES[tone],
+      )}
     >
       <span className="flex h-[1lh] shrink-0 items-center">
         <Icon
@@ -792,7 +807,7 @@ function MachineField({
     return (
       <p
         role="status"
-        className="flex h-8 items-center text-xs text-muted-foreground"
+        className="flex h-7 items-center px-[9px] text-xs text-muted-foreground"
       >
         Loading your machines…
       </p>
@@ -838,7 +853,7 @@ function MachineField({
           size="sm"
           aria-labelledby={`${labelId} ${labelId}-value`}
           aria-describedby={describedById}
-          className={INLINE_TRIGGER_CLASS}
+          className={SETTINGS_TRIGGER_CLASS}
         >
           <span id={`${labelId}-value`} className="min-w-0 truncate">
             {triggerLabel}
@@ -853,10 +868,10 @@ function MachineField({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="start"
+        align="end"
         mobileTitle="Machine"
         aria-labelledby={labelId}
-        className={cn(OPTION_MENU_CONTENT_CLASS_NAME, "max-w-80")}
+        className={cn(OPTION_MENU_CONTENT_CLASS_NAME, SETTINGS_MENU_CLASS)}
       >
         {hosts.data.map((host) => (
           <MenuChoice
@@ -1072,7 +1087,13 @@ function AccountForm({
   const actions = (
     <div className="flex items-center gap-2">
       {connect.status === "failed" && choice !== null ? (
-        <Button type="button" size="sm" variant="ghost" onClick={retry}>
+        <Button
+          type="button"
+          size="sm"
+          className="h-7"
+          variant="ghost"
+          onClick={retry}
+        >
           Try again
         </Button>
       ) : null}
@@ -1080,6 +1101,7 @@ function AccountForm({
         <Button
           type="button"
           size="sm"
+          className="h-7"
           variant="ghost"
           disabled={connecting}
           onClick={reset}
@@ -1091,6 +1113,7 @@ function AccountForm({
         <Button
           type="button"
           size="sm"
+          className="h-7"
           variant="ghost"
           disabled={checking}
           onClick={onCheckAgain}
@@ -1102,7 +1125,13 @@ function AccountForm({
         </Button>
       ) : null}
       {!changed && !connecting && unavailable && !checking ? (
-        <Button type="button" size="sm" variant="outline" onClick={reconnect}>
+        <Button
+          type="button"
+          size="sm"
+          className="h-7"
+          variant="outline"
+          onClick={reconnect}
+        >
           Reconnect
         </Button>
       ) : null}
@@ -1137,9 +1166,16 @@ function AccountForm({
         </ol>
       )}
 
-      <fieldset disabled={connecting} className={ROW_GRID_CLASS}>
+      <fieldset
+        disabled={connecting}
+        className={cn(SETTINGS_PANEL_CLASS, "min-w-0")}
+      >
         {showMachine ? (
-          <FieldRow label="Machine" labelId={machineLabelId}>
+          <SettingRow
+            label="Machine"
+            labelId={machineLabelId}
+            description="The BB machine whose Vercel CLI sign-in BB uses."
+          >
             <MachineField
               labelId={machineLabelId}
               describedById={hostProblem === null ? undefined : hostProblemId}
@@ -1164,13 +1200,14 @@ function AccountForm({
                   type="button"
                   size="sm"
                   variant="ghost"
+                  className="h-7"
                   onClick={retryHosts}
                 >
                   Check again
                 </Button>
               </div>
             )}
-          </FieldRow>
+          </SettingRow>
         ) : null}
 
         {hostId === null ? null : selectedHost === null ||
@@ -1184,18 +1221,27 @@ function AccountForm({
         ) : onSavedHost ? (
           <>
             {saved.teamId === null ? null : (
-              <StaticRow term="Team">
-                <NamedId name={saved.teamName} id={saved.teamId} />
-              </StaticRow>
+              <SettingRow label="Team">
+                <StaticValue>
+                  <NamedId name={saved.teamName} id={saved.teamId} />
+                </StaticValue>
+              </SettingRow>
             )}
             {saved.projectId === null ? null : (
-              <StaticRow term="Project">
-                <NamedId name={saved.projectName} id={saved.projectId} />
-              </StaticRow>
+              <SettingRow label="Project">
+                <StaticValue>
+                  <NamedId name={saved.projectName} id={saved.projectId} />
+                </StaticValue>
+              </SettingRow>
             )}
           </>
         ) : null}
-        {configured ? <IdentityRows account={saved} /> : null}
+        {configured ? (
+          <IdentityRows
+            account={saved}
+            machineName={hostLabel(hosts, saved.hostId!)}
+          />
+        ) : null}
       </fieldset>
 
       {configured ? null : (
