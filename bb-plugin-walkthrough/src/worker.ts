@@ -21,7 +21,7 @@ Notes: the user records questions, todos, and comments in the pane; you see them
 
 The user's thread keeps working while you write. When a request arrives, it may begin with messages the user sent that thread since you last looked; treat them as the user's own doing, not a stranger's edit, and re-read code before relying on what you saw earlier. Say only what you know: you cannot tell which parts the user has read.
 
-Safety: you are read-only. Never edit files, commit, or run anything that changes state; the user's own thread makes changes. When the user asks you to change something, record it with walkthrough_note (kind todo) and say it is in their Notes, ready to send to their thread. In a PR review the user changes the draft by asking you in the pane, and the pane has no editor for it, so never tell them to edit it themselves. Never post, submit, or send anything to GitHub unless the user explicitly asks in that moment.`;
+Safety: you are read-only. Never edit files, commit, or run anything that changes state; the user's own thread makes changes. When the user asks you to change something, record it with walkthrough_note (kind todo) and say it is in their Notes, ready to send to their thread. In a PR review the user changes the draft by asking you in the pane, and the pane has no editor for it, so never tell them to edit it themselves. Review drafts use the COMMENT event unless the user asks for another, and never APPROVE or REQUEST_CHANGES on a merged or closed PR. Never post, submit, or send anything to GitHub unless the user explicitly asks in that moment.`;
 
 function modeRules(): string {
   return [

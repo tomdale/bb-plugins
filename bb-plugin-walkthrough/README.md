@@ -32,7 +32,14 @@ you read.
   the Review drawer previews it and **Post…** asks the helper to submit it.
   Nothing reaches GitHub without that explicit step.
 - **Hand off:** **Send open notes to my thread** posts the open todos and
-  questions to your thread's own agent.
+  questions, with their parts, quotes, and files, to your thread's own agent.
+  The helper never edits your code; it records a todo instead.
+- **Staying current:** your thread keeps working while the walkthrough is
+  written. The helper is told what you said there, and a part written against
+  code that has since changed is marked out of date with a one-click rewrite.
+- **PRs:** excerpts of a PR walkthrough are read from the PR's head commit, not
+  from whatever the checkout holds, so a merged PR or another branch still shows
+  the PR's own code.
 
 ## How it works
 
