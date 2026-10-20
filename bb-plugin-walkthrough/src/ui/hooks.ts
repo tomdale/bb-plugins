@@ -72,12 +72,13 @@ function useLiveQuery<T>(load: () => Promise<T>, matches: (signal: ChangedSignal
 
 export function useWalkthrough(walkthroughId: string | null) {
   const rpc = useWalkthroughRpc();
+  // The view is wrapped so a walkthrough that does not exist (`view: null`) still counts as loaded.
   const load = useCallback(
-    async (): Promise<WalkthroughView | null> => (walkthroughId ? (await rpc.call("get", { walkthroughId })).view : null),
+    async (): Promise<{ view: WalkthroughView | null }> => ({ view: walkthroughId ? (await rpc.call("get", { walkthroughId })).view : null }),
     [rpc, walkthroughId],
   );
   const { data, error } = useLiveQuery(load, (signal) => signal.walkthroughId === walkthroughId);
-  return { view: data, loaded: data !== null || walkthroughId === null, error, rpc };
+  return { view: data?.view ?? null, loaded: data !== null || walkthroughId === null, error, rpc };
 }
 
 export function useThreadWalkthroughs(threadId: string, onStarted?: (signal: ChangedSignal) => void) {
@@ -91,6 +92,14 @@ export function useThreadWalkthroughs(threadId: string, onStarted?: (signal: Cha
     },
   );
   return { walkthroughs: data ?? [], rpc };
+}
+
+/** Walkthroughs from every thread, newest first. */
+export function useRecentWalkthroughs() {
+  const rpc = useWalkthroughRpc();
+  const load = useCallback(async (): Promise<WalkthroughSummary[]> => (await rpc.call("recent", {})).walkthroughs, [rpc]);
+  const { data, error } = useLiveQuery(load, () => true);
+  return { walkthroughs: data, error };
 }
 
 /** Tracks an element's width so the pane can switch layouts. */

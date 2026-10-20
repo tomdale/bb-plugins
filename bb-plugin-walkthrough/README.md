@@ -17,6 +17,11 @@ you read.
   excerpts (switch between change, after, and before), margin notes, and a
   contents list when the pane is wide. Maximize the pane for full-width
   reading. The next part is written while you read the current one.
+- **Pop out:** the window button in the pane header opens the walkthrough as a
+  BB page in a window of its own. In a browser it is a popup window. BB's
+  desktop app hands the link to the system browser instead, so the window is a
+  browser window on the same server. The **Walkthroughs** sidebar entry lists
+  recent walkthroughs from every thread and opens any of them as the same page.
 - **Ask:** every part ends with a conversation. Suggested questions get you
   started; ask anything in your own words. `.todo …` or `.question …` in the
   box saves a note instead.
@@ -40,6 +45,9 @@ question, wrap up. The worker delivers content only through its tools
 its final message, streamed into the pane. Ordinary threads get one tool,
 `walkthrough_open`. The worker is archived with the thread, or when the user
 clicks Done.
+
+The pane is also registered as a nav panel (`/plugins/<pluginId>/walkthroughs/<walkthroughId>`),
+which is the route the pop-out window loads.
 
 Excerpts inside the thread's workspace use BB's environment diff APIs. Absolute
 paths in another checkout use a read-only host entry that resolves the file's

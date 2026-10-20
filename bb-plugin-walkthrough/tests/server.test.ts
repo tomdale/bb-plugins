@@ -108,6 +108,20 @@ describe("walkthrough code routing", () => {
   });
 });
 
+describe("walkthrough listing", () => {
+  it("lists a thread's walkthroughs, and every thread's most recent first", async () => {
+    const { rpc } = await setup();
+    const first = await rpc("start", { threadId: THREAD, request: "First" });
+    await settle();
+    const second = await rpc("start", { threadId: "thr_other", request: "Second" });
+    await settle();
+    const ids = (listing: { walkthroughs: Array<{ id: string }> }) => listing.walkthroughs.map((walkthrough) => walkthrough.id);
+    expect(ids(await rpc("list", { threadId: THREAD }))).toEqual([first.walkthroughId]);
+    expect(ids(await rpc("recent", {}))).toEqual([second.walkthroughId, first.walkthroughId]);
+    expect((await rpc("recent", {})).walkthroughs[0]).toMatchObject({ request: "Second", status: "planning", partCount: 0, openNotes: 0 });
+  });
+});
+
 describe("walkthrough orchestration", () => {
   it("forks a hidden worker, plans, then writes the part on screen and the next one", async () => {
     const { rpc, tool, idle, view, sent } = await setup();

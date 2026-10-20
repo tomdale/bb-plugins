@@ -510,3 +510,26 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   `{ threadId }`, optional order) that BB renders as a label and value row in
   the info tab, with the value component able to open its own popover the way
   the Parent row's picker does.
+
+## Open a plugin page in a new BB window
+
+- **Status:** not filed
+- **Observed:** BB 0.46.1, Plugin SDK 0.5.29; the desktop behavior below is read
+  from BB source at `f0898f707a`
+- **Use case:** Walkthrough's pop-out button shows the reading view in a window
+  of its own, so it can sit on a second display beside the thread.
+- **Limit:** `useBbNavigate` has no way to open a window. BB's desktop app denies
+  every `window.open` from an app window and hands http(s) URLs to
+  `shell.openExternal` (`apps/desktop/src/desktop-window-factory.ts`), and New
+  window always loads the app root, so a plugin cannot create a BB window at a
+  route. The only plugin-owned route is a `navPanel`, which BB lists in the
+  sidebar navigation, visible by default, so a page that exists to be popped out
+  costs a sidebar row. The page also renders inside the full BB layout.
+- **Workaround:** the pane's pop-out button calls `window.open` on the plugin's
+  nav panel route: a popup window in a browser client, the system browser in the
+  desktop app (a local server answers on loopback without sign-in; a remote one
+  would ask the browser to sign in). The nav panel's root lists recent
+  walkthroughs so its sidebar row is not a dead end.
+- **Possible API:** `useBbNavigate().openWindow({ pluginId, path, subPath })`
+  that opens a BB window (a popup in browsers) at a plugin route, and a
+  `navPanel` option to omit its sidebar row.

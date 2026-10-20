@@ -104,6 +104,10 @@ export class WalkthroughService {
     return this.store.forThread(threadId);
   }
 
+  recent(): Walkthrough[] {
+    return this.store.recent();
+  }
+
   notes(walkthroughId: string): Note[] {
     return this.store.notes(walkthroughId);
   }

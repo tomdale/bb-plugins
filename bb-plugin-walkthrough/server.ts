@@ -1,7 +1,8 @@
 // Walkthrough plugin backend: the pane's RPC, the worker orchestration, and
 // the agent tools. See src/service.ts for how a walkthrough is written.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
-import { rpcContract } from "./src/rpc.ts";
+import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
+import type { Walkthrough } from "./src/schemas.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
 import { isWorker, registerTools, USER_TOOLS, WORKER_TOOLS } from "./src/tools.ts";
@@ -34,6 +35,16 @@ export default function plugin(bb: BbPluginApi) {
   bb.storage.migrate(db, MIGRATIONS);
   const store = new WalkthroughStore(db);
   const service = new WalkthroughService(bb, store);
+  const summarize = (walkthrough: Walkthrough): WalkthroughSummary => ({
+    id: walkthrough.id,
+    title: walkthrough.title,
+    request: walkthrough.request,
+    status: walkthrough.status,
+    partCount: walkthrough.parts.length,
+    currentPart: walkthrough.currentPart,
+    openNotes: service.notes(walkthrough.id).filter((note) => note.status === "open").length,
+    createdAt: walkthrough.createdAt,
+  });
 
   registerTools(bb, service);
   bb.agents.configure((context) =>
@@ -59,18 +70,8 @@ export default function plugin(bb: BbPluginApi) {
   });
 
   bb.rpc.register(rpcContract, {
-    list: ({ threadId }) => ({
-      walkthroughs: service.forThread(threadId).map((walkthrough) => ({
-        id: walkthrough.id,
-        title: walkthrough.title,
-        request: walkthrough.request,
-        status: walkthrough.status,
-        partCount: walkthrough.parts.length,
-        currentPart: walkthrough.currentPart,
-        openNotes: service.notes(walkthrough.id).filter((note) => note.status === "open").length,
-        createdAt: walkthrough.createdAt,
-      })),
-    }),
+    list: ({ threadId }) => ({ walkthroughs: service.forThread(threadId).map(summarize) }),
+    recent: () => ({ walkthroughs: service.recent().map(summarize) }),
     get: ({ walkthroughId }) => {
       try {
         return { view: service.view(walkthroughId) };

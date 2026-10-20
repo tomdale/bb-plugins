@@ -64,6 +64,14 @@ export class WalkthroughStore {
     return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
   }
 
+  /** Walkthroughs from every thread, newest first. */
+  recent(limit = 30): Walkthrough[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM walkthroughs_v2 ORDER BY created_at DESC, rowid DESC LIMIT ?`)
+      .all(limit) as Array<{ data: string }>;
+    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
+  }
+
   /** Unfinished walkthroughs, for resuming worker requests after a restart. */
   unfinished(): Walkthrough[] {
     const rows = this.db

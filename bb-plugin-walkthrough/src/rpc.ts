@@ -77,6 +77,10 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId: threadIdSchema }).strict(),
     output: z.object({ walkthroughs: z.array(walkthroughSummarySchema) }).strict(),
   },
+  recent: {
+    input: z.object({}).strict(),
+    output: z.object({ walkthroughs: z.array(walkthroughSummarySchema) }).strict(),
+  },
   get: {
     input: z.object(target).strict(),
     output: z.object({ view: walkthroughViewSchema.nullable() }).strict(),

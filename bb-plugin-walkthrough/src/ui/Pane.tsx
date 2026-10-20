@@ -2,7 +2,7 @@
 // A contents rail, one part at a time in a serif reading column, a
 // conversation under each part, and a drawer for notes and the review draft.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import { useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
+import { experimental_usePluginId as usePluginId, useBbNavigate, type PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -11,6 +11,7 @@ import { NOTE_KIND_LABEL, parseCommand, shortRef } from "../model.ts";
 import { PANEL_ACTION_ID, type Block, type NoteKind, type Exchange, type Part, type Place, type Walkthrough, type WalkthroughView } from "../schemas.ts";
 import { CodeExcerpt } from "./code.tsx";
 import { errorMessage, useThreadWalkthroughs, useWalkthrough, useWidth, type WalkthroughRpc } from "./hooks.ts";
+import { popOut } from "./popout.ts";
 import { openPane, StartForm } from "./Starter.tsx";
 import { NotesTab, ReviewTab, type NoteDraft } from "./notes.tsx";
 import { Muted } from "./parts.tsx";
@@ -28,7 +29,7 @@ export function WalkthroughPane({ threadId, params }: PluginThreadPanelProps) {
   if (walkthroughId === null) return <EmptyPane threadId={threadId} />;
   if (!loaded) return <Muted className="p-6">{error ?? "Opening the walkthrough…"}</Muted>;
   if (view === null) return <Muted className="p-6">This walkthrough no longer exists.</Muted>;
-  return <Reader threadId={threadId} view={view} rpc={rpc} />;
+  return <Reader threadId={threadId} view={view} rpc={rpc} surface="panel" />;
 }
 
 /** A pane opened from the side panel's launcher: earlier walkthroughs plus a starter. */
@@ -92,9 +93,15 @@ function activity(walkthrough: Walkthrough): string | null {
   }
 }
 
-function Reader({ threadId, view, rpc }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc }) {
+/**
+ * The reading view. `surface` is where it is mounted: a thread's side panel,
+ * or a page of its own (the pop-out window), which has no thread panel tab to
+ * retitle and nothing to pop out of.
+ */
+export function Reader({ threadId, view, rpc, surface }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc; surface: "panel" | "page" }) {
   const { walkthrough, notes } = view;
   const navigate = useBbNavigate();
+  const pluginId = usePluginId();
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [draft, setDraft] = useState<NoteDraft | null>(null);
@@ -105,10 +112,10 @@ function Reader({ threadId, view, rpc }: { threadId: string; view: WalkthroughVi
   // Keep the tab title in step with the walkthrough once it has one.
   const titled = useRef<string | null>(null);
   useEffect(() => {
-    if (walkthrough.title === "Walkthrough" || titled.current === walkthrough.title) return;
+    if (surface !== "panel" || walkthrough.title === "Walkthrough" || titled.current === walkthrough.title) return;
     titled.current = walkthrough.title;
     navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title: walkthrough.title, params: { walkthroughId: walkthrough.id } });
-  }, [navigate, walkthrough.id, walkthrough.title]);
+  }, [navigate, surface, walkthrough.id, walkthrough.title]);
 
   const call = useCallback(
     (run: () => Promise<unknown>) => {
@@ -123,7 +130,7 @@ function Reader({ threadId, view, rpc }: { threadId: string; view: WalkthroughVi
   };
 
   return (
-    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className={cn("flex min-h-0 flex-col", surface === "page" ? "flex-1" : "h-full")}>
       <header className="flex items-center gap-2 border-b border-border px-4 py-2">
         <Icon name="Explore" className="size-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
@@ -142,6 +149,17 @@ function Reader({ threadId, view, rpc }: { threadId: string; view: WalkthroughVi
           <Button type="button" variant={drawer === "review" ? "secondary" : "ghost"} size="sm" onClick={() => setDrawer(drawer === "review" ? null : "review")}>
             <Icon name="GitPullRequest" className="size-3.5" aria-hidden />
             Review
+          </Button>
+        ) : null}
+        {surface === "panel" ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Open in a new window"
+            onClick={() => popOut(pluginId, walkthrough.id)}
+          >
+            <Icon name="ExternalLink" className="size-3.5" aria-hidden />
           </Button>
         ) : null}
         {walkthrough.status !== "done" ? (
