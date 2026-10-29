@@ -20,7 +20,7 @@ The [runtime review follow-up](vercel-access-phase2-runtime-followup.md) records
 | Standard wstunnel reverse forwarding | **Rejected after pinned source inspection.** [Reverse client](https://github.com/erebe/wstunnel/blob/v11.1.0/wstunnel/src/tunnel/client/client.rs) reads a relay response cookie as a destination; [TCP connector](https://github.com/erebe/wstunnel/blob/v11.1.0/wstunnel/src/tunnel/upstream_connectors/tcp.rs) lets that override its local configured host/port. Server restriction files and TLS authentication do not confine a compromised relay. No wstunnel connector is shipped |
 | OpenSSH/socket/network enclave | A fixed OpenSSH reverse forward is plausible, but adds executable/sshd deployment requirements. The supported ssh2 stream/socket APIs provide standard SSH with an explicit tested local destination boundary, without a host-global sshd or general network enclave |
 | Separate BB coordinator in a sandbox | Not selected. It adds another authority/database and unsolved user-state synchronization without reducing this machine-route bridge's trust requirements. No BB state is copied or synchronized |
-| Native Vercel SDK/exec as byte transport | Bounded authenticated management RPC is suitable for future prepare/inspect/stop operations, not sustained byte tunneling. Existing host RPC buffers results. Public exposed-port WS is a cloud hypothesis, not established by SDK exec availability |
+| Native Vercel SDK/exec as byte transport | Bounded authenticated management RPC supplies prepare/inspect/stop operations, not sustained byte tunneling. Existing host RPC buffers results. Public exposed-port WS is a cloud hypothesis, not established by SDK exec availability |
 | Expanding Phase 1 bespoke framing | Not selected. Its fixed fixture and 92-test baseline stay separate. Standard SSH supplies mature authenticated framing, flow control and channel lifetime; Phase 2 adds only confinement and exact native dispatch |
 
 The pinned ssh2 implementation also [stores successful reverse registrations](https://github.com/mscdex/ssh2/blob/844f1edfc41589737671f96a4f4e76afdf46abd4/lib/client.js#L1334-L1366) and [rejects unregistered channel tuples and unrelated channel types](https://github.com/mscdex/ssh2/blob/844f1edfc41589737671f96a4f4e76afdf46abd4/lib/client.js#L1978-L2027). The plugin rechecks the tuple and hardcodes the local destination independently; this library evidence does not replace the malicious-peer tests.
@@ -47,7 +47,7 @@ The relay adapter pins public authority, removes only explicitly reviewed platfo
 
 **A compromised relay cannot choose a local destination.** SSH incoming channel tuples must match the registered loopback reverse listener, concurrency is checked before dialing, and local `net.connect` uses only the actual bridge port supplied locally. Remote origin/destination metadata never selects a local socket. Disposal destroys local sockets; new SSH sessions have separate state. Public control upgrades need SSH authentication with a dedicated client key and a trusted provisioned host-key pin; admission tokens alone cannot register a connector. Signature verification accepts only literal `true`, rejecting false, returned errors, and thrown errors. Unauthenticated control lifetime and socket counts are bounded.
 
-The relay remains trusted for **payload confidentiality**: it can see/modify native traffic and steal credentials transiting it. SSH ends there; neither encryption from cloud compute nor origin authentication by a hosted BB service is claimed. Even a malicious authenticated relay remains confined to the machine bridge, whose allowlist and native credentials still exclude owner behavior. Vercel API/OAuth credentials must stay on the existing auth machine; future provisioning may return only bounded relay metadata/public pins and distinct connector material.
+The relay remains trusted for **payload confidentiality**: it can see/modify native traffic and steal credentials transiting it. SSH ends there; neither encryption from cloud compute nor origin authentication by a hosted BB service is claimed. Even a malicious authenticated relay remains confined to the machine bridge, whose allowlist and native credentials still exclude owner behavior. Vercel API/OAuth credentials must stay on the existing auth machine; provisioning returns bounded relay metadata/public pins while connector private material stays on the access server.
 
 ## Local evidence
 
@@ -56,7 +56,7 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | Verification | Result |
 | --- | --- |
 | `npm ci`, `npm run typecheck`, `npm run build` | PASS |
-| `npm test` | PASS; 86 tests |
+| `npm test` | PASS; 90 tests, including setup and no-allocation regressions |
 | `npm run test:slow` | PASS; both paths complete observed 125-second responses |
 | `npm run test:build` | PASS; declared-script cold isolated build |
 | `npm run test:core` | PASS; five real-core scenarios |
