@@ -53,18 +53,18 @@ Bootstrap stdin is uploaded to a unique 0600 temporary file, opened and unlinked
 
 ## Local BB tunnel
 
-On BB 0.48.0, install the Vercel Access companion and use **Sandbox relay** in this plugin's Settings page:
+On BB 0.48.0, use **Sandbox relay** in this plugin's Settings page. Relay setup and transport are built in; there is no companion plugin to install or enable.
 
-1. Connect the Vercel account above, then choose **Enable relay** in **Sandbox relay**. BB enables the companion plugin, provisions or reuses the relay, verifies its pinned identity and readiness, and selects it for new machines. No separate confirmation or machine-settings step is needed. The relay uses **1 vCPU** and stops after **10 minutes**.
+1. Connect the Vercel account above, then choose **Enable relay** in **Sandbox relay**. BB provisions or reuses the relay, verifies its pinned identity and readiness, and selects it for new machines. The connection starts in-process without reloading worker management. No separate confirmation or machine-settings step is needed. The relay uses **1 vCPU** and stops after **10 minutes**.
 2. Once the status is **Enabled**, create a fresh thread with the **Vercel Sandbox** environment in BB's ordinary New thread UI. Keep the laptop awake while workers use the relay. After they finish, choose **Disable relay** to restore the previous machine connection and stop/delete the relay. Worker compute has its own cost and lifetime; agent authentication and project checkout use native BB operations.
 
 Enabling resumes the retained setup after an uncertain reply rather than allocating a replacement. An expired relay is replaced only after its cleanup is confirmed. A ready relay is reused without a reload, preserving its existing grants. **Details** contains inspection and status refresh for troubleshooting. Reading settings never allocates compute.
 
-BB 0.48 uses a global machine-access default, so enabling affects **all** new machines, not only Vercel sandboxes. Other settings and the direct server URL are preserved. Disabling does not overwrite a default changed elsewhere; restoration still runs when cloud cleanup needs retrying. Avoid editing Machines settings concurrently because the public general-settings API has no revision check.
+BB 0.48 uses a global machine-access default, so enabling affects **all** new machines, not only Vercel sandboxes. Other settings and the direct server URL are preserved. Disabling does not overwrite a default changed elsewhere; restoration still runs when cloud cleanup needs retrying. An Automatic default restores to Direct so BB cannot auto-select the disabled relay provider. Avoid editing Machines settings concurrently because the public general-settings API has no revision check.
 
 The relay expires after at most ten minutes, regardless of the worker's launch lifetime. Reloading Access, changing its settings, or restarting BB invalidates existing grants. Existing-worker reconnect, automatic replacement, previews and owner/browser access are not supported. Enable before a fresh launch, not as a repair for a running worker.
 
-The companion uses [bounded prepare/inspect/stop operations](../docs/vercel-access-provisioning.md) on the original authentication host. Relay compute has a separate intent namespace on the official managed Node24 image. Reading settings/status, checking readiness, installation and native worker acquisition never prepare a relay; there is no background allocation. UI verification can use local fixtures without cloud spend.
+The [integrated transport](relay-access/README.md) uses bounded prepare/inspect/stop operations on the original authentication host. Relay compute has a separate intent namespace on the official managed Node24 image. Reading settings/status, checking readiness, installation and native worker acquisition never prepare a relay; there is no background allocation. UI verification can use local fixtures without cloud spend.
 
 ## Typed RPC
 

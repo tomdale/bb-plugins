@@ -1,7 +1,8 @@
 import { createServer, type Socket } from "node:net";
 import { TLSSocket } from "node:tls";
 import { createHash, timingSafeEqual } from "node:crypto";
-import ssh2, { type Connection } from "ssh2";
+import ssh2 from "./ssh2-runtime.js";
+import type { Connection } from "ssh2";
 const { Client, Server, utils } = ssh2;
 import { WebSocket, WebSocketServer, createWebSocketStream } from "ws";
 import { createServer as createHttpServer } from "node:http";

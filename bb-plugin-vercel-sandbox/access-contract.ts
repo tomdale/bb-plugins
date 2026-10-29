@@ -1,7 +1,6 @@
 import { z } from "zod";
 
-export const ACCESS_PLUGIN = "vercel-access";
-export const ACCESS_PROVIDER = "machine-bridge";
+export const ACCESS_PROVIDER = "vercel-sandbox-relay";
 export const setupKeySchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 export const accessStatusSchema = z.object({
   available: z.boolean(),

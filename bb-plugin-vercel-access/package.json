@@ -9,8 +9,8 @@
     "node": "^22.19.0 || ^24.0.0 || ^26.0.0"
   },
   "bb": {
-    "name": "Vercel Access [Experimental]",
-    "description": "User-owned Vercel tunnel for local BB machine access; disabled until explicitly set up.",
+    "name": "Vercel Access migration",
+    "description": "Retired migration helper. Relay functionality is built into Vercel Sandbox.",
     "branding": {
       "icon": "Server"
     },
@@ -20,26 +20,16 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "node build.mjs",
-    "build:relay": "node build-relay.mjs",
-    "check:relay": "node build-relay.mjs --check",
-    "test": "node --test *.test.ts",
-    "test:core": "node --test integration/core.test.ts integration/plugin.test.ts integration/daemon.test.ts",
-    "test:slow": "BB_TEST_OPERATION_DELAY_MS=125000 node --test operation-lifetime.test.ts",
-    "test:build": "node --test integration/build.test.ts"
+    "test": "node --test *.test.ts"
   },
   "dependencies": {
-    "ssh2": "1.17.0",
-    "ws": "8.22.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.6.59",
     "@types/node": "^22.0.0",
-    "@types/ssh2": "1.15.5",
-    "@types/ws": "8.18.2",
     "better-sqlite3": "12.10.0",
     "cron-parser": "5.5.0",
-    "esbuild-wasm": "0.25.12",
     "hono": "4.13.14",
     "typescript": "^5.7.0"
   }

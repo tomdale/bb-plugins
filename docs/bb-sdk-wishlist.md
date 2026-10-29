@@ -8,6 +8,41 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Server-managed secret fields and runtime provider removal
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100; public SDK 0.6.59 contracts
+- **Use case:** a built-in Sandbox relay generates its connector key and can be
+  enabled/disabled without reloading worker-management handlers
+- **Limit and evidence:** `settings.define` has secret storage but no hidden or
+  server-managed field presentation; `experimental_serverAccess.register`
+  returns void and has no unregister operation. Registering another CLI root in
+  the same plugin is also rejected as a duplicate CLI registration
+- **Workaround:** one secret setting labelled as managed automatically; one
+  persistent provider whose availability follows the in-process service;
+  disabling resolves an Automatic selection to Direct so the disabled provider
+  cannot be chosen again by core fallback. Relay CLI subcommands join the
+  existing `vercel-sandbox` command
+- **Possible API:** server-only secret storage or a hidden managed descriptor;
+  a provider registration handle with `dispose()` and a configuration recheck
+
+## Optional native dependencies in backend source compilation
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100
+- **Use case:** bundle standard ssh2's Node-crypto path alongside a frontend
+  whose test tooling needs optional prebuilt platform bindings
+- **Limit and evidence:** BB compiles backend source again during plugin load.
+  A resolvable `cpu-features` package leads to a rejected native `.node` import.
+  Dependency exclusion must apply to runtime compilation as well as explicit
+  builds; public `bb plugin build` exposes no dependency-exclusion option
+- **Workaround:** generate the pinned standard ssh2 runtime with only its optional
+  native accelerators disabled and include library licenses; BB and the standalone
+  relay both consume that runtime. Transport and native-auth integration tests
+  run against the generated code. No BB source changes are required
+- **Possible API:** an audited optional-native dependency exclusion in the plugin
+  manifest, applied consistently to explicit builds and runtime compilation
+
 ## Per-launch machine access selection and conditional settings writes
 
 - **Status:** not filed; not required for the bounded Vercel UI

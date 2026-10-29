@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import plugin from "./server.ts";
+import { createRelayAccess } from "./server.ts";
+import { defineCli, type BbPluginApi } from "@get-bb/plugin-sdk";
+async function plugin(bb: BbPluginApi) {
+  const relay = await createRelayAccess(bb);
+  bb.cli.register(defineCli({ name: "vercel-sandbox", summary: "Relay test driver", commands: relay.setup.commands }));
+}
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { TESTED_CORE } from "./policy.ts";
@@ -28,7 +33,7 @@ function fixture() {
   const define = host.bb.settings.define;
   host.bb.settings.define = descriptors => {
     const handle = define(descriptors);
-    readSettings = () => handle.get();
+    readSettings = async () => { const value = await handle.get(); return value.relayIdentity ? JSON.parse(String(value.relayIdentity)) : {}; };
     return handle;
   };
   return { ...host, requests, view, readSettings: () => readSettings(), get loseReply() { return loseReply; }, set loseReply(v: boolean) { loseReply = v; } };
@@ -46,7 +51,7 @@ test("owner setup requires cost confirmation, keeps dedicated private key server
     assert.equal(statusCli.exitCode, 0);
     assert.ok(!statusCli.stdout.includes("PRIVATE KEY"));
     assert.equal(t.requests.length, 0);
-    assert.equal(t.harness.registrations.serverAccessProviders.size, 0);
+    assert.equal(t.harness.registrations.serverAccessProviders.size, 1);
     await assert.rejects(t.harness.behavior.callRpc("setup.prepare", { key: "synthetic-relay", image }));
     assert.equal(t.requests.length, 0);
     const prepared = await t.harness.behavior.callRpc("setup.prepare", { key: "synthetic-relay", image, approveAllocation: true });
@@ -65,8 +70,8 @@ test("owner setup requires cost confirmation, keeps dedicated private key server
     assert.equal(saved.serverUrl, t.view.origin);
     assert.equal(saved.relayUrl, "wss://synthetic-relay.vercel.run");
     assert.equal(saved.relayFingerprint, t.view.fingerprint);
-    assert.equal(t.harness.registrations.settingsDescriptors.preparedConnectorPrivateKey!.type, "string");
-    assert.equal("secret" in t.harness.registrations.settingsDescriptors.preparedConnectorPrivateKey!, true);
+    assert.equal(t.harness.registrations.settingsDescriptors.relayIdentity!.type, "string");
+    assert.equal("secret" in t.harness.registrations.settingsDescriptors.relayIdentity!, true);
     assert.equal(t.requests.some(r => r.method !== "relay.prepare" && r.method !== "relay.inspect"), false);
   } finally { await t.harness.lifecycle.dispose(); }
 });
@@ -110,12 +115,12 @@ test("availability, native acquire/release and readiness do not call provisionin
   const port = (reserve.address() as { port: number }).port;
   await new Promise<void>(resolve => reserve.close(() => resolve()));
   const t = createFakePluginHost({ pluginId: "vercel-access", loopbackBaseUrl: coreUrl,
-    settings: { enabled: true, port, serverUrl: `http://127.0.0.1:${port}` } });
+    settings: { relayIdentity: JSON.stringify({ enabled: true, port, serverUrl: `http://127.0.0.1:${port}` }) } });
   try {
     await plugin(t.bb);
-    const provider = t.harness.registrations.serverAccessProviders.get("machine-bridge")!;
+    const provider = t.harness.registrations.serverAccessProviders.get("vercel-sandbox-relay")!;
     assert.equal((await provider.availability()).status, "unavailable");
-    const service = t.harness.behavior.runService("machine-bridge");
+    const service = t.harness.behavior.runService("sandbox-relay");
     for (let i = 0; i < 100 && (await provider.availability()).status !== "available"; i++) await new Promise(resolve => setTimeout(resolve, 10));
     assert.equal((await provider.availability()).status, "available");
     const grant = await provider.acquire({ key: "synthetic-worker", hostId: "host_synthetic", signal: new AbortController().signal });

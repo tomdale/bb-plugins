@@ -12,7 +12,7 @@ const exec = promisify(execFile);
 test("declared build succeeds from cold isolated HOME/data despite package npm flags", { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), "vercel-access-cold-build-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const root = fileURLToPath(new URL("../", import.meta.url));
+  const root = fileURLToPath(new URL("../../", import.meta.url));
   const userConfig = join(directory, "user.npmrc"); const globalConfig = join(directory, "global.npmrc");
   await writeFile(userConfig, "", { mode: 0o600 }); await writeFile(globalConfig, "", { mode: 0o600 });
   const permitted = new Set(["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TMPDIR", "PROTO_HOME", "PROTO_ROOT"]);
@@ -25,11 +25,11 @@ test("declared build succeeds from cold isolated HOME/data despite package npm f
     NPM_CONFIG_OMIT: "optional", NPM_CONFIG_IGNORE_SCRIPTS: "true",
   });
   const npmPolicy = await readFile(join(root, ".npmrc"), "utf8");
-  assert.match(npmPolicy, /omit=optional/); assert.match(npmPolicy, /ignore-scripts=true/);
+  assert.match(npmPolicy, /ignore-scripts=true/);
   const result = await exec("npm", ["run", "build"], { cwd: root, env, timeout: 110_000, maxBuffer: 1024 * 1024 });
   assert.match(result.stdout, /dist\/server\.js/);
   const metadata = JSON.parse(await readFile(join(root, "dist/server.meta.json"), "utf8"));
-  assert.equal(metadata.pluginId, "vercel-access");
+  assert.equal(metadata.pluginId, "environment-vercel-sandbox");
   assert.equal(metadata.sdkVersion, "0.6.100");
   assert.equal(metadata.builtWith.bbVersion, "0.48.0");
 });

@@ -1,5 +1,5 @@
-import { cliCommand, defineCli, defineRpcContract, PluginCliError, type BbPluginApi } from "@get-bb/plugin-sdk";
-import ssh2 from "ssh2";
+import { cliCommand, defineRpcContract, PluginCliError, type BbPluginApi } from "@get-bb/plugin-sdk";
+import ssh2 from "./ssh2-runtime.js";
 import { z } from "zod";
 import { DiagnosticStore, type DiagnosticSnapshot } from "./diagnostics.ts";
 import { diagnosticSnapshotSchema } from "./diagnostic-contract.ts";
@@ -39,7 +39,7 @@ const receiptSchema = relayViewSchema.pick({
   requestedImage: true, resolvedImage: true,
 });
 type Receipt = z.infer<typeof receiptSchema>;
-const recordSchema = z.object({ key: keySchema, image: imageSchema, authorizedKey: z.string().max(128), bridgePort: z.number().int().min(1024).max(65535), receipt: receiptSchema.nullable().default(null) }).strict();
+export const recordSchema = z.object({ key: keySchema, image: imageSchema, authorizedKey: z.string().max(128), bridgePort: z.number().int().min(1024).max(65535), receipt: receiptSchema.nullable().default(null) }).strict();
 type SetupRecord = z.infer<typeof recordSchema>;
 function assertPrivateIdentity(privateKey: string | undefined, authorizedKey: string): asserts privateKey is string {
   if (!privateKey) throw new Error("Private connector identity is unavailable");
@@ -156,7 +156,7 @@ export function registerSetup(bb: BbPluginApi, options: {
   };
   bb.rpc.register(setupContract, handlers);
   const cli = <T>(run: () => Promise<T>) => run().then(value => ({ exitCode: 0, stdout: JSON.stringify(value) })).catch(() => { throw new PluginCliError("Relay setup was not confirmed; inspect or stop the retained setup key. No private setup values are emitted."); });
-  bb.cli.register(defineCli({ name: "vercel-access", summary: "Explicit bounded relay setup; never allocates during machine acquisition", commands: {
+  const commands = {
     "relay status": cliCommand({ summary: "Show bounded local readiness diagnostics without vendor access", run() { return cli(async () => handlers["setup.status"]()); } }),
     "relay prepare": cliCommand({ summary: "Allocate at most one 1-vCPU, ten-minute relay in the connected account", options: {
       key: { type: "string", required: true, description: "Stable setup key; reuse it after an uncertain reply" },
@@ -165,5 +165,6 @@ export function registerSetup(bb: BbPluginApi, options: {
     "relay inspect": cliCommand({ summary: "Observe the original relay intent without allocation or resume", options: { key: { type: "string", required: true, description: "Recorded setup key" } }, run(input) { return cli(() => handlers["setup.inspect"](inputSchema.parse({ key: input.options.key }))); } }),
     "relay stop": cliCommand({ summary: "Disable local access and stop/delete only the originally owned relay", options: { key: { type: "string", required: true, description: "Recorded setup key" } }, run(input) { return cli(() => handlers["setup.stop"](inputSchema.parse({ key: input.options.key }))); } }),
     "relay apply": cliCommand({ summary: "Copy trusted relay setup into disabled settings; enabling/reload remain explicit", options: { key: { type: "string", required: true, description: "Recorded setup key" } }, run(input) { return cli(() => handlers["setup.apply"](inputSchema.parse({ key: input.options.key }))); } }),
-  } }));
+  };
+  return { ...handlers, commands };
 }

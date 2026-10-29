@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { BbPluginApi, JsonValue } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { ACCESS_PLUGIN, ACCESS_PROVIDER, setupKeySchema } from "./access-contract.js";
+import { ACCESS_PROVIDER, setupKeySchema } from "./access-contract.js";
+import { setupContract } from "./relay-access/setup.ts";
+import type { createRelayAccess } from "./relay-access/server.ts";
+import { registerLegacyImport } from "./relay-access/legacy-import.ts";
 
 const relaySchema = z.object({
   key: setupKeySchema, phase: z.string().max(32), expiresAt: z.number().finite().nullable(),
@@ -10,18 +13,21 @@ const restoreSchema = z.object({ previous: z.string().nullable() }).strict();
 const restoreKey = "vercel-access/default-restore";
 const pendingKey = "vercel-access/enable-key";
 const ownedRelaySchema = relaySchema.extend({ computeEnded: z.boolean(), metadataDeleted: z.boolean() });
-const failure = "Vercel Access did not confirm this action. Check that the plugin is enabled and compatible, then inspect the saved tunnel or stop it. Do not prepare a replacement after an uncertain reply.";
+const failure = "Relay setup was not confirmed. Retry to resume the saved setup, or disable the relay to clean up.";
 
-export function accessHandlers(bb: BbPluginApi) {
+export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof createRelayAccess>>) {
   let tail: Promise<unknown> = Promise.resolve();
   const serial = <T>(run: () => Promise<T>) => {
     const result = tail.catch(() => {}).then(run);
     tail = result;
     return result;
   };
-  const call = async <T>(method: string, input: JsonValue, outputSchema: z.ZodType<T>): Promise<T> => {
-    try { return await bb.sdk.plugins.callRpc({ pluginId: ACCESS_PLUGIN, method, input, outputSchema }); }
-    catch { throw new Error(failure); }
+  registerLegacyImport(bb, relay, serial);
+  const call = async <T>(method: keyof typeof setupContract, input: JsonValue, outputSchema: z.ZodType<T>): Promise<T> => {
+    try {
+      const value = setupContract[method].input.parse(input);
+      return outputSchema.parse(await relay.setup[method](value as never));
+    } catch { throw new Error(failure); }
   };
   const restoration = async () => {
     const value = await bb.storage.kv.get<unknown>(restoreKey);
@@ -46,14 +52,14 @@ export function accessHandlers(bb: BbPluginApi) {
       const expired = view?.expiresAt != null && view.expiresAt <= Date.now();
       const ready = !expired && provider?.availability?.status === "available" && snapshot.stages.some(s => s.stage === "readiness" && s.state === "verified");
       const failed = snapshot.stages.find(s => s.state === "failed");
-      return { ...base, available: true, ready, key, phase: view?.phase ?? null, expiresAt: view?.expiresAt ?? null,
+      return { ...base, available: relay.supported, ready, key, phase: view?.phase ?? null, expiresAt: view?.expiresAt ?? null,
         message: ready ? (selected ? "Ready for new machines through the local BB app." : "Relay ready. Enable it to use it for new machines.")
           : expired ? "Relay expired. Enable it to finish cleanup and start a new relay."
           : failed ? `Relay unavailable at ${failed.stage}. Enable it again to resume setup, or disable it to clean up.`
           : "Enable the relay to connect new machines to this BB app." };
     } catch {
       return { ...base, available: false, ready: false, key: null, phase: null, expiresAt: null,
-        message: "Vercel Access is unavailable. Enable relay will try to start the companion plugin; it must be installed and compatible." };
+        message: "The sandbox relay is unavailable. Refresh status or retry setup." };
     }
   };
   const observed = async (method: "setup.prepare" | "setup.inspect" | "setup.stop", input: JsonValue) => {
@@ -62,41 +68,33 @@ export function accessHandlers(bb: BbPluginApi) {
     return status();
   };
   const connect = async (key: string) => {
-    const settings = await bb.sdk.plugins.getSettings({ pluginId: ACCESS_PLUGIN });
-    const unfinished = await bb.storage.kv.get<string>("vercel-access/connect-key");
-    if (settings.values.enabled === true && unfinished !== key) return;
-    if (settings.values.enabled !== true) await call("setup.apply", { key }, relaySchema);
-    await bb.storage.kv.set("vercel-access/connect-key", key);
-    if (settings.values.enabled !== true) await bb.sdk.plugins.updateSettings({ pluginId: ACCESS_PLUGIN, values: { enabled: true } });
-    await bb.sdk.plugins.reload({ pluginId: ACCESS_PLUGIN });
-    await bb.storage.kv.delete("vercel-access/connect-key");
+    if ((await relay.settings.get()).enabled) return;
+    await call("setup.apply", { key }, relaySchema);
+    await relay.enable();
   };
   const enable = async () => {
+    if (await bb.storage.kv.get("relay-legacy-importing")) throw new Error("Finish the relay migration before enabling it.");
     let current = await status();
-    if (!current.available) {
-      await bb.sdk.plugins.enable({ pluginId: ACCESS_PLUGIN });
-      current = await status();
-      if (!current.available) throw new Error("Enable a compatible Vercel Access plugin first.");
-    }
+    if (!current.available) throw new Error("Sandbox relay is unavailable on this BB release.");
     const originalDefault = current.defaultProvider;
     if (!current.ready) {
       const pending = await bb.storage.kv.get<unknown>(pendingKey);
       let key = pending === undefined ? current.key : setupKeySchema.parse(pending);
-      let relay = null;
+      let provisioned = null;
       if (key) {
         const view = await call("setup.inspect", { key }, ownedRelaySchema.nullable());
-        relay = view;
+        provisioned = view;
         if (view && (view.phase === "removed" || view.computeEnded || (view.expiresAt !== null && view.expiresAt <= Date.now()))) {
           const removed = await call("setup.stop", { key }, ownedRelaySchema);
           if (removed.phase !== "removed" || !removed.computeEnded || !removed.metadataDeleted) throw new Error("Previous relay cleanup is still running. Try again shortly.");
           key = null;
-          relay = null;
+          provisioned = null;
         }
       }
       key ??= randomUUID();
       // Keep the chosen key before provisioning so a lost reply resumes this relay.
       await bb.storage.kv.set(pendingKey, key);
-      const view = relay?.phase === "ready" ? relay : await call("setup.prepare", { key, approveAllocation: true, image: "vercel/sandbox/node:24" }, relaySchema);
+      const view = provisioned?.phase === "ready" ? provisioned : await call("setup.prepare", { key, approveAllocation: true, image: "vercel/sandbox/node:24" }, relaySchema);
       await bb.storage.kv.set("vercel-access/observation", view);
       await connect(key);
       for (let attempt = 0; attempt < 40; attempt++) {
@@ -122,13 +120,12 @@ export function accessHandlers(bb: BbPluginApi) {
     const observation = await bb.storage.kv.get<unknown>("vercel-access/observation");
     const key = pending === undefined ? current.key ?? (observation === undefined ? null : relaySchema.parse(observation).key) : setupKeySchema.parse(pending);
     try {
-      await bb.sdk.plugins.updateSettings({ pluginId: ACCESS_PLUGIN, values: { enabled: false } });
-      await bb.sdk.plugins.reload({ pluginId: ACCESS_PLUGIN });
+      await relay.disable();
     } finally {
       const config = await bb.sdk.system.config();
       const saved = await restoration();
       if (config.generalSettings.defaultMachineAccess === ACCESS_PROVIDER) {
-        await bb.sdk.system.updateGeneralSettings({ ...config.generalSettings, defaultMachineAccess: saved ? saved.previous : "direct" });
+        await bb.sdk.system.updateGeneralSettings({ ...config.generalSettings, defaultMachineAccess: saved?.previous ?? "direct" });
       }
       await bb.storage.kv.delete(restoreKey);
     }
@@ -147,11 +144,7 @@ export function accessHandlers(bb: BbPluginApi) {
     "access.activate": ({ key }: { key: string }) => serial(async () => {
       const config = await bb.sdk.system.config();
       if (config.generalSettings.defaultMachineAccess === null) throw new Error("Choose an explicit connection in Machines settings before connecting a tunnel; Automatic may select it for unrelated launches.");
-      // Apply checks the owned relay, pinned identity, bounded lifetime and image.
-      // Only this explicit action reloads Access; never reload after launching a worker.
-      await call("setup.apply", { key }, relaySchema);
-      await bb.sdk.plugins.updateSettings({ pluginId: ACCESS_PLUGIN, values: { enabled: true } });
-      await bb.sdk.plugins.reload({ pluginId: ACCESS_PLUGIN });
+      await connect(key);
       return status();
     }),
     "access.select": ({ expectedDefault }: { expectedDefault: string | null; approveDefaultChange: true }) => serial(async () => {

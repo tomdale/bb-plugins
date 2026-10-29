@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { accessHandlers } from "./access-server.js";
+import { createRelayAccess } from "./relay-access/server.ts";
 import {
   cliCommand,
   defineCli,
@@ -54,6 +55,7 @@ const connectionNamesSchema = z.object({
 
 export function createVercelSandboxPlugin() {
   return async (bb: BbPluginApi) => {
+    const relay = await createRelayAccess(bb);
     // Launch defaults live in plugin storage rather than host settings, so
     // the Settings page can offer only what the selected team's plan allows.
     const launchDefaults = async () =>
@@ -376,7 +378,7 @@ export function createVercelSandboxPlugin() {
       };
     };
     bb.rpc.register(vercelRpcContract, {
-      ...accessHandlers(bb),
+      ...accessHandlers(bb, relay),
       ...relayHandlers(bb, { owner: allocations.owner, connection: currentConnection, run: allocations.run, signal: () => operationSignal(undefined, 180_000) }),
       "launch.options": async () => {
         try {
@@ -428,8 +430,9 @@ export function createVercelSandboxPlugin() {
     bb.cli.register(
       defineCli({
         name: "vercel-sandbox",
-        summary: "Inspect Vercel Sandbox configuration and machines",
+        summary: "Manage Vercel Sandbox machines and the integrated relay",
         commands: {
+          ...relay.setup.commands,
           "account connect": cliCommand({
             summary:
               "Connect an enrolled machine's CLI login to a Vercel team and project",
