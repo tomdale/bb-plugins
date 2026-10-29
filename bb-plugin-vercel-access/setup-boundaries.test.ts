@@ -80,6 +80,29 @@ test("apply rejects malformed/different pending private identities before inspec
   } finally { await t.harness.lifecycle.dispose(); }
 });
 
+test("matching public-only key rejects apply and prepare retry before RPC or writes — fake RPC", async () => {
+  const t = fixture();
+  try {
+    await t.prepare("relay-a"); const original = t.privateKey;
+    const record = await t.bb.storage.kv.get<{ authorizedKey: string }>("relay-setup");
+    assert.ok(record);
+    const parsed = ssh2.utils.parseKey(record.authorizedKey);
+    assert.ok(!(parsed instanceof Error) && !Array.isArray(parsed));
+    assert.equal(parsed.isPrivateKey(), false); assert.equal(parsed.getPrivatePEM(), null);
+    t.privateKey = record.authorizedKey;
+    const before = { requests: t.requests.length, saves: t.saves, applications: t.applications.length, disables: t.disables };
+    for (const run of [() => t.call("apply", "relay-a"), () => t.prepare("relay-a")]) {
+      await assert.rejects(run(), error => !String(error).includes(record.authorizedKey) && (!original || !String(error).includes(original)));
+      assert.deepEqual({ requests: t.requests.length, saves: t.saves, applications: t.applications.length, disables: t.disables }, before);
+      assert.deepEqual(await t.bb.storage.kv.get("relay-setup"), record);
+    }
+    t.privateKey = original;
+    await t.prepare("relay-a"); await t.call("apply", "relay-a");
+    assert.deepEqual(t.applications, [{ key: "relay-a", matchingPrivateKey: true }]);
+    assert.equal(t.saves, before.saves); assert.equal(t.harness.logEntries.length, 0);
+  } finally { await t.harness.lifecycle.dispose(); }
+});
+
 test("wrong-key prepared/ready/removed replies cannot apply or authorize replacement — fake RPC", async () => {
   const t = fixture();
   try {

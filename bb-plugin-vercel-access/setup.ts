@@ -29,7 +29,7 @@ type SetupRecord = z.infer<typeof recordSchema>;
 function assertPrivateIdentity(privateKey: string | undefined, authorizedKey: string): asserts privateKey is string {
   if (!privateKey) throw new Error("Private connector identity is unavailable");
   const parsed = ssh2.utils.parseKey(privateKey);
-  if (parsed instanceof Error || Array.isArray(parsed) || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== authorizedKey) throw new Error("Connector identity changed");
+  if (parsed instanceof Error || Array.isArray(parsed) || parsed.isPrivateKey() !== true || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== authorizedKey) throw new Error("Connector identity changed");
 }
 export const setupContract = defineRpcContract({
   "setup.prepare": { input: inputSchema.extend({ approveAllocation: z.literal(true), image: imageSchema }).strict(), output: relayViewSchema },

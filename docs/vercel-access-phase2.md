@@ -56,7 +56,7 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | Verification | Result |
 | --- | --- |
 | `npm ci`, `npm run typecheck`, `npm run build` | PASS |
-| `npm test` | PASS; 95 tests, including setup, reply-binding and no-allocation regressions |
+| `npm test` | PASS; 96 tests, including setup, reply-binding and no-allocation regressions |
 | `npm run test:slow` | PASS; both paths complete observed 125-second responses |
 | `npm run test:build` | PASS; declared-script cold isolated build |
 | `npm run test:core` | PASS; five real-core scenarios |
