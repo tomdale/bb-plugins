@@ -3,16 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Local-only Vercel Access authorization conformance foundation; not a BB ingress or deployed relay",
-  "engines": { "node": ">=22.18" },
+  "description": "Local fixture-only authenticated outbound transport; not a BB ingress or cloud deployment",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
-    "test": "node --test src/*.test.ts",
+    "test": "npm run build && node --test dist/*.test.js",
     "typecheck": "tsc --noEmit",
     "build": "tsc"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.6.59",
     "@types/node": "^22.0.0",
+    "@types/ws": "8.18.2",
     "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
   }
 }
