@@ -56,7 +56,7 @@ const commonHeaders = new Set([
 ]);
 const wsHeaders = new Set(["upgrade", "sec-websocket-key", "sec-websocket-version", "sec-websocket-protocol", "sec-websocket-extensions"]);
 
-const discardedPlatformHeaders = new Set(["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "x-vercel-id"]);
+const discardedPlatformHeaders = new Set(["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "x-vercel-id", "x-vercel-forwarded-for"]);
 
 export function admitRequest(req: IncomingMessage, authority: string, upgrade: boolean, discardPlatformMetadata = false): {
   token: string; target: string; headers: Record<string, string>; length: number;
@@ -70,7 +70,7 @@ export function admitRequest(req: IncomingMessage, authority: string, upgrade: b
     const name = req.rawHeaders[i].toLowerCase();
     const value = req.rawHeaders[i + 1];
     if (seen.has(name)) throw new AdmissionDenied("duplicate-header", [name]);
-    if (!commonHeaders.has(name) && !(upgrade && wsHeaders.has(name)) && !(discardPlatformMetadata && discardedPlatformHeaders.has(name))) throw new AdmissionDenied("unlisted-header", [name]);
+    if (!commonHeaders.has(name) && !(upgrade && wsHeaders.has(name)) && !(discardPlatformMetadata && (discardedPlatformHeaders.has(name) || name.startsWith("x-vercel-")))) throw new AdmissionDenied("unlisted-header", [name]);
     if (value.length > 8192 || /[^\x20-\x7e]/.test(value)) throw new AdmissionDenied("header-value", [name]);
     seen.add(name);
     headers[name] = value;
