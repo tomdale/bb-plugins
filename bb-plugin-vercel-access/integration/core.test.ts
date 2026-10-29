@@ -7,6 +7,8 @@ import { openBridge, openRelayAdapter } from "../bridge.ts";
 import { openTunnelRelay, startConnector, hostFingerprint } from "../tunnel.ts";
 import { syntheticKeys } from "./keys.ts";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { ACCESS_HEADER, DAEMON_PROTOCOL, TESTED_CORE } from "../policy.ts";
 import { http, isolatedCore, freePort } from "./isolated.ts";
 
@@ -83,6 +85,19 @@ for (const transport of ["direct", "ssh-ws"] as const) test(`isolated released B
   };
   const keyA = await enroll(a);
   const keyB = await enroll(b);
+  assert.equal((await http(core.baseUrl, "/api/v1/plugins/bb--storage-retention/enable", json({}))).status, 200);
+  const hostMetadata = JSON.parse(await readFile(join(dirname(core.serverEntry), "builtin-plugins/storage-retention/dist/host.meta.json"), "utf8"));
+  assert.equal(hostMetadata.pluginId, "bb--storage-retention");
+  assert.equal(hostMetadata.builtWith.bbVersion, TESTED_CORE.version);
+  const builtInTarget = `/internal/plugins/${hostMetadata.pluginId}/host/${hostMetadata.artifactDigest}`;
+  const directArtifact = await http(core.baseUrl, builtInTarget, { headers: { authorization: `Bearer ${keyA}` } });
+  const bridgedArtifact = await http(bridge.url, builtInTarget, { headers: { ...access, authorization: `Bearer ${keyA}` } });
+  assert.equal(directArtifact.status, 200); assert.equal(bridgedArtifact.status, 200);
+  assert.ok(directArtifact.body.length > 0);
+  assert.deepEqual(bridgedArtifact.body, directArtifact.body, "Released reserved-ID artifact has native direct/bridge parity");
+  assert.equal((await http(bridge.url, builtInTarget, { headers: access })).status, 401, "Expanded safe ID grammar still requires native auth");
+  assert.equal((await http(bridge.url, builtInTarget.replace("bb--", "%62b--"), { headers: { ...access, authorization: `Bearer ${keyA}` } })).status, 403);
+  t.diagnostic(`${transport}: enabled bb--storage-retention native/bridge200 parity ${bridgedArtifact.body.length}bytes; native auth and raw aliases preserved`);
   const sessionBody = (hostId: string) => ({
     hostId, instanceId: "synthetic-instance", hostName: "Synthetic worker", hasMachineCredential: false,
     platform: "linux", dataDir: "/tmp/synthetic-workspace", localApiPort: null,

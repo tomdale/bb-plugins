@@ -1,13 +1,13 @@
-import { createServer, connect, type Socket } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { createHash, timingSafeEqual } from "node:crypto";
 import ssh2, { type Connection } from "ssh2";
 const { Client, Server, utils } = ssh2;
 import { WebSocket, WebSocketServer, createWebSocketStream } from "ws";
 import { createServer as createHttpServer } from "node:http";
 import { once } from "node:events";
+import { CHANNEL_LIMIT, forwardFixedBridge, forwardReverseSocket } from "./channels.ts";
 
 export const CONNECTOR_PATH = "/machine-connector";
-const channelLimit = 16;
 
 export function validSignatureProof(verify: () => boolean | Error): boolean {
   try { return verify() === true; } catch { return false; }
@@ -39,36 +39,41 @@ export async function startConnector(options: {
   const local = new Set<Socket>();
   let closed = false;
   let registered = false;
+  let resolveExit!: () => void;
+  const exited = new Promise<void>(resolve => { resolveExit = resolve; });
+  let rejectReady: ((error: Error) => void) | undefined;
   const close = () => {
     if (closed) return;
     closed = true;
     options.signal?.removeEventListener("abort", close);
     registered = false;
-    for (const connection of local) connection.destroy();
-    ssh.destroy(); stream.destroy(); socket.terminate();
+    try {
+      for (const connection of local) connection.destroy();
+      local.clear();
+      ssh.destroy(); stream.destroy(); socket.terminate();
+    } finally {
+      rejectReady?.(new Error("SSH connector closed before readiness"));
+      resolveExit();
+    }
   };
-  const exited = new Promise<void>(resolve => ssh.once("close", () => { close(); resolve(); }));
-  socket.on("error", close); stream.on("error", close); ssh.on("error", close);
+  socket.on("error", close); socket.on("close", close);
+  stream.on("error", close); stream.on("end", close); stream.on("close", close);
+  ssh.on("error", close); ssh.on("end", close); ssh.on("close", close);
   ssh.on("tcp connection", (info, accept, reject) => {
-    if (closed || !registered || info.destIP !== "127.0.0.1" || info.destPort !== options.reversePort || local.size >= channelLimit) { reject(); return; }
-    // Source address and every other relay-supplied field are deliberately
-    // ignored. This literal destination is the compromised-relay boundary.
-    const destination = connect({ host: "127.0.0.1", port: options.bridgePort });
-    local.add(destination);
-    let channel: ReturnType<typeof accept> | undefined;
-    destination.on("error", () => { channel?.destroy(); if (!channel) reject(); });
-    destination.on("connect", () => { if (closed || !registered) { destination.destroy(); reject(); return; } channel = accept(); channel.on("error", () => destination.destroy()); channel.on("close", () => destination.destroy()); destination.pipe(channel).pipe(destination); });
-    destination.on("close", () => { local.delete(destination); channel?.destroy(); });
+    if (closed || !registered || info.destIP !== "127.0.0.1" || info.destPort !== options.reversePort || local.size >= CHANNEL_LIMIT) { reject(); return; }
+    // Only local configuration crosses this boundary, never relay metadata.
+    forwardFixedBridge({ bridgePort: options.bridgePort, sockets: local, current: () => !closed && registered, accept, reject });
   });
   let deadline: NodeJS.Timeout;
   const ready = new Promise<void>((resolve, reject) => {
+    rejectReady = reject;
     deadline = setTimeout(() => { close(); reject(new Error("SSH reverse-listener deadline exceeded")); }, 5000);
     ssh.once("error", () => reject(new Error("SSH connector authentication failed")));
     ssh.once("close", () => reject(new Error("SSH connector closed before readiness")));
     ssh.once("ready", () => {
       ssh.forwardIn("127.0.0.1", options.reversePort, error => {
         if (error || closed) reject(new Error("Fixed reverse listener rejected"));
-        else { registered = true; resolve(); }
+        else { registered = true; rejectReady = undefined; resolve(); }
       });
     });
   });
@@ -100,51 +105,53 @@ export async function openTunnelRelay(options: {
   const connections = new Set<Connection>();
   const dataSockets = new Set<Socket>();
   const wireSockets = new Set<Socket>();
-  const acceptClient = (client: Connection, onReady: () => void) => {
-    const deadline = setTimeout(() => client.end(), 5000);
-    connections.add(client);
-    if (closed || connections.size > 4) { client.end(); return; }
-    client.on("error", () => {});
-    client.on("authentication", context => {
-      if (active && active !== client) { context.reject(); return; }
-      if (context.username !== "machine-connector" || context.method !== "publickey" ||
-          !authorized.getPublicSSH().equals(context.key.data) ||
-          (context.signature && !validSignatureProof(() => authorized.verify(context.blob!, context.signature!, context.hashAlgo)))) { context.reject(); return; }
-      context.accept();
-    });
-    client.on("ready", () => { clearTimeout(deadline); onReady(); if (active && active !== client) { client.end(); return; } active = client; });
-    client.on("session", (_accept, reject) => reject());
-    client.on("tcpip", (_accept, reject) => reject());
-    client.on("request", (accept, reject, name, info) => {
-      if (name !== "tcpip-forward" || !info || info.bindAddr !== "127.0.0.1" || info.bindPort !== options.reversePort || reverse || active !== client) { reject?.(); return; }
-      const listener = createServer(socket => {
-        if (closed || dataSockets.size >= channelLimit || active !== client) { socket.destroy(); return; }
-        dataSockets.add(socket);
-        socket.on("error", () => {});
-        socket.on("close", () => dataSockets.delete(socket));
-        client.forwardOut("127.0.0.1", options.reversePort, "127.0.0.1", socket.remotePort ?? 0, (error, channel) => {
-          if (error || socket.destroyed) { socket.destroy(); channel?.destroy(); return; }
-          channel.on("error", () => socket.destroy()); channel.on("close", () => socket.destroy());
-          socket.on("close", () => channel.destroy());
-          socket.pipe(channel).pipe(socket);
-        });
-      });
-      reverse = listener;
-      listener.once("error", () => { if (reverse === listener) reverse = undefined; reject?.(); });
-      listener.listen(options.reversePort, "127.0.0.1", () => accept?.());
-    });
+  const acceptClient = (client: Connection, onReady: () => void, onFault: () => void) => {
+    let retired = false;
+    const deadline = setTimeout(() => { retire(); onFault(); }, 5000);
     const retire = () => {
+      if (retired) return;
+      retired = true;
       clearTimeout(deadline);
       connections.delete(client);
       if (active === client) {
         active = undefined;
         reverse?.close(); reverse = undefined;
         for (const socket of dataSockets) socket.destroy();
+        dataSockets.clear();
       }
     };
-    client.once("end", retire);
-    client.once("error", retire);
-    client.once("close", retire);
+    connections.add(client);
+    client.once("end", retire); client.on("error", () => { retire(); onFault(); }); client.once("close", retire);
+    if (closed || connections.size > 4) { retire(); onFault(); return; }
+    client.on("authentication", context => {
+      if (closed || retired || (active && active !== client)) { context.reject(); return; }
+      if (context.username !== "machine-connector" || context.method !== "publickey" ||
+          !authorized.getPublicSSH().equals(context.key.data) ||
+          (context.signature && !validSignatureProof(() => authorized.verify(context.blob!, context.signature!, context.hashAlgo)))) { context.reject(); return; }
+      context.accept();
+    });
+    client.on("ready", () => {
+      if (closed || retired || (active && active !== client)) { retire(); onFault(); return; }
+      clearTimeout(deadline); onReady(); active = client;
+    });
+    client.on("session", (_accept, reject) => reject());
+    client.on("tcpip", (_accept, reject) => reject());
+    client.on("request", (accept, reject, name, info) => {
+      if (closed || retired || name !== "tcpip-forward" || !info || info.bindAddr !== "127.0.0.1" || info.bindPort !== options.reversePort || reverse || active !== client) { reject?.(); return; }
+      const listener = createServer(socket => {
+        forwardReverseSocket({
+          socket, sockets: dataSockets, current: () => !closed && !retired && active === client,
+          request: done => client.forwardOut("127.0.0.1", options.reversePort, "127.0.0.1", socket.remotePort ?? 0, (error, channel) => done(error, channel)),
+          stalled: () => { retire(); onFault(); },
+        });
+      });
+      reverse = listener;
+      listener.once("error", () => { if (reverse === listener) reverse = undefined; reject?.(); });
+      listener.listen(options.reversePort, "127.0.0.1", () => {
+        if (closed || retired || active !== client || reverse !== listener) { listener.close(); return; }
+        accept?.();
+      });
+    });
   };
   const http = createHttpServer({ maxHeaderSize: 8192, headersTimeout: 5000, requestTimeout: 5000 }, (_req, res) => { res.writeHead(403, { connection: "close", "cache-control": "no-store" }); res.end(); });
   const ws = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 64 * 1024, maxFragments: 64, maxBufferedChunks: 128 });
@@ -163,7 +170,7 @@ export async function openTunnelRelay(options: {
       const handshake = setTimeout(() => websocket.terminate(), 5000);
       websocket.once("close", () => clearTimeout(handshake));
       const session = new Server({ hostKeys: [options.hostKey] }, client => {
-        acceptClient(client, () => clearTimeout(handshake));
+        acceptClient(client, () => clearTimeout(handshake), () => websocket.terminate());
         stream.once("close", () => client.end());
         client.once("close", () => websocket.terminate());
       });
@@ -181,6 +188,7 @@ export async function openTunnelRelay(options: {
       closed = true;
       for (const client of connections) client.end();
       for (const socket of dataSockets) socket.destroy();
+      dataSockets.clear();
       for (const socket of wireSockets) socket.destroy();
       reverse?.close(); reverse = undefined;
       for (const socket of ws.clients) socket.terminate();

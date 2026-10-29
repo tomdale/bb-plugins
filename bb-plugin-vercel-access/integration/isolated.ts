@@ -70,7 +70,7 @@ export async function isolatedCore() {
   };
   try { await start(); } catch (error) { await stop(); await rm(directory, { recursive: true, force: true }); throw error; }
   return {
-    baseUrl, directory, env, logs: () => logs,
+    baseUrl, directory, env, serverEntry: entry, logs: () => logs,
     async restart() { await stop(); await start(); },
     async close() { await stop(); await rm(directory, { recursive: true, force: true }); },
   };

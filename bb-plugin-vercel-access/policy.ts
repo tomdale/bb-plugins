@@ -35,7 +35,7 @@ export function route(method: string, target: string): Route | null {
   if (method !== "GET") return null;
   if (getRoutes.has(target)) return "http";
   if (/^\/internal\/skills\/tree\/[a-f0-9]{64}$/.test(target)) return "http";
-  if (/^\/internal\/plugins\/[a-z0-9]+(?:-[a-z0-9]+)*\/host\/[a-f0-9]{64}$/.test(target)) return "http";
+  if (/^\/internal\/plugins\/[a-z0-9]+(?:-+[a-z0-9]+)*\/host\/[a-f0-9]{64}$/.test(target)) return "http";
   return null;
 }
 
