@@ -49,6 +49,7 @@ function originOf(sandbox: Sandbox) {
 export async function relayOperation(options: {
   dataDir: string; identity: RelayIdentity; operation: "prepare" | "inspect" | "stop";
   signal: AbortSignal; vendor: () => Promise<Vendor>;
+  initialize?: boolean;
 }): Promise<RelayView> {
   const { signal } = options;
   const identity = relayIdentitySchema.parse(options.identity);
@@ -75,7 +76,7 @@ export async function relayOperation(options: {
       record = recordSchema.parse(JSON.parse(await readFile(path, "utf8")));
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw unresolved();
-      if (options.operation !== "prepare") throw unresolved();
+      if (options.operation !== "prepare" || options.initialize !== true) throw unresolved();
       const keys = hostIdentity();
       record = { identity, hostKey: keys.hostKey, view: {
         key: identity.key, generation: identity.generation, name: relayName(identity),
@@ -125,7 +126,7 @@ export async function relayOperation(options: {
       await save(r); return r.view;
     }
     if (options.operation === "stop") {
-      if (r.view.phase === "prepared") { r.view.computeEnded = true; r.view.metadataDeleted = true; r.view.observedStatus = "never-submitted"; r.hostKey = ""; await transition("removed"); return r.view; }
+      if (r.view.phase === "prepared" && !sandbox && r.view.sessionId === null) { r.view.computeEnded = true; r.view.metadataDeleted = true; r.view.observedStatus = "never-submitted"; r.hostKey = ""; await transition("removed"); return r.view; }
       if (!r.view.computeEnded) {
         await transition("stopping");
         if (!r.view.sessionId) throw unresolved();

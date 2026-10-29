@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -22,12 +22,13 @@ async function setup() {
   disposals.push(() => rm(dataDir, { recursive: true, force: true }));
   const id = identity();
   let present = false, stopped = false;
-  let creates = 0, launches = 0, deletes = 0;
+  let creates = 0, launches = 0, deletes = 0, stops = 0;
+  let firstDispatch = true;
   let createReplyLost = false, launchReplyLost = false, stopReplyLost = false, deleteReplyLost = false;
   let sessionMissing = false, commandExited = false;
   let submittedSnapshot = "", launchingSnapshot = "";
   const files: { path: string; content: string | Uint8Array; mode?: number }[] = [];
-  const session = { sessionId: "session_synthetic", status: "running", vcpus: 1, timeout: 600_000, async stop() { stopped = true; session.status = "stopped"; if (stopReplyLost) throw new Error("synthetic-secret"); },
+  const session = { sessionId: "session_synthetic", status: "running", vcpus: 1, timeout: 600_000, async stop() { stops++; stopped = true; session.status = "stopped"; if (stopReplyLost) throw new Error("synthetic-secret"); },
     async getCommand() { return { exitCode: commandExited ? 1 : null }; },
     async writeFiles(input: typeof files) { files.push(...input); },
     async readFile() { return Readable.from([JSON.stringify({ node: "v24.22.1" })]); },
@@ -45,9 +46,19 @@ async function setup() {
     async getSession() { return sessionMissing ? null : { id: session.sessionId, status: stopped ? "stopped" as const : "running" as const, projectId: "prj_test", sourceSandboxName: sandbox.name }; },
     async stopSession() { await session.stop(); return null; },
   };
-  const call = (operation: "prepare" | "inspect" | "stop", signal = new AbortController().signal, alternate = id) => relayOperation({ dataDir, identity: alternate, operation, signal, vendor: async () => vendor });
+  const call = (operation: "prepare" | "inspect" | "stop", signal = new AbortController().signal, alternate = id) => {
+    const initialize = operation === "prepare" && firstDispatch && !signal.aborted;
+    if (initialize) firstDispatch = false;
+    return relayOperation({ dataDir, identity: alternate, operation, signal, initialize, vendor: async () => vendor });
+  };
   async function journal() { return readFile(join(dataDir, "relay-intents", `${relayName(id)}.json`), "utf8"); }
   return { call, id, sandbox, session, files, dataDir, journal,
+    removeJournal: () => rm(join(dataDir, "relay-intents", `${relayName(id)}.json`)),
+    async resetPhaseToPrepared() {
+      const record = JSON.parse(await journal()); record.view.phase = "prepared";
+      await writeFile(join(dataDir, "relay-intents", `${relayName(id)}.json`), JSON.stringify(record));
+    },
+    get stops() { return stops; },
     get creates() { return creates; }, get launches() { return launches; }, get deletes() { return deletes; },
     get submitted() { return submittedSnapshot; }, get launching() { return launchingSnapshot; },
     set createReplyLost(v: boolean) { createReplyLost = v; }, set launchReplyLost(v: boolean) { launchReplyLost = v; },
@@ -141,6 +152,34 @@ describe("relay lifecycle — fake cloud only", () => {
     await Promise.all([t.call("prepare"), t.call("prepare")]);
     expect(t.creates).toBe(1); expect(t.launches).toBe(1);
   });
+  it("journal loss with matching running compute cannot fabricate prepared-state cleanup proof", async () => {
+    const t = await setup(); const original = await t.call("prepare");
+    await t.removeJournal();
+    await expect(t.call("prepare")).rejects.toThrow(/unresolved/);
+    await expect(t.call("stop")).rejects.toThrow(/unresolved/);
+    expect(t.session.status).toBe("running"); expect(t.stops).toBe(0); expect(t.deletes).toBe(0);
+    expect(t.creates).toBe(1); expect(t.launches).toBe(1);
+    await expect(t.journal()).rejects.toThrow();
+    expect(original.computeEnded).toBe(false); expect(original.metadataDeleted).toBe(false);
+  });
+  it("prepared labels with observed or recorded sessions require actual stopped proof and deletion", async () => {
+    const t = await setup(); await t.call("prepare"); await t.resetPhaseToPrepared();
+    expect(await t.call("stop")).toMatchObject({ phase: "removed", computeEnded: true, metadataDeleted: true, observedStatus: "stopped" });
+    expect(t.session.status).toBe("stopped"); expect(t.stops).toBe(1); expect(t.deletes).toBe(1);
+  });
+  it("missing host journal never reinitializes a retained allocated or submitted intent", async () => {
+    for (const lostCreate of [false, true]) {
+      const t = await setup(); t.createReplyLost = lostCreate;
+      if (lostCreate) await expect(t.call("prepare")).rejects.toThrow(); else await t.call("prepare");
+      const original = JSON.parse(await t.journal());
+      t.session.status = "stopped"; t.present = false; await t.removeJournal();
+      await expect(t.call("prepare")).rejects.toThrow(/unresolved/);
+      await expect(t.call("inspect")).rejects.toThrow(/unresolved/);
+      expect(t.creates).toBe(1); expect(t.launches).toBe(lostCreate ? 0 : 1);
+      await expect(t.journal()).rejects.toThrow();
+      expect(t.id.generation).toBe(original.identity.generation);
+    }
+  });
   it("refuses arbitrary images, unbounded control data and artifact corruption", () => {
     expect(relayIdentitySchema.safeParse({ ...identity(), image: "vercel/sandbox/universal:latest" }).success).toBe(false);
     expect(relayIdentitySchema.safeParse({ ...identity(), command: ["sh"] }).success).toBe(false);
@@ -153,7 +192,7 @@ describe("relay lifecycle — fake cloud only", () => {
     let calls = 0;
     const worker = experimental_createHostEntryHarness(createVercelHostEntry(async () => { calls++; throw new Error("synthetic-secret"); }, cli.run), { experimental_paths: { dataDir, tempDir: dataDir } });
     disposals.push(() => worker.experimental_dispose());
-    const result = await worker.experimental_call("relayPrepare", { ...identity(), connection: { ...identity().connection, accountId: "foreign_account" } });
+    const result = await worker.experimental_call("relayPrepare", { ...identity(), initialize: true, connection: { ...identity().connection, accountId: "foreign_account" } });
     expect(result.ok).toBe(false); expect(calls).toBe(0);
     expect(JSON.stringify(result)).not.toMatch(/synthetic-secret|PRIVATE KEY|token/);
   });

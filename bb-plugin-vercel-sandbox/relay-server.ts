@@ -24,14 +24,21 @@ export function relayHandlers(bb: BbPluginApi, options: {
   return {
     "relay.prepare": async (input: { key: string; authorizedKey: string; bridgePort: number; image: string }) => invoke(input.key, async () => {
       const setup = relaySetupSchema.parse(input);
-      let identity = await stored(input.key);
-      if (identity && (identity.authorizedKey !== setup.authorizedKey || identity.bridgePort !== setup.bridgePort || identity.image !== setup.image)) throw new SafeError("Relay key already has different setup. Inspect or stop the original intent.");
-      if (!identity) {
+      const { identity, initialize } = await options.run("relay-admission", async () => {
+        const existing = await stored(input.key);
+        if (existing) {
+          if (existing.authorizedKey !== setup.authorizedKey || existing.bridgePort !== setup.bridgePort || existing.image !== setup.image) throw new SafeError("Relay key already has different setup. Inspect or stop the original intent.");
+          return { identity: existing, initialize: false };
+        }
         if ((await bb.storage.kv.list("relay-intents/")).length >= 16) throw new SafeError("Relay intent limit reached; retain records and investigate before preparing more relays.");
-        identity = { ...setup, owner: options.owner, generation: randomUUID(), connection: await options.connection() };
+        const identity = { ...setup, owner: options.owner, generation: randomUUID(), connection: await options.connection() };
+        // Existence consumes the one initialization dispatch, even if this
+        // server crashes before the host receives it. Retries cannot recreate
+        // a lost private journal or silently rotate the relay host identity.
         await bb.storage.kv.set(`relay-intents/${input.key}`, identity);
-      }
-      return remote.relay("relayPrepare", identity, options.signal());
+        return { identity, initialize: true };
+      });
+      return remote.relay("relayPrepare", identity, options.signal(), initialize);
     }),
     "relay.inspect": async ({ key }: { key: string }) => invoke(key, async () => {
       const identity = await stored(key);

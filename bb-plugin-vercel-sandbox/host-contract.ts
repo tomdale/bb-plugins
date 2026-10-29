@@ -46,7 +46,7 @@ const result = <S extends z.ZodType>(value: S) =>
   ]);
 const empty = z.object({}).strict();
 export const hostContract = defineRpcContract({
-  relayPrepare: { input: relayIdentitySchema, output: result(relayViewSchema) },
+  relayPrepare: { input: relayIdentitySchema.extend({ initialize: z.boolean() }).strict(), output: result(relayViewSchema) },
   relayInspect: { input: relayIdentitySchema, output: result(relayViewSchema) },
   relayStop: { input: relayIdentitySchema, output: result(relayViewSchema) },
   teams: {

@@ -25,8 +25,10 @@ export function remoteVercelClient(bb: BbPluginApi) {
     return result.value;
   };
   return {
-    relay: (method: "relayPrepare" | "relayInspect" | "relayStop", identity: RelayIdentity, signal: AbortSignal) =>
-      unwrap(host.call(method, identity, options(identity.connection, signal, 180_000))),
+    relay: (method: "relayPrepare" | "relayInspect" | "relayStop", identity: RelayIdentity, signal: AbortSignal, initialize = false) =>
+      method === "relayPrepare"
+        ? unwrap(host.call(method, { ...identity, initialize }, options(identity.connection, signal, 180_000)))
+        : unwrap(host.call(method, identity, options(identity.connection, signal, 180_000))),
     teams: (input: { hostId: string }, signal: AbortSignal) =>
       unwrap(
         host.call("teams", input, {

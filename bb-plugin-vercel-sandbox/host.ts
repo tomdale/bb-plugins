@@ -78,16 +78,16 @@ export function createVercelHostEntry(
     assertOwnership(input.resource, sandbox);
     return sandbox;
   };
-  const relay = (operation: "prepare" | "inspect" | "stop", identity: RelayIdentity, context: ExperimentalHostRpcContext) =>
+  const relay = (operation: "prepare" | "inspect" | "stop", identity: RelayIdentity, context: ExperimentalHostRpcContext, initialize = false) =>
     guarded(context.signal, () => relayOperation({
-      dataDir: context.experimental_paths.dataDir, identity, operation, signal: context.signal,
+      dataDir: context.experimental_paths.dataDir, identity, operation, signal: context.signal, initialize,
       vendor: async () => createVercelClient(await auth.credentials(identity.connection, context.signal), transport,
         signal => auth.credentials(identity.connection, signal)),
     }));
   return experimental_defineHostEntry({
     contract: hostContract,
     handlers: {
-      relayPrepare: (input, context) => relay("prepare", input, context),
+      relayPrepare: ({ initialize, ...identity }, context) => relay("prepare", identity, context, initialize),
       relayInspect: (input, context) => relay("inspect", input, context),
       relayStop: (input, context) => relay("stop", input, context),
       teams: (_input, context) =>
