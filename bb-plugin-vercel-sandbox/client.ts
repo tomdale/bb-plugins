@@ -94,7 +94,7 @@ export function createVercelClient(
     }),
   });
   const sessionRequest = async (
-    resource: Resource,
+    resource: Pick<Resource, "sessionId" | "projectId" | "sandboxName">,
     signal: AbortSignal,
     stop: boolean,
   ) => {
@@ -156,9 +156,9 @@ export function createVercelClient(
     return session;
   };
   return {
-    getSession: (resource: Resource, signal: AbortSignal) =>
+    getSession: (resource: Pick<Resource, "sessionId" | "projectId" | "sandboxName">, signal: AbortSignal) =>
       sessionRequest(resource, signal, false),
-    stopSession: (resource: Resource, signal: AbortSignal) =>
+    stopSession: (resource: Pick<Resource, "sessionId" | "projectId" | "sandboxName">, signal: AbortSignal) =>
       sessionRequest(resource, signal, true),
     async inspectAccount(signal: AbortSignal) {
       await Sandbox.list({ ...credentials, limit: 1, signal });
@@ -175,6 +175,10 @@ export function createVercelClient(
         if (notFound(error)) return null;
         throw error;
       }
+    },
+    async createRelay(name: string, tags: Record<string, string>, image: string, signal: AbortSignal) {
+      return Sandbox.create({ ...credentials, name, tags, image, persistent: false,
+        resources: { vcpus: 1 }, timeout: 600_000, ports: [8080], signal });
     },
     async create(
       name: string,

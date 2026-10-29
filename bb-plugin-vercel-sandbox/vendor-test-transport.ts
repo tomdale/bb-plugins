@@ -4,7 +4,7 @@ const bodySchema = z.record(z.string(), z.unknown());
 const createSchema = z.object({
   name: z.string(),
   persistent: z.literal(false),
-  image: z.literal("vercel/sandbox/universal:latest"),
+  image: z.string(),
   resources: z.object({ vcpus: z.number() }),
   timeout: z.number(),
   projectId: z.string(),
