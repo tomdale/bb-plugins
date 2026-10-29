@@ -1,6 +1,6 @@
 # Vercel Access machine bridge prototype
 
-**Disabled by default. Locally tested against released BB 0.46.1 / SDK 0.6.59 / daemon protocol 244. Not approved for daily-server activation or cloud deployment.**
+**Disabled by default. Locally tested against released BB 0.46.1 / SDK 0.6.59 / daemon protocol 244. Daily activation and cloud use require separate approval and independent review.**
 
 This plugin provides a deliberately narrow machine-only connection path without BB/SDK modifications, private APIs, Connect identities, hosted BB services, or copying a BB database. The [Phase 2 decision record](../docs/vercel-access-phase2.md) describes the security boundary and remaining gates.
 
@@ -81,7 +81,15 @@ Default test entrypoints target the installed macOS Personal app. `BB_TEST_SERVE
 
 The repository activation smoke is also required, with an empty temporary HOME/XDG, Node from this package's selected toolchain, `BB_SMOKE_SERVER_JS` selecting the released entrypoint, and no inherited BB variables. Run it from the temporary directory so this package's npm flags do not affect BB's throwaway toolchain installation. Use the task's committed smoke-script copy; running verification does not require modifying any canonical checkout files.
 
-## Relay source artifact; not a deployment
+## Explicit relay provisioning
+
+The [bounded provisioning contract](../docs/vercel-access-provisioning.md) adds explicit owner-driven prepare/inspect/stop operations through the connected Vercel Sandbox plugin. Vendor credentials remain on the original authentication machine. Preparation does not enable access, change default selections or allocate a worker. It provisions at most one 1-vCPU, ten-minute relay per stable setup key; uncertain replies retain intent instead of replacing compute. `bb vercel-access relay` is the owner CLI; preparation requires `--confirm-cost` and separate operational approval.
+
+`npm run build:relay` builds the pinned standalone artifact into the sandbox package. `npm run check:relay` verifies that committed artifact against source and the dependency lockfile. No cloud-side dependency installation is used. The official Node24 base image is Vercel-managed and updated nightly, not immutable; its observed runtime and resources are returned for inspection.
+
+Setup apply copies trusted URL/pin and a dedicated secret connector key into **disabled** settings. Explicit enabling/reload and the existing through-origin readiness probe remain required. Setup stop disables local access and cleans up only the originally owned relay. Neither action reconfigures an already-enrolled worker after grant expiry or origin replacement.
+
+## Relay source entrypoint
 
 `relay-main.ts` can start the relay after **separate** provisioning/deployment approval. It allocates nothing and contains no Vercel SDK or login flow:
 
@@ -91,4 +99,4 @@ node relay-main.ts /private/relay-config.json
 
 The bounded JSON configuration has exactly `publicAuthority`, `port`, `reversePort`, `bridgePort`, `hostKeyFile`, and `authorizedKeyFile`. The relay host key is a bounded mode-0600 file; connector authorization is a dedicated public-key file. Use one exposed adapter port, a private reverse port, and the exact laptop bridge port. Provision the host fingerprint through a trusted control path. Never include Vercel OAuth/API credentials in laptop settings, worker bootstrap, tunnel traffic, or source artifacts.
 
-Plugin settings remain disabled until explicitly configured/reloaded. `loopback-test` requires the exact local bridge URL. `ssh-ws` requires an explicit relay origin, host fingerprint, dedicated secret connector key, fixed private reverse port, and machine-facing adapter origin; availability starts only after an authenticated transport readiness probe. These are test/prototype controls, not authorization to enable daily access. Vercel allocation, bounded auth-machine provisioning RPC, TLS/WSS, plan behavior, cleanup, durable recovery, browser access, and preview sharing remain separate gates.
+Plugin settings remain disabled until explicitly configured/reloaded. `loopback-test` requires the exact local bridge URL. `ssh-ws` requires an explicit relay origin, host fingerprint, dedicated secret connector key, fixed private reverse port, and machine-facing adapter origin; availability starts only after an authenticated transport readiness probe. These are test/prototype controls, not authorization to enable daily access. The provisioning code has fake-vendor and standalone-artifact local evidence only. Actual Vercel allocation/network behavior and teardown remain cloud gates; durable admission and existing-worker reconfiguration remain product gates. Browser access and preview sharing are separate.

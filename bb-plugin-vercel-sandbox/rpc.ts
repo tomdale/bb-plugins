@@ -1,5 +1,6 @@
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { relayMethods } from "./relay-contract.js";
 import {
   planSchema,
   resolvedInputsSchema,
@@ -42,6 +43,7 @@ const launchOptionsSchema = z
   })
   .strict();
 export const vercelRpcContract = defineRpcContract({
+  ...relayMethods,
   "launch.options": {
     input: z.object({}).strict(),
     output: launchOptionsSchema,

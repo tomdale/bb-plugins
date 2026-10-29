@@ -51,6 +51,10 @@ Recorded allocations without a CLI connection retain their original team/project
 
 Bootstrap stdin is uploaded to a unique 0600 temporary file, opened and unlinked before command execution, and cleaned up on failure where reachable. Exec uses the existing session directly, without SDK automatic resume, a vendor-enforced command timeout, bounded streaming output, and an abort signal. Cancellation attempts SIGKILL when a command receipt exists. An interrupted submission may lack a process receipt; successful remote termination is then unverified, and durable machine removal remains the cleanup path. Closing a CLI/SDK follower stops following; core machine removal cancels the durable creation operation.
 
+## Relay helper provisioning
+
+The optional Vercel Access companion uses [bounded prepare/inspect/stop operations](../docs/vercel-access-provisioning.md) on this plugin's original authentication host. Relay compute has a separate intent namespace and fixed 1-vCPU, ten-minute lifetime on the official managed Node24 image. Installing this package, account inspection and worker acquisition do not prepare a relay. No worker launch default or lifecycle is changed. This code has local fake-vendor evidence only; cloud use and daily access activation require separate approval after independent review.
+
 ## Typed RPC
 
 `rpc.ts` exports `vercelRpcContract`. SDK callers use `sdk.plugins.callRpc` with plugin ID `environment-vercel-sandbox`, the relevant output schema, and explicit inputs:

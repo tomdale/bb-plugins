@@ -20,12 +20,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "bb plugin build",
+    "build:relay": "node build-relay.mjs",
+    "check:relay": "node build-relay.mjs --check",
     "test": "node --test *.test.ts",
     "test:core": "node --test integration/core.test.ts integration/plugin.test.ts integration/daemon.test.ts"
   },
   "dependencies": {
     "ssh2": "1.17.0",
-    "ws": "8.22.0"
+    "ws": "8.22.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.6.59",
@@ -34,8 +37,8 @@
     "@types/ws": "8.18.2",
     "better-sqlite3": "12.10.0",
     "cron-parser": "5.5.0",
+    "esbuild-wasm": "0.25.12",
     "hono": "4.13.14",
-    "typescript": "^5.7.0",
-    "zod": "4.6.7"
+    "typescript": "^5.7.0"
   }
 }

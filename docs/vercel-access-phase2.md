@@ -6,7 +6,7 @@
 
 This supersedes the project-wide impossibility interpretation of Phase 0/1's core-principal proposal. Those reports tested a different architecture and the foundation remains fixture-only. The old [SDK contract](vercel-access-sdk-contract.md) is a rejected implementation direction, not a dependency or authorization. No BB/SDK source changes, private APIs, fabricated gate/Connect identities, hosted BB services, or upstream requests are part of Phase 2.
 
-**Not a cloud-ready machine MVP.** Persistent admission/reconfiguration, real Vercel provisioning/network behavior, and independent final review remain gates. The parent owns integration, approval, deployment, push, and cleanup. No daily activation or cloud allocation/deployment/login/spend occurred.
+**Not a cloud-ready machine MVP.** [Bounded host-side relay provisioning](vercel-access-provisioning.md) is code-implemented with fake vendor tests and a standalone local artifact process. Persistent admission/reconfiguration, real Vercel provisioning/network behavior, and independent final review remain gates. The parent owns integration, approval, deployment, push, and cleanup. No daily activation or cloud allocation/deployment/login/spend occurred.
 
 ## Alternatives considered
 
@@ -91,7 +91,7 @@ Parent-arranged checkpoint reviews found and prompted fixes for native fetch/ws 
 Before any real use:
 
 1. **Local product gate:** independently review the final code, preserve supported version refusal, and implement/test durable admission plus existing-worker reconfiguration/expiry recovery before claiming persistent-machine readiness. Full installer/service behavior remains a distinct verification item
-2. **Approval gate:** obtain explicit bounded Vercel allocation/deployment/spend approval. Source artifact `relay-main.ts` is written but not deployed. Keep provisioning on the authenticated vendor machine via bounded prepare/inspect/stop RPC; never move Vercel credentials to the laptop connector
+2. **Provisioning/approval gate:** the bounded [prepare/inspect/stop implementation](vercel-access-provisioning.md) remains local-test evidence only. Obtain explicit bounded allocation/deployment/spend approval after independent review before invoking real vendor methods. Provisioning remains on the original authentication machine; Vercel credentials do not move to the connector
 3. **Cloud gate:** approved isolated synthetic BB/worker only; prove one exposed adapter port and reserved control WS path, TLS/WSS/binary/upgrade/header fidelity, direct-origin denial, exact platform metadata, interruption/reconnect and duration limits, plan/cost bounds, pin/key provisioning and cleanup. Relay replacement/URL change, durability and operational recovery require explicit evidence. Do not infer them from this local prototype
 
 Preview work may proceed as a **separate worker-origin scoped share adapter** once its own authorization/lifecycle contract is reviewed. It must not add preview routes to this bridge or route preview bytes through the laptop. Browser/owner access is also separate; neither follows from native machine traffic succeeding.

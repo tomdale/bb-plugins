@@ -4,6 +4,7 @@ import { AdmissionLeases } from "./grants.ts";
 import { ACCESS_HEADER, TESTED_CORE } from "./policy.ts";
 import { startConnector } from "./tunnel.ts";
 import { randomUUID } from "node:crypto";
+import { registerSetup } from "./setup.ts";
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
@@ -14,7 +15,17 @@ export default async function plugin(bb: BbPluginApi) {
     relayFingerprint: { type: "string", label: "Pinned relay SSH SHA-256 fingerprint (hex)", default: "" },
     relayUrl: { type: "string", label: "Dedicated WSS control origin", default: "" },
     connectorPrivateKey: { type: "string", label: "Dedicated connector SSH private key", secret: true },
+    preparedConnectorPrivateKey: { type: "string", label: "Private pending relay setup identity", secret: true },
     reversePort: { type: "number", label: "Dedicated relay reverse-listener port", default: 38992 },
+  });
+  registerSetup(bb, {
+    config: () => settings.get(),
+    saveKey: async key => { await settings.experimental_set({ preparedConnectorPrivateKey: key }); },
+    apply: async (view, key) => { await settings.experimental_set({
+      enabled: false, transport: "ssh-ws", serverUrl: view.origin!, relayUrl: view.origin!.replace(/^https:/, "wss:"),
+      relayFingerprint: view.fingerprint, connectorPrivateKey: key, reversePort: 38992,
+    }); },
+    disable: async () => { await settings.experimental_set({ enabled: false }); },
   });
   const config = await settings.get();
   if (!config.enabled) return;
