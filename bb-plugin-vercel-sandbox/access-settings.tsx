@@ -1,103 +1,93 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRpc, type PluginRpcResult } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
+import { Icon } from "@/components/ui/icon";
 import { SETTINGS_PANEL_CLASS } from "./settings-rows.js";
 import type { vercelRpcContract } from "./rpc.js";
 
 type Contract = typeof vercelRpcContract;
 type Status = PluginRpcResult<Contract["access.status"]>;
+type Action = "enable" | "disable";
 
 export function AccessSettings() {
   const rpc = useRpc<Contract>();
-  const id = useId();
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [consent, setConsent] = useState(false);
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [retry, setRetry] = useState<Action | null>(null);
+  const [details, setDetails] = useState(false);
   const read = useCallback(() => rpc.call("access.status", {}), [rpc]);
   useEffect(() => {
     let active = true;
     read().then(value => { if (active) setStatus(value); }, () => {
-      if (active) setError("Couldn't read tunnel setup. Check again; no resources were allocated.");
+      if (active) setError("Couldn't load relay status. Try refreshing below.");
     });
     return () => { active = false; };
   }, [read]);
-  const run = async (action: () => Promise<Status>) => {
+  useEffect(() => {
+    if (status?.expiresAt == null) return;
+    let active = true;
+    const timer = setTimeout(() => {
+      read().then(value => { if (active) setStatus(value); }, () => {});
+    }, Math.max(0, status.expiresAt - Date.now()) + 100);
+    return () => { active = false; clearTimeout(timer); };
+  }, [read, status?.expiresAt]);
+  const enabled = status?.selected === true;
+  const expired = status?.expiresAt != null && status.expiresAt <= Date.now();
+  const action: Action = retry ?? (enabled && !expired ? "disable" : "enable");
+  const run = async (request: () => Promise<Status>, operation?: Action) => {
     setBusy(true);
     setError(null);
     try {
-      const next = await action();
-      setStatus(next);
-      if (next.key !== null) setPendingKey(null);
-    }
-    catch { setError("Action not confirmed. Inspect the saved tunnel before retrying; don't create a replacement. Check Vercel Access is enabled and compatible. Stop retries cleanup on the original authentication machine."); }
-    finally { setBusy(false); }
+      setStatus(await request());
+      setRetry(null);
+    } catch {
+      if (operation) setRetry(operation);
+      setError(operation === "disable"
+        ? "Couldn't finish disabling the relay. Retry to finish cleanup; no replacement will be created."
+        : "Couldn't finish setting up the relay. Retry to resume the same setup, or open Details to inspect it.");
+    } finally { setBusy(false); }
   };
-  const key = pendingKey ?? status?.key;
-  const prepare = () => {
-    const next = status?.phase === "removed" ? crypto.randomUUID() : key ?? crypto.randomUUID();
-    setPendingKey(next);
-    setStatus(current => current ? { ...current, key: next, phase: null, expiresAt: null } : current);
-    setConsent(false);
-    void run(() => rpc.call("access.prepare", { key: next, approveAllocation: true }));
-  };
+  const label = busy ? "Working…" : retry ? `Retry ${retry}` : action === "disable" ? "Disable relay" : "Enable relay";
   return (
-    <section aria-label="Local BB tunnel" className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-foreground">Local BB tunnel</h3>
-        <Button type="button" size="sm" variant="ghost" disabled={busy}
-          onClick={() => void run(read)}>Check readiness</Button>
-      </div>
+    <section aria-label="Sandbox relay" className="space-y-3">
+      <h3 className="text-sm font-medium text-foreground">Sandbox relay</h3>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Use a tunnel in your Vercel account so fresh sandbox threads reach this local BB app. The laptop must stay awake and connected. No BB Connect account is used.
+        Connect Vercel sandboxes to this local BB app. Enabling sets up the relay and uses it for new machines automatically.
       </p>
       <div className={`${SETTINGS_PANEL_CLASS} space-y-3 p-3`}>
-        <p role="status" className="text-xs leading-relaxed">
-          {status?.message ?? "Checking tunnel setup…"}
-        </p>
-        {key ? <p className="break-all text-xs text-muted-foreground">Saved tunnel: <code>{key}</code>{status?.phase ? ` · ${status.phase}` : ""}
-          {status?.expiresAt ? ` · Expires ${new Date(status.expiresAt).toLocaleTimeString()}` : ""}</p> : null}
-        <div className="flex items-start gap-2">
-          <Checkbox id={id} checked={consent} disabled={busy || !status?.available || status.ready}
-            onCheckedChange={value => setConsent(value === true)} className="mt-0.5" />
-          <Label htmlFor={id} className="text-xs leading-relaxed">
-            I approve one paid 1-vCPU relay for up to 10 minutes in the connected Vercel account. This does not create a worker or change machine defaults.
-          </Label>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="outline" disabled={busy || !status?.available || !consent || status.ready} onClick={prepare}>
-            {key && status?.phase !== "removed" ? "Retry preparation" : "Prepare tunnel"}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p role="status" className="text-xs font-medium">
+              {busy ? "Updating relay…" : status === null ? "Loading…" : expired ? "Expired" : enabled && status.ready ? "Enabled" : enabled ? "Unavailable" : status.ready ? "Ready to enable" : "Off"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {status?.ready && status.expiresAt ? `Stops at ${new Date(status.expiresAt).toLocaleTimeString()}` : "1 vCPU · Stops after 10 minutes"}
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" disabled={busy || status === null}
+            onClick={() => void run(() => rpc.call(action === "enable" ? "access.enable" : "access.disable", {}), action)}>
+            {busy ? <Icon name="Spinner" className="size-3.5 animate-spin" /> : null}{label}
           </Button>
-          <Button type="button" size="sm" variant="outline" disabled={busy || !key || !status?.available}
-            onClick={() => key && void run(() => rpc.call("access.inspect", { key }))}>Inspect tunnel</Button>
-          <Button type="button" size="sm" variant="outline" disabled={busy || !key || !status?.available || status.ready || status.phase !== "ready" || status.defaultProvider === null}
-            onClick={() => key && void run(() => rpc.call("access.activate", { key }))}>Connect tunnel</Button>
-          <Button type="button" size="sm" variant="ghost" disabled={busy || !key || !status?.available}
-            onClick={() => key && void run(() => rpc.call("access.stop", { key }))}>Stop tunnel</Button>
         </div>
-        {busy ? <p role="status" className="text-xs text-muted-foreground">Working… Don't prepare another tunnel while this action is unresolved.</p> : null}
         {error ? <p role="alert" className="text-xs text-destructive-text">{error}</p> : null}
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Prepare, inspect, then connect. Check readiness until ready. Connecting reloads Vercel Access and invalidates old grants: do it only before launching a fresh worker. Reloads, server restarts, or relay expiry disconnect existing workers; reconnecting them is not supported.
+        Keep this computer awake while working. Disabling restores your previous machine connection. Relay expiry or restarting BB disconnects its workers; reconnecting existing workers isn't supported.
       </p>
-      <div className="space-y-2">
-        {status?.defaultProvider === null ? <p className="text-xs text-warning-text">Choose an explicit connection in Settings → Machines before connecting. Automatic can select any registered provider, including this tunnel.</p> : null}
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          BB 0.48 uses one default connection for all new machines. Current default: <span className="text-foreground">{status ? status.selected ? "Vercel tunnel" : status.defaultProvider ?? "Automatic" : "Loading…"}</span>. Select the ready tunnel, create a new thread with the Vercel Sandbox environment, wait until its machine connects, then restore your previous default here. Restoring does not change existing machines. Avoid changing Machines settings at the same time. Stop the relay only after its workers finish.
-        </p>
+      <Button type="button" size="sm" variant="ghost" aria-expanded={details} onClick={() => setDetails(value => !value)}>Details</Button>
+      {details ? <div className="space-y-2 text-xs text-muted-foreground">
+        <p>{status?.message ?? "Relay status hasn't loaded."}</p>
+        {status?.key ? <p className="break-all">Setup: <code>{status.key}</code>{status.phase ? ` · ${status.phase}` : ""}</p> : null}
+        <p>BB 0.48 uses this connection for all new machines, not only Vercel sandboxes. Avoid editing Machines settings at the same time.</p>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="outline" disabled={busy || !status?.ready || status.selected}
-            onClick={() => status && void run(() => rpc.call("access.select", { expectedDefault: status.defaultProvider, approveDefaultChange: true }))}>
-            Use tunnel for new machines
-          </Button>
-          <Button type="button" size="sm" variant="outline" disabled={busy || !status?.canRestore}
-            onClick={() => void run(() => rpc.call("access.restore", {}))}>Restore previous default</Button>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void run(read)}>Refresh status</Button>
+          {status?.key ? <Button type="button" size="sm" variant="outline" disabled={busy || !status.available}
+            onClick={() => void run(() => rpc.call("access.inspect", { key: status.key! }))}>Inspect relay</Button> : null}
+          {status?.key && action === "enable" ? <Button type="button" size="sm" variant="ghost" disabled={busy}
+            onClick={() => void run(() => rpc.call("access.disable", {}), "disable")}>Disable relay</Button> : null}
         </div>
-      </div>
+      </div> : null}
     </section>
   );
 }

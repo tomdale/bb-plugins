@@ -18,6 +18,8 @@ const empty = z.object({}).strict();
 const key = z.object({ key: setupKeySchema }).strict();
 export const accessMethods = {
   "access.status": { input: empty, output: accessStatusSchema },
+  "access.enable": { input: empty, output: accessStatusSchema },
+  "access.disable": { input: empty, output: accessStatusSchema },
   "access.prepare": { input: key.extend({ approveAllocation: z.literal(true) }).strict(), output: accessStatusSchema },
   "access.inspect": { input: key, output: accessStatusSchema },
   "access.activate": { input: key, output: accessStatusSchema },
