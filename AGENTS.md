@@ -1,0 +1,7 @@
+bb-plugins is Tom's public repository of BB plugins, one package per `bb-plugin-*/` directory, plus `vercel-access-foundation/` (a transport library the Vercel Access plugin builds on) and `docs/`. Each package owns its manifest, lockfile, and scripts; install and run them from the package directory. The Workstreams plugin lives in its own repository, `tomdale/bb-plugin-workstreams`.
+
+The canonical checkout `~/Code/Repos/bb-plugins/main` is live: the daily BB app loads every installed plugin here from `main/bb-plugin-*`. Change code only in your own Workforest task and follow the `personal-repo-lifecycle` skill through push and cleanup: isolate, verify, fast-forward main, build and reload from main, push, remove the task.
+
+Plugin checks: the package's typecheck, test, and build scripts, then `scripts/bb-plugin-smoke <plugin-dir>`, which activates the built plugin in a throwaway BB server. The daily BB app receives only main paths, via `bb plugin reload <id>` after building in main.
+
+Record every BB Plugin SDK limit or request in `docs/bb-sdk-wishlist.md`: the use case, the limit and its evidence, the workaround, and a possible API. Tom decides which entries reach the BB team and when, so never file issues or feature requests with BB yourself. These plugins build on the released SDK. BB's own source (`~/Code/Repos/bb`, github.com/get-bb/bb) belongs to the BB team, so change it only with Tom's approval for that specific change.

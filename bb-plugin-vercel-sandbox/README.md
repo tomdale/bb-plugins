@@ -1,6 +1,6 @@
 # Vercel Sandbox
 
-Run BB threads on disposable Vercel Sandbox machines. Install it from this directory (`bb plugin install <toolbelt>/bb-plugin-vercel-sandbox --yes` after `npm ci && npm run build`), connect its CLI login and select a team and project in Settings, and select **Vercel Sandbox** when creating a thread. The plugin registers machine provider `vercel-sandbox` and an environment composition with `project-checkout`.
+Run BB threads on disposable Vercel Sandbox machines. Install it from this directory (`bb plugin install <bb-plugins>/bb-plugin-vercel-sandbox --yes` after `npm ci && npm run build`), connect its CLI login and select a team and project in Settings, and select **Vercel Sandbox** when creating a thread. The plugin registers machine provider `vercel-sandbox` and an environment composition with `project-checkout`.
 
 ## Configure and launch
 

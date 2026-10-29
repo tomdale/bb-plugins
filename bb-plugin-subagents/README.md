@@ -26,6 +26,6 @@ Settings: maximum nesting depth (default 2, range 1–10), maximum concurrent ba
 
 ## Development and installation
 
-From this package: `npm ci`, `npm run typecheck`, `npm test`, `npm run build`. Run `scripts/bb-plugin-smoke <plugin-path>` from toolbelt for isolated activation. Install a built canonical copy with `bb plugin install <canonical>/bb-plugin-subagents --yes`.
+From this package: `npm ci`, `npm run typecheck`, `npm test`, `npm run build`. Run `scripts/bb-plugin-smoke <plugin-path>` from the repository root for isolated activation. Install a built canonical copy with `bb plugin install <canonical>/bb-plugin-subagents --yes`.
 
 Inspired by the MIT-licensed reference package; this implementation uses BB's public Plugin SDK and native provider sessions.

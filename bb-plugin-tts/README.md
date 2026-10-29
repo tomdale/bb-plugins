@@ -25,7 +25,7 @@ player is shown.
 
 ## Setup
 
-1. From the toolbelt repository root, install dependencies with
+1. From the bb-plugins repository root, install dependencies with
    `npm install --prefix bb-plugin-tts`, then install the plugin with
    `bb plugin install ./bb-plugin-tts`.
 2. Set **Vercel AI Gateway API key override** in Settings → Installed plugins →

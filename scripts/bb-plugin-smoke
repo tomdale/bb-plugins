@@ -49,8 +49,11 @@ echo "$entry"
 # A fresh data directory has no plugin settings or secrets, so a plugin that
 # needs them stops at needs-configuration after loading; that still proves it
 # activates.
-case $entry in
-  *" running"*) ;;
-  *" needs-configuration"*) echo "note: loaded, but needs settings this throwaway server lacks" >&2 ;;
+# Match the status column exactly: an "incompatible" entry's message can
+# contain the word "running" ("running SDK is ...").
+status=$(printf '%s\n' "$entry" | awk '{print $2}')
+case $status in
+  running) ;;
+  needs-configuration) echo "note: loaded, but needs settings this throwaway server lacks" >&2 ;;
   *) echo "plugin did not activate" >&2; tail -40 "$data_dir/server.log" >&2; exit 1 ;;
 esac

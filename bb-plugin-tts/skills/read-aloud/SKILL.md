@@ -23,7 +23,7 @@ message. One response plays at a time; reading another stops the current one. On
 runtimes without the `experimental_roles` message-action filter, the action
 also appears on user messages and does nothing there.
 
-Install from the toolbelt repository root with `npm install --prefix
+Install from the bb-plugins repository root with `npm install --prefix
 bb-plugin-tts` and `bb plugin install ./bb-plugin-tts`.
 
 Set **Vercel AI Gateway API key override** in Settings → Installed plugins →

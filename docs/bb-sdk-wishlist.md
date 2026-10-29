@@ -1,6 +1,6 @@
 # BB Plugin SDK wishlist
 
-Enhancements to BB's Plugin SDK that toolbelt plugins would use, each with the
+Enhancements to BB's Plugin SDK that Tom's plugins would use, each with the
 use case that needs it, what the plugin does without it, and a possible API.
 This is private tracking: nothing here has been requested from the BB team.
 

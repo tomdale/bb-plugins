@@ -5,7 +5,7 @@ description: Configure, launch, inspect, and remove disposable BB machines on Ve
 
 # Vercel Sandbox machines
 
-Install the plugin from `~/Code/Repos/toolbelt/main/bb-plugin-vercel-sandbox`. Choose a persistent
+Install the plugin from `~/Code/Repos/bb-plugins/main/bb-plugin-vercel-sandbox`. Choose a persistent
 enrolled BB machine to own Vercel authentication. On that machine, install Vercel
 CLI 58.3.0 or later, run `vc login` and approve its OAuth browser/device flow as
 the machine's daemon user. In the plugin's Settings connection form, choose that
