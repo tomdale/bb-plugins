@@ -115,11 +115,13 @@ async function openSurface(options: {
     inFlight++;
     let native: ReturnType<typeof request> | undefined;
     let timer: NodeJS.Timeout | undefined;
+    let bodyTimer: NodeJS.Timeout | undefined;
     let done = false;
     const stop = () => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearTimeout(bodyTimer);
       native?.destroy();
       tasks.delete(stop);
       admitted.delete(req.socket);
@@ -128,6 +130,7 @@ async function openSurface(options: {
     tasks.add(stop);
     res.on("close", stop);
     req.on("error", () => { denied(res, 400); stop(); });
+    bodyTimer = setTimeout(() => { denied(res, 408); req.destroy(); stop(); }, 15_000);
     try {
       // Complete, bounded staging prevents a truncated or ambiguous POST from
       // causing native side effects before its framing has been checked.
@@ -139,6 +142,11 @@ async function openSurface(options: {
         chunks.push(Buffer.from(chunk));
       }
       if (done || closing || (leases && !leases.accepts(accepted.token)) || size !== accepted.length) throw new Error("denied");
+      clearTimeout(bodyTimer);
+      // Node HTTP also handles socket inactivity timeouts. A no-op socket
+      // callback does not prevent it from destroying admitted async requests.
+      // Keep reception bounded, then remove inactivity timing at both hops.
+      req.socket.setTimeout(0);
       native = request({ hostname: upstream.hostname, port: upstream.port, method: req.method, path: accepted.target, headers: { ...accepted.headers, host: upstreamAuthority, connection: "close" }, agent: false }, response => {
         const status = response.statusCode ?? 502;
         if (status >= 300 && status < 400 && status !== 304) { response.destroy(); denied(res, 502); stop(); return; }

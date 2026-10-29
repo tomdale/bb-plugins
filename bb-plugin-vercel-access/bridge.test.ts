@@ -122,6 +122,19 @@ for (const mutation of ["duplicate-access", "duplicate-host", "cl-te", "duplicat
   });
 }
 
+test("plugin artifact IDs include reserved hyphens but reject path aliases and wrong methods", () => {
+  const digest = "a".repeat(64);
+  for (const id of ["single-hyphen", "bb--storage-retention", "bb--mcp", "plugin123"]) {
+    const target = `/internal/plugins/${id}/host/${digest}`;
+    assert.equal(route("GET", target), "http");
+    for (const method of ["POST", "HEAD", "OPTIONS"]) assert.equal(route(method, target), null);
+  }
+  for (const id of ["", "-plugin", "plugin-", "plugin/owner", "plugin%2fowner", "plugin%5cowner", "../owner", "%62b--storage-retention", "Plugin"]) {
+    assert.equal(route("GET", `/internal/plugins/${id}/host/${digest}`), null);
+  }
+  assert.equal(route("GET", `/internal/plugins/bb--storage-retention/host/${digest.toUpperCase()}`), null);
+});
+
 test("untested releases and non-loopback upstreams fail closed", async t => {
   const server = createServer((_req, res) => res.end(JSON.stringify({ ...TESTED_CORE, protocolVersion: 999 })));
   server.listen(0, "127.0.0.1"); await once(server, "listening");

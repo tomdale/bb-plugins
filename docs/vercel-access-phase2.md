@@ -6,6 +6,8 @@
 
 This supersedes the project-wide impossibility interpretation of Phase 0/1's core-principal proposal. Those reports tested a different architecture and the foundation remains fixture-only. The old [SDK contract](vercel-access-sdk-contract.md) is a rejected implementation direction, not a dependency or authorization. No BB/SDK source changes, private APIs, fabricated gate/Connect identities, hosted BB services, or upstream requests are part of Phase 2.
 
+The [runtime review follow-up](vercel-access-phase2-runtime-followup.md) records the current pending-operation bounds, >15-second and observed >120-second HTTP evidence, released built-in artifact parity, peer-loss cleanup and cold-build isolation.
+
 **Not a cloud-ready machine MVP.** [Bounded host-side relay provisioning](vercel-access-provisioning.md) is code-implemented with fake vendor tests and a standalone local artifact process. Persistent admission/reconfiguration, real Vercel provisioning/network behavior, and independent final review remain gates. The parent owns integration, approval, deployment, push, and cleanup. No daily activation or cloud allocation/deployment/login/spend occurred.
 
 ## Alternatives considered
@@ -54,7 +56,9 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | Verification | Result |
 | --- | --- |
 | `npm ci`, `npm run typecheck`, `npm run build` | PASS |
-| `npm test` | PASS; 67 tests |
+| `npm test` | PASS; 86 tests |
+| `npm run test:slow` | PASS; both paths complete observed 125-second responses |
+| `npm run test:build` | PASS; declared-script cold isolated build |
 | `npm run test:core` | PASS; five real-core scenarios |
 | `bb plugin types --check` | PASS; pin and installed SDK both 0.6.59 |
 | Throwaway repository activation smoke | PASS; plugin running, disabled by default |
@@ -62,21 +66,21 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | Public SDK scanner | PASS; no private dependencies/import violations |
 | Unchanged foundation scripts / tests | PASS; 92 fixture-only baseline tests |
 
-The package's npm configuration excludes optional native acceleration/install scripts so ssh2 bundles through BB's public plugin builder using its supported JavaScript/Node-crypto path. Test-only SDK peers are dev dependencies. The isolated CLI runs outside the package directory with a sanitized environment so these flags do not break BB's own esbuild installation. Existing user npm configuration is unchanged.
+The package's npm configuration excludes optional native acceleration/install scripts so ssh2 bundles through BB's public plugin builder using its supported JavaScript/Node-crypto path. Test-only SDK peers are dev dependencies. The declared build launcher and isolated test CLI run outside the package directory with sanitized temporary HOME/XDG/npm/BB-data contexts so these flags do not break BB's own esbuild installation. The build regression verifies a cold toolchain, not just a warm cache. Existing user npm configuration is unchanged.
 
 Executed evidence includes:
 
 - Separate throwaway released core processes with wholly temporary HOME/XDG/npm/data, no inherited account environment, and harmless synthetic workspaces
-- Initial generic installer and real packaged archive download with SHA-256 verification and native `If-None-Match`/304 behavior
+- Initial generic installer and real packaged archive download with SHA-256 verification and native `If-None-Match`/304 behavior; enabled `bb--storage-retention` host-artifact parity (200 / identical 242,309 bytes), with native-auth and encoded-alias denial preserved
 - Native enrollment, default Node fetch session open, default `ws` compression offer without negotiated compression, events, native daemon WS heartbeat, wrong-host key/session/attachment/WS denial, and native revoked-key rejection on new requests
 - Those native checks both directly through the bridge and through the outbound SSH/WS relay; the public machine bootstrap helper also completes in both modes with an isolated synthetic executor and explicitly selected test provider
 - **Actual released `bb-app host-daemon` foreground process** enrolling and connecting over the SSH/WS chain, then disconnecting on transport revoke; temporary HOME/XDG/data, no auto-update, OS service, supervision, CLI installation, or agent execution
 - Zero native dispatch for owner/local-only/unlisted/ambiguous routes and forged headers; direct-origin and wrong-role denial; malformed/truncated HTTP framing; oversize WS messages; canonical raw query checks
 - Hostile SSH relay attempts against harmless canary sockets, registered-tuple/source substitution, wrong pin/key, and the 16-channel bound enforced before dialing; disposal closes the confined local sockets. Malformed/oversize unauthenticated control traffic, the four-socket admission cap and pre-aborted connector also fail closed
-- Cancellation stops the native HTTP producer; transport release/expiry closes active WS; legal client/native close metadata survives; a 6.5-second async operation succeeds without a response-idle cutoff
+- Cancellation stops the native HTTP producer; transport release/expiry closes active WS; legal client/native close metadata survives. Both direct/SSH responses complete after 18.5 and 125 seconds, incomplete bodies remain bounded near 15 seconds with no native dispatch, and independent revoke/cancel preserves a sibling response and connector
 - No synthetic enrollment, admission, native or SSH credential in the exercised diagnostic/redacted-settings surfaces
 
-The actual installer shell and OS-service lifecycle are **not executed**. Public bootstrap uses a synthetic executor; the separate real daemon test is not evidence of installer execution. Local relay/connector components use real sockets but share the test process; core and the released daemon are separate OS processes. Local WS/SSH success is not Vercel WSS/TLS or vendor ingress evidence.
+The actual installer shell and OS-service lifecycle are **not executed**. Public bootstrap uses a synthetic executor; the separate real daemon test is not evidence of installer execution. Local relay/connector components use real sockets; most share the test process. Core, the released daemon and the standalone-relay SIGTERM smokes also use separate OS processes. The shutdown smoke uses the relay's intended public bind with only synthetic keys and a harmless fixed backend; no real BB server or user data is exposed by it. Local WS/SSH success is not Vercel WSS/TLS or vendor ingress evidence.
 
 ## Lifecycle and intentional limits
 
@@ -86,7 +90,7 @@ Plugin/server restart or settings changes invalidate old admission credentials. 
 
 ## Review disposition and remaining gates
 
-Parent-arranged checkpoint reviews found and prompted fixes for native fetch/ws metadata, archive conditional requests, explicit isolated default-provider selection, WS close fidelity, inherited HOME/XDG, exact-true signature verification, and overly short async-operation timeouts. All have implementation/regression dispositions above. Checkpoint review is not final approval of subsequent changes; the parent owns a fresh final diff review, especially SSH control lifetime/confinement and relay parser behavior.
+Parent-arranged checkpoint reviews found and prompted fixes for native fetch/ws metadata, archive conditional requests, explicit isolated default-provider selection, WS close fidelity, inherited HOME/XDG, exact-true signature verification, and overly short async-operation timeouts. The [runtime follow-up](vercel-access-phase2-runtime-followup.md) additionally closes the residual incoming 15-second timeout, reserved built-in ID grammar, standalone peer-loss settlement, cold-build policy leak and pending-open lifetime findings with focused evidence. Checkpoint review is not final approval of subsequent changes; the parent owns a fresh final diff review, especially SSH control lifetime/confinement and relay parser behavior.
 
 Before any real use:
 

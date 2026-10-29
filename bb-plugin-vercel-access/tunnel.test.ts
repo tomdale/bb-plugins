@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer, connect } from "node:net";
 import { once } from "node:events";
 import ssh2, { type Connection } from "ssh2";
-const { Server } = ssh2;
+const { Client, Server } = ssh2;
 import { WebSocketServer, createWebSocketStream, WebSocket } from "ws";
 import { createServer as createHttpServer } from "node:http";
 import { openRelayAdapter } from "./bridge.ts";
@@ -11,6 +11,7 @@ import { startConnector, openTunnelRelay, hostFingerprint, CONNECTOR_PATH, valid
 import { freePort, http } from "./integration/isolated.ts";
 
 import { syntheticKeys } from "./integration/keys.ts";
+import { CHANNEL_OPEN_TIMEOUT_MS } from "./channels.ts";
 
 test("SSH signature proof accepts only true, rejecting false, Error and thrown errors", () => {
   assert.equal(validSignatureProof(() => true), true);
@@ -39,6 +40,36 @@ test("unauthenticated control framing, socket admission and pre-aborted connecto
   await new Promise<void>(resolve => fifth.once("close", () => resolve()));
   assert.equal(admitted, false, "Unauthenticated control sockets are capped before SSH work");
   for (const socket of held) socket.terminate();
+});
+
+test("unanswered SSH channel opens retire the actual relay session and permit a fresh session", { timeout: 30_000 }, async t => {
+  const host = syntheticKeys(); const client = syntheticKeys();
+  const reversePort = await freePort(); const bridgePort = await freePort();
+  const relay = await openTunnelRelay({ hostKey: host.privateKey, authorizedKey: client.publicKey, reversePort }); t.after(() => relay.close());
+  const websocket = new WebSocket(`${relay.url}${CONNECTOR_PATH}`, { perMessageDeflate: false });
+  const stream = createWebSocketStream(websocket);
+  const peer = new Client();
+  peer.on("error", () => {}); stream.on("error", () => peer.destroy()); websocket.on("error", () => {});
+  t.after(() => { peer.destroy(); stream.destroy(); websocket.terminate(); });
+  let pending!: () => void;
+  const opened = new Promise<void>(resolve => { pending = resolve; });
+  peer.on("tcp connection", () => { pending(); });
+  const ready = once(peer, "ready");
+  peer.connect({ sock: stream, username: "machine-connector", privateKey: client.privateKey, hostHash: "sha256", hostVerifier: (hash: string) => hash === hostFingerprint(host.privateKey), readyTimeout: 5000 });
+  await ready;
+  await new Promise<void>((resolve, reject) => peer.forwardIn("127.0.0.1", reversePort, error => error ? reject(error) : resolve()));
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const consumer = connect({ host: "127.0.0.1", port: reversePort }); consumer.on("error", () => {}); consumer.resume(); t.after(() => consumer.destroy());
+  const consumerClosed = new Promise<void>(resolve => consumer.once("close", () => resolve()));
+  const sessionClosed = new Promise<void>(resolve => websocket.once("close", () => resolve()));
+  await opened;
+  t.mock.timers.tick(CHANNEL_OPEN_TIMEOUT_MS);
+  await Promise.all([consumerClosed, sessionClosed]);
+  assert.equal(consumer.destroyed, true, "A peer that never acknowledges cannot retain an uncounted open");
+  assert.equal(websocket.readyState, WebSocket.CLOSED);
+  peer.destroy();
+  const replacement = await startConnector({ relayUrl: relay.url, privateKey: client.privateKey, hostFingerprint: hostFingerprint(host.privateKey), bridgePort, reversePort }); t.after(() => replacement.close());
+  assert.equal(replacement.running(), true, "Retired state cannot reserve the next session's reverse listener");
 });
 
 test("standard SSH-over-WS reverse stream with fixed Host adapter and untrusted platform metadata", { timeout: 30_000 }, async t => {

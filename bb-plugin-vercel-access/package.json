@@ -19,11 +19,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bb plugin build",
+    "build": "node build.mjs",
     "build:relay": "node build-relay.mjs",
     "check:relay": "node build-relay.mjs --check",
     "test": "node --test *.test.ts",
-    "test:core": "node --test integration/core.test.ts integration/plugin.test.ts integration/daemon.test.ts"
+    "test:core": "node --test integration/core.test.ts integration/plugin.test.ts integration/daemon.test.ts",
+    "test:slow": "BB_TEST_OPERATION_DELAY_MS=125000 node --test operation-lifetime.test.ts",
+    "test:build": "node --test integration/build.test.ts"
   },
   "dependencies": {
     "ssh2": "1.17.0",
