@@ -1,0 +1,41 @@
+{
+  "name": "bb-plugin-vercel-access",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bb": "0.46.1",
+    "bbPluginSdk": "0.6.59",
+    "node": "^22.19.0 || ^24.0.0 || ^26.0.0"
+  },
+  "bb": {
+    "name": "Vercel Access [Experimental]",
+    "description": "Disabled-by-default local machine-only bridge prototype; Vercel transport is not deployed.",
+    "branding": {
+      "icon": "Server"
+    },
+    "server": "./server.ts",
+    "skills": []
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "bb plugin build",
+    "test": "node --test *.test.ts",
+    "test:core": "node --test integration/core.test.ts integration/plugin.test.ts integration/daemon.test.ts"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.59",
+    "@types/node": "^22.0.0",
+    "@types/ssh2": "1.15.5",
+    "@types/ws": "8.18.2",
+    "better-sqlite3": "12.10.0",
+    "cron-parser": "5.5.0",
+    "hono": "4.13.14",
+    "typescript": "^5.7.0",
+    "zod": "4.6.7"
+  }
+}

@@ -10,7 +10,8 @@ Set **Status** to _filed_ with a link once a request goes upstream.
 
 ## Provider-neutral authenticated ingress for user-owned server access
 
-- **Status:** not filed; hard block on forwarding live BB traffic
+- **Status:** rejected implementation direction; not filed or required for the
+  [Phase 2 plugin-only machine boundary](vercel-access-phase2.md)
 - **Observed:** installed BB 0.46.1 / host SDK 0.6.59; existing Vercel plugin
   pins 0.6.54; public registry SDK 0.6.94 declarations also inspected. Latest
   source at [bec24f2f8d6](https://github.com/get-bb/bb/commit/bec24f2f8d6da1877863dfa9155cf3867ea1ab18)
@@ -32,14 +33,16 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   grant's host against the native daemon/enrollment credential. Core removal
   can also skip provider release if the plugin is unavailable: cloud grant
   expiry/startup reconciliation cannot rely solely on lifecycle callbacks.
-  Grants have no native credential-refresh callback: use a stable daemon
-  access token plus a provider-renewed lease, and explicit repair for rotation
-- **Workaround:** no live BB forwarding. Build/verify an independent transport
-  to a fixed harmless fixture. Do not synthesize trusted gate headers, invoke
-  internal hooks, fabricate Connect IDs, or expose trusted-localhost owner
-  APIs. Original BB daemon authentication remains mandatory after any future
-  ingress is added
-- **Possible API:** machine-only
+  Grants have no native credential-refresh callback. Stable provider credentials
+  can avoid replacement, but worker reconfiguration after rotation must be
+  demonstrated: enrolled bootstrap does not automatically deliver new headers
+- **Workaround:** Phase 2's exact native machine route/method/upgrade bridge
+  preserves core bearer/session authentication and denies owner/local-only
+  dispatch before loopback. Transport credentials provide installation-level
+  admission, explicitly not native-host equality. Its local SSH/WS prototype
+  requires no core/SDK changes. The original fixed-fixture foundation remains
+  separate. No trusted gate headers, internal hooks or Connect IDs are used
+- **Historical possible API, not requested or required:** machine-only
   `server.experimental_openAuthenticatedIngress({ verify })` returning a
   private listener/close handle. Verification returns null or a typed
   `{ kind: "machine", hostId, grantId, scopes }` from provider assertions.

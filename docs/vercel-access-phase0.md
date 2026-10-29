@@ -1,5 +1,11 @@
 # Vercel Access: Phase 0 foundation and gates
 
+> Historical phase scope: the core-principal ingress direction below is rejected,
+> not a project-wide impossibility result or authorization for core changes.
+> [Phase 2](vercel-access-phase2.md) exercises a separate plugin-only machine-route
+> boundary, retaining native BB authentication and explicitly relaxing transport
+> host binding. The Phase 0 foundation itself remains fixture-only.
+
 ## Decision
 
 **Phase 0 is complete; the overall Vercel Access implementation is not.**

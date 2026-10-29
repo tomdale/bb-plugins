@@ -1,5 +1,10 @@
 # Vercel Access Phase 1: local outbound fixture transport
 
+> Historical phase scope: the fixed fixture and results below are unchanged.
+> The core-principal ingress direction is rejected as a project dependency.
+> [Phase 2](vercel-access-phase2.md) implements a separate plugin-only native
+> machine boundary; it does not generalize this fixture's destinations.
+
 ## Result and gates
 
 **Implemented and locally exercised; not a deployable or secure BB replacement.**
