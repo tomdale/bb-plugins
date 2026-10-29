@@ -449,3 +449,30 @@ test("handshake expiry cannot be extended by pongs and malformed epoch types are
   receiver.tick(); await timedOut;
   assert.equal(receiver.closed, true);
 });
+
+test("legal application closes stay stream-local across independent gateways and distinct grants", { timeout: 10_000 }, async (t) => {
+  const s = await setup(t), fixture = s.connector.fixture!;
+  const gatewayB = new Gateway(s.gateway.options, s.gatewayAuthority);
+  await gatewayB.listen(); t.after(() => gatewayB.close());
+  let opened = once(fixture, "opened");
+  const clientB = await websocket(gatewayB, s.sibling.token); await opened;
+  t.after(() => clientB.terminate());
+  const connectorWire = s.connector.session!.connection.wire;
+  const gatewayAWire = s.gateway.session!.connection.wire, gatewayBWire = gatewayB.session!.connection.wire;
+  for (const [code, reason] of [[4000, "fixture application close"], [1000, "r".repeat(81)]] as const) {
+    opened = once(fixture, "opened");
+    const clientA = await websocket(s.gateway, s.lease.token), [open] = await opened as [Extract<Frame, { type: "open" }>];
+    const peerClosed = once(fixture, "peer-close"), clientClosed = once(clientA, "close");
+    clientA.close(code, reason);
+    const [end] = await peerClosed as [Extract<Frame, { type: "end" }>]; await clientClosed;
+    assert.equal(end.code, code); assert.equal(end.reason, reason);
+    assert.equal(end.id, open.id); assert.equal(fixture.streams.size, 1);
+    assert.equal(s.gateway.session!.ledger.streams.size, 0); assert.equal(gatewayB.session!.ledger.streams.size, 1);
+    assert.equal(s.relay.ledger.streams.size, 1); assert.equal(s.connector.session!.ledger.streams.size, 1);
+    assert.equal(connectorWire.closed, false); assert.equal(gatewayAWire.closed, false); assert.equal(gatewayBWire.closed, false);
+    assert.equal(s.relay.sockets.size, 3);
+    const echo = once(clientB, "message"); clientB.send("sibling remains usable");
+    assert.equal((await echo)[0].toString(), "sibling remains usable");
+    assert.equal((await http(gatewayB.url, "/v0/probe", s.sibling.token)).status, 200);
+  }
+});

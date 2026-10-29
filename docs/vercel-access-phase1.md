@@ -127,7 +127,7 @@ Executed from `vercel-access-foundation/`, Node v25.9.0 and npm 11.10.0:
 | --- | --- |
 | `npm ci` | PASS; lockfile install, zero audit findings |
 | `npm run typecheck` | PASS |
-| `npm test` | PASS; 82 tests including 10 unchanged Phase 0 tests |
+| `npm test` | PASS; 83 tests including 10 unchanged Phase 0 tests |
 | `npm run build` | PASS |
 | `npm audit` | PASS; zero vulnerabilities |
 | `git diff --check` and scoped secret/diff review | PASS; generated credentials only, no live/private material |
@@ -141,7 +141,9 @@ runs them; source-level parameter properties require TypeScript compilation.
 ### Evidence exercised
 
 - Binary POST echo, 512 KiB streamed response, concurrent independent gateways,
-  text/binary WS echo, exact client→fixture and fixture→client close metadata
+  text/binary WS echo, exact client→fixture and fixture→client close metadata;
+  two independent gateways/distinct host grants preserve the sibling stream and
+  all tunnel wires after code-4000 and legal 81-byte-reason closes
 - Anonymous/wrong machine tokens, forged BB/browser/forwarded headers, Host,
   method/target ambiguity, control-vs-gateway signer, identity/generation,
   host/grant/acquisition epoch, expiry/lifetime, scope and direct relay origin
@@ -169,8 +171,15 @@ process exit. No real application credentials or user data are fixture payloads.
 
 Independent checkpoint reviews were arranged by the parent. One found retained
 credit waiters on cancellation; centralized terminal cleanup and the 17-cycle
-regression address it. Checkpoint review is not a release/security approval;
-parent must reconcile its full findings against the final commit.
+regression address it. The security/API review found that legal application
+close codes and long reasons could exceed the checkpoint frame schema and
+close unrelated transports. The current decoder permits valid WebSocket close
+codes and 123-byte reasons. A two-gateway, distinct-host-grant regression closes
+one client's stream with code 4000 and then with code 1000/81-byte ASCII reason;
+only that stream disappears, every tunnel wire survives, and the sibling's
+active WS echo and subsequent HTTP probe succeed. Checkpoint review is not a
+release/security approval; parent must reconcile its full findings against the
+final commit.
 
 ## Phase 2 reuse and blocked evidence
 
