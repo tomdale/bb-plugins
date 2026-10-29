@@ -565,3 +565,29 @@ test("unknown and stale frames are still fatal rather than treated as cancelled 
     await [...s.relay.sockets][1]!.sendRaw(seal(frame, s.signing.connector.privateKey)); await closed;
   });
 });
+
+test("shared relay replay budget survives endpoint reconnect and requires fenced relay replacement", { timeout: 10_000 }, async (t) => {
+  const s = await setup(t);
+  assert.equal((await http(s.gateway.url, "/v0/probe", s.lease.token)).status, 200);
+  // Seed the exact boundary: this test covers lifetime/recovery, not 4096 real requests.
+  for (let i = s.relay.ledger.seen.size; i < LIMITS.seen; i++) s.relay.ledger.seen.add(`seed-${i}`);
+  const refuses = async () => assert.notEqual((await http(s.gateway.url, "/v0/probe", s.lease.token).catch(() => ({ status: 0 }))).status, 200);
+  await refuses(); assert.equal(s.relay.ledger.seen.size, LIMITS.seen);
+  const connectorEpoch = s.connector.session!.connection.epoch, gatewayEpoch = s.gateway.session!.connection.epoch;
+  await s.connector.open(); await s.gateway.attach();
+  assert.notEqual(s.connector.session!.connection.epoch, connectorEpoch);
+  assert.notEqual(s.gateway.session!.connection.epoch, gatewayEpoch);
+  await refuses(); assert.equal(s.relay.ledger.seen.size, LIMITS.seen);
+  assert.equal(s.connector.fixture!.streams.size, 0);
+  const identity = { ...s.identity, generation: s.identity.generation + 1 };
+  const relay = new Relay(identity, s.signing.relay.privateKey, s.keys, s.relayAuthority, s.fence, false);
+  t.after(() => relay.close()); await relay.listen();
+  const connector = new Connector({ ...s.connector.options, identity, url: relay.url }, s.connectorAuthority);
+  t.after(() => connector.close()); await connector.open();
+  const gateway = new Gateway({ ...s.gateway.options, identity, url: relay.url }, s.gatewayAuthority);
+  t.after(() => gateway.close()); await gateway.listen();
+  assert.equal(relay.ledger.seen.size, 0);
+  assert.equal((await http(gateway.url, "/v0/probe", s.lease.token)).status, 200);
+  assert.equal(relay.ledger.seen.size, 1); assert.equal(s.relay.ledger.seen.size, LIMITS.seen);
+  await assert.rejects(connect({ ...s.gateway.options, role: "gateway" }));
+});

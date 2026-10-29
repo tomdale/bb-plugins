@@ -111,7 +111,7 @@ signature or binding validation.
 | Active streams | 16 per endpoint session and globally at relay |
 | Body/response or cumulative WebSocket data | 1 MiB per direction per stream |
 | Unacknowledged data | One chunk per direction per stream |
-| Replay tombstones | 4096 per connection epoch; exhaustion fails closed |
+| Replay tombstones | 4096 per endpoint session; relay shares 4096 across all connections for its object lifetime |
 | Local grant history / journal file | 512 records / 1 MiB; no silent tombstone eviction |
 | Accepted sockets | 32 per listener; 16 client WebSockets per gateway |
 | Handshake/open TTL | 15 seconds |
@@ -122,8 +122,11 @@ Credits return only after downstream consumption: HTTP drain or WebSocket send
 callback at the gateway, bounded staging at the HTTP fixture, and consumed echo
 at the WS fixture. A callback means accepted by the local socket, not remote
 application receipt. Kernel/library buffers are additional to application caps;
-these are not whole-process RSS guarantees. The relay has no application body
-buffer. HTTP staging and fixed fixture response buffers are separately bounded
+these are not whole-process RSS guarantees. Relay replay exhaustion fails closed
+and is shared across gateways: fresh connector/gateway epochs do not restore
+admission. Recovery requires replacing the relay with a new fenced generation,
+not clearing tombstones on completion or reconnect. Endpoint sessions have their
+own 4096-entry budgets. The relay has no application body buffer. HTTP staging and fixed fixture response buffers are separately bounded
 by active stream and byte caps.
 
 ## Recovery model and remaining gates

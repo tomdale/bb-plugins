@@ -61,7 +61,11 @@ send callbacks control credit return. WebSocket upgrade preserves the fixed
 `fixture.v1` protocol, text/binary flag and close code/reason in both directions.
 Frames are 64 KiB maximum, data 16 KiB, each connection queue 1 MiB, each direction
 1 MiB per stream, with 16 active streams and one unacknowledged chunk per direction.
-Replay/tombstone storage caps at 4096 and fails closed. Socket admission and WS
+Replay/tombstone storage caps at 4096 per endpoint session and at 4096 shared
+across all connections for one relay object's lifetime. Exhaustion fails closed;
+reconnecting both endpoints cannot recover the shared relay budget. Recovery
+requires a new relay with a higher fenced generation, not unsafe replay-cache
+clearing. Socket admission and WS
 fragment/chunk counts are capped. These bound application state, not total RSS
 or kernel buffers. HTTP fixture staging can consume up to 16 MiB across streams,
 plus separately bounded output and transport buffers.
@@ -127,7 +131,7 @@ Executed from `vercel-access-foundation/`, Node v25.9.0 and npm 11.10.0:
 | --- | --- |
 | `npm ci` | PASS; lockfile install, zero audit findings |
 | `npm run typecheck` | PASS |
-| `npm test` | PASS; 91 tests including 10 unchanged Phase 0 tests |
+| `npm test` | PASS; 92 tests including 10 unchanged Phase 0 tests |
 | `npm run build` | PASS |
 | `npm audit` | PASS; zero vulnerabilities |
 | `git diff --check` and scoped secret/diff review | PASS; generated credentials only, no live/private material |
@@ -151,7 +155,9 @@ runs them; source-level parameter properties require TypeScript compilation.
 - Independent laptop rejection with relay forwarding checks deliberately
   bypassed, including foreign authority signatures, BB paths and replay
 - Malformed/oversized frames, fragments, data chunks, body substitution,
-  truncated POST, declared length, sequence, role/direction and replay exhaustion
+  truncated POST, declared length, sequence, role/direction and replay exhaustion;
+  seeded relay saturation remains denied after both endpoint epochs change and
+  recovers only after fenced relay replacement
 - Actual 16-stream admission exhaustion, 1 MiB receive-queue exhaustion behind
   an explicit barrier, one-chunk credit stall and resume with exact response bytes
 - Incremental first HTTP bytes while the producer awaits credit; 17 successive
@@ -188,6 +194,7 @@ approval, and parent owns reconciliation against the final commit.
 | High: late HTTP frames, in-flight ACK cancellation or WS echo to a closing client tears down shared transport | Bounded tombstones retire known terminal streams; gateway handles lost-consumer delivery and `StreamCancelled` ACK/tail continuation stream-locally; deterministic late-frame and paused-ACK barriers plus three immediate send/normal-close attempts preserve holds on both independent gateways |
 | Medium: legal WS close metadata exceeds internal schema | Current decoder permits valid close codes and 123-byte reasons; two gateways/distinct grants retain the sibling's active echo and probe for codes 4000/1002, ASCII 81/100 bytes and multibyte UTF-8 at 123 bytes |
 | Medium: pre-aborted connect/open never settles | Abort checked before allocation or replacing a current connector; handshake failure listener precedes any close path; pre-abort and abort-during-challenge tests reject and leave no abort listener/socket |
+| Medium: documented per-epoch replay budget differs from shared relay-lifetime storage | README/report distinguish endpoint-session and shared relay-lifetime caps; seeded saturation remains denied after fresh connector/gateway epochs, then a higher-generation replacement relay admits a probe while the old origin remains fenced |
 
 Only validated frames belonging to bounded terminal tombstones are discarded.
 Genuinely unknown streams and stale epochs remain fatal, with independent
