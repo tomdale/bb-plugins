@@ -37,6 +37,7 @@ import {
 import { IMAGE, PROVIDER_ID } from "./provider-id.js";
 import { capToPlan } from "./plans.js";
 import { vercelRpcContract } from "./rpc.js";
+import { relayHandlers } from "./relay-server.js";
 
 // Display labels saved beside the pinned connection; each applies only while
 // the connection still has the scope or account it was recorded for.
@@ -374,6 +375,7 @@ export function createVercelSandboxPlugin() {
       };
     };
     bb.rpc.register(vercelRpcContract, {
+      ...relayHandlers(bb, { owner: allocations.owner, connection: currentConnection, run: allocations.run, signal: () => operationSignal(undefined, 180_000) }),
       "launch.options": async () => {
         try {
           return await launchOptions();

@@ -1,0 +1,8 @@
+{
+  "name": "bb-plugin-bootstrap-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "bb": "0.46.1", "bbPluginSdk": "0.6.59" },
+  "bb": { "name": "Synthetic bootstrap fixture", "description": "Throwaway test machine executor only", "branding": { "icon": "Server" }, "server": "./server.ts", "skills": [] }
+}

@@ -1,9 +1,11 @@
-# Machine ingress: SDK contract and core approval plan
+# Rejected machine-principal SDK proposal
 
-**Status: design ready for specific approval; no BB implementation authorized.**
-Machine access remains blocked. This proposal adds a provider-neutral, machine-only
-security boundary, not a general proxy or a renamed Connect API. Owner browser
-access, native previews, and per-machine access selection are separate proposals.
+**Status: rejected implementation direction; no core/SDK work is authorized.**
+This historical proposal describes a core-principal architecture, not a prerequisite
+for machine connectivity. [Phase 2](vercel-access-phase2.md) implements a narrower
+plugin-only native-authentication boundary with explicit installation-level transport
+admission. The requirements below belong to the rejected architecture, not to the
+accepted prototype. Owner/browser access and previews remain separate surfaces.
 
 ## Decision and evidence
 
