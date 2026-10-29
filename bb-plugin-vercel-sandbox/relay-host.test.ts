@@ -15,6 +15,7 @@ import { cliFixture } from "./cli-test-fixture.js";
 const disposals: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const fn of disposals.splice(0)) await fn(); });
 const image = "vercel/sandbox/node:24";
+const resolvedImage = `vercel/sandbox/node@sha256:${"a".repeat(64)}`;
 const identity = (): RelayIdentity => ({ owner: randomUUID(), generation: randomUUID(), key: "synthetic-relay", image,
   authorizedKey: `ssh-ed25519 ${Buffer.alloc(51).toString("base64")}`, bridgePort: 38991,
   connection: { hostId: "host_auth", accountId: "account_test", teamId: "team_test", projectId: "prj_test", directory: null } });
@@ -27,18 +28,19 @@ async function setup() {
   let firstDispatch = true;
   let createReplyLost = false, launchReplyLost = false, stopReplyLost = false, deleteReplyLost = false;
   let sessionMissing = false, commandExited = false;
+  let runtimeVersion = "v24.22.1";
   let submittedSnapshot = "", launchingSnapshot = "";
   const files: { path: string; content: string | Uint8Array; mode?: number }[] = [];
   const session = { sessionId: "session_synthetic", status: "running", vcpus: 1, timeout: 600_000, async stop() { stops++; stopped = true; session.status = "stopped"; if (stopReplyLost) throw new Error("synthetic-secret"); },
     async getCommand() { return { exitCode: commandExited ? 1 : null }; },
     async writeFiles(input: typeof files) { files.push(...input); },
-    async readFile() { return Readable.from([JSON.stringify({ node: "v24.22.1" })]); },
+    async readFile() { return Readable.from([JSON.stringify({ node: runtimeVersion })]); },
     async runCommand(input: { detached?: boolean }) {
       if (input.detached) { launches++; launchingSnapshot = await journal(); if (launchReplyLost) throw new Error("synthetic-secret"); return { cmdId: "cmd_synthetic" }; }
       return { exitCode: 0 };
     },
   };
-  const sandbox = { name: relayName(id), persistent: false, image, vcpus: 1, tags: relayTags(id), expiresAt: new Date(Date.now() + 600_000),
+  const sandbox = { name: relayName(id), persistent: false, image: resolvedImage, vcpus: 1, tags: relayTags(id), expiresAt: new Date(Date.now() + 600_000),
     currentSession: () => session, domain: () => "https://synthetic-relay.vercel.run", async delete() { deletes++; present = false; if (deleteReplyLost) throw new Error("synthetic-secret"); },
   };
   const vendor = {
@@ -64,6 +66,7 @@ async function setup() {
     get submitted() { return submittedSnapshot; }, get launching() { return launchingSnapshot; },
     set createReplyLost(v: boolean) { createReplyLost = v; }, set launchReplyLost(v: boolean) { launchReplyLost = v; },
     set stopReplyLost(v: boolean) { stopReplyLost = v; }, set deleteReplyLost(v: boolean) { deleteReplyLost = v; },
+    set runtimeVersion(value: string) { runtimeVersion = value; },
     set sessionMissing(v: boolean) { sessionMissing = v; }, set commandExited(v: boolean) { commandExited = v; },
     set present(v: boolean) { present = v; },
   };
@@ -74,7 +77,8 @@ describe("relay lifecycle — fake cloud only", () => {
     const view = await t.call("prepare");
     expect(JSON.parse(t.submitted).view.phase).toBe("submitted");
     expect(JSON.parse(t.launching).view.phase).toBe("launching");
-    expect(view).toMatchObject({ phase: "ready", commandId: "cmd_synthetic", origin: "https://synthetic-relay.vercel.run" });
+    expect(view).toMatchObject({ phase: "ready", commandId: "cmd_synthetic", origin: "https://synthetic-relay.vercel.run", requestedImage: image, image: resolvedImage, resolvedImage, nodeVersion: "v24.22.1" });
+    expect(JSON.parse(await t.journal()).view.resolvedImage).toBe(resolvedImage);
     expect(view.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(view)).not.toMatch(/PRIVATE KEY|hostKey|authorizedKey|synthetic-secret/);
     expect(t.files).toHaveLength(4);
@@ -87,6 +91,50 @@ describe("relay lifecycle — fake cloud only", () => {
     expect(t.creates).toBe(1); expect(t.launches).toBe(1);
     t.commandExited = true;
     expect(await t.call("inspect")).toMatchObject({ observedStatus: "command-exited" });
+  });
+  it("pins the first official resolved digest and rejects later drift without blocking owned cleanup", async () => {
+    const t = await setup(); await t.call("prepare");
+    const replacement = `vercel/sandbox/node@sha256:${"b".repeat(64)}`;
+    t.sandbox.image = replacement;
+    await expect(t.call("prepare")).rejects.toThrow(/resolved image/);
+    await expect(t.call("inspect")).rejects.toThrow(/resolved image/);
+    expect(JSON.parse(await t.journal()).view).toMatchObject({ requestedImage: image, image: replacement, resolvedImage });
+    expect(t.creates).toBe(1); expect(t.launches).toBe(1);
+    expect(await t.call("stop")).toMatchObject({ phase: "removed", resolvedImage, image: replacement, computeEnded: true, metadataDeleted: true });
+    expect(t.stops).toBe(1); expect(t.deletes).toBe(1);
+    const fresh = await setup(); fresh.sandbox.image = replacement;
+    expect(await fresh.call("prepare")).toMatchObject({ phase: "ready", resolvedImage: replacement, nodeVersion: "v24.22.1" });
+  });
+  it("rejects noncanonical references before runtime use and still stops the original owned session", async () => {
+    for (const observed of [image, `foreign/node@sha256:${"a".repeat(64)}`, `vercel/sandbox/python@sha256:${"a".repeat(64)}`, `vercel/sandbox/universal@sha256:${"a".repeat(64)}`, `vercel/sandbox/node:22`, `vercel/sandbox/node@sha256:${"A".repeat(64)}`, `vercel/sandbox/node@sha256:${"g".repeat(64)}`, `vercel/sandbox/node:24@sha256:${"a".repeat(64)}`, `vercel/sandbox/node@sha256:${"a".repeat(63)}`, `vercel/sandbox/node@sha256:${"a".repeat(65)}`, `vercel/sandbox/node@sha256:${"a".repeat(64)}\n`]) {
+      const t = await setup(); t.sandbox.image = observed;
+      await expect(t.call("prepare")).rejects.toThrow(/resource limits/);
+      expect(t.launches).toBe(0); expect(t.files).toHaveLength(0);
+      expect(JSON.parse(await t.journal()).view.resolvedImage).toBeNull();
+      expect(await t.call("stop")).toMatchObject({ phase: "removed", computeEnded: true, metadataDeleted: true });
+      expect(t.creates).toBe(1);
+    }
+  });
+  it("requires the bounded actual Node24 preflight even for a valid official digest", async () => {
+    for (const version of ["v22.19.0", "v26.0.0", "v24." + "0".repeat(128)]) {
+      const t = await setup(); t.runtimeVersion = version;
+      await expect(t.call("prepare")).rejects.toThrow();
+      expect(JSON.parse(await t.journal()).view).toMatchObject({ phase: "allocated", resolvedImage, nodeVersion: null });
+      expect(t.files).toHaveLength(0); expect(t.launches).toBe(0);
+      expect(await t.call("stop")).toMatchObject({ phase: "removed", computeEnded: true });
+    }
+  });
+  it("keeps resource and session fencing after canonical image acceptance", async () => {
+    const t = await setup(); await t.call("prepare");
+    t.session.timeout = 300_000;
+    await expect(t.call("prepare")).rejects.toThrow(/resource limits/);
+    t.session.timeout = 600_000; t.session.vcpus = 2;
+    await expect(t.call("prepare")).rejects.toThrow(/resource limits/);
+    t.session.vcpus = 1; t.session.sessionId = "foreign-session";
+    await expect(t.call("stop")).rejects.toThrow(/ownership/);
+    t.session.sessionId = "session_synthetic";
+    expect(await t.call("stop")).toMatchObject({ phase: "removed", computeEnded: true });
+    expect(t.creates).toBe(1); expect(t.launches).toBe(1);
   });
   it("recovers a lost create reply by exact name and journal; never repeats allocation", async () => {
     const t = await setup(); t.createReplyLost = true;
@@ -139,8 +187,8 @@ describe("relay lifecycle — fake cloud only", () => {
     t.sandbox.tags = relayTags(t.id); t.session.sessionId = "foreign-session";
     await expect(t.call("stop")).rejects.toThrow(/ownership/);
     t.session.sessionId = "session_synthetic"; t.sandbox.image = "unverified";
-    await expect(t.call("prepare")).rejects.toThrow(/resource limits/);
-    t.sandbox.image = image; t.sandbox.vcpus = 2;
+    await expect(t.call("prepare")).rejects.toThrow(/resolved image/);
+    t.sandbox.image = resolvedImage; t.sandbox.vcpus = 2;
     await expect(t.call("prepare")).rejects.toThrow(/resource limits/);
     expect(t.deletes).toBe(0);
     expect(await t.call("stop")).toMatchObject({ phase: "removed" });

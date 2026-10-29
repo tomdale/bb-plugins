@@ -8,6 +8,7 @@ import { once } from "node:events";
 import { TESTED_CORE } from "./policy.ts";
 
 const image = "vercel/sandbox/node:24";
+const resolvedImage = `vercel/sandbox/node@sha256:${"a".repeat(64)}`;
 function fixture() {
   let loseReply = false;
   const requests: { method: string; input: unknown }[] = [];
@@ -15,7 +16,7 @@ function fixture() {
   const view = { key: "synthetic-relay", generation, name: `bb-relay-${"a".repeat(48)}`, hostId: "host_auth", accountId: "account_synthetic",
     teamId: "team_synthetic", projectId: "prj_synthetic", phase: "ready", sessionId: "session_synthetic", commandId: "cmd_synthetic",
     origin: "https://synthetic-relay.vercel.run", fingerprint: "a".repeat(64), expiresAt: Date.now() + 600_000,
-    computeEnded: false, metadataDeleted: false, observedStatus: "command-pending-or-running", artifactSha256: "b".repeat(64), image, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000 };
+    computeEnded: false, metadataDeleted: false, observedStatus: "command-pending-or-running", artifactSha256: "b".repeat(64), requestedImage: image, image: resolvedImage, resolvedImage, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000 };
   const host = createFakePluginHost({ pluginId: "vercel-access", sdk: { plugins: { callRpc: async (input) => {
     assert.equal(input.pluginId, "environment-vercel-sandbox");
     requests.push({ method: input.method, input: input.input });

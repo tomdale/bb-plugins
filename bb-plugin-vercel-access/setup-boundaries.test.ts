@@ -7,6 +7,7 @@ import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { registerSetup, relayViewSchema } from "./setup.ts";
 
 type View = z.infer<typeof relayViewSchema>;
+const resolvedImage = `vercel/sandbox/node@sha256:${"a".repeat(64)}`;
 function fixture() {
   const views = new Map<string, View>();
   const requests: { method: string; key: string }[] = [];
@@ -24,7 +25,7 @@ function fixture() {
       phase: "ready", sessionId: `session-${key}`, commandId: `cmd-${key}`, origin: `https://${key}.vercel.run`,
       fingerprint: "a".repeat(64), artifactSha256: "b".repeat(64), expiresAt: Date.now() + 600_000,
       computeEnded: false, metadataDeleted: false, observedStatus: "command-pending-or-running",
-      image: "vercel/sandbox/node:24", nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
+      requestedImage: "vercel/sandbox/node:24", image: resolvedImage, resolvedImage, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
     });
     const view = views.get(key)!;
     if (input.method === "relay.stop") Object.assign(view, { phase: "removed", computeEnded: true, metadataDeleted: true, observedStatus: "stopped" });
@@ -124,15 +125,37 @@ test("wrong-key prepared/ready/removed replies cannot apply or authorize replace
 test("unknown receipt fields may become known once but cannot later disappear — fake RPC", async () => {
   const t = fixture();
   try {
-    t.transform((_method, view) => ({ ...view, origin: null, sessionId: null, commandId: null }));
+    t.transform((_method, view) => ({ ...view, phase: "prepared", image: null, resolvedImage: null, origin: null, sessionId: null, commandId: null }));
     await t.prepare("relay-a");
     assert.equal((await t.bb.storage.kv.get<{ receipt: { origin: string | null } }>("relay-setup"))!.receipt.origin, null);
     t.transform((_method, view) => view);
     await t.call("apply", "relay-a");
     const receipt = (await t.bb.storage.kv.get<{ receipt: unknown }>("relay-setup"))!.receipt;
-    t.transform((_method, view) => ({ ...view, origin: null }));
+    t.transform((_method, view) => ({ ...view, origin: null, resolvedImage: null }));
     await assert.rejects(t.call("apply", "relay-a"));
     assert.deepEqual((await t.bb.storage.kv.get<{ receipt: unknown }>("relay-setup"))!.receipt, receipt);
+    assert.equal(t.applications.length, 1);
+  } finally { await t.harness.lifecycle.dispose(); }
+});
+
+test("apply requires canonical observed/pinned image equality, Node24 and original resource bounds — fake RPC", async () => {
+  const t = fixture();
+  try {
+    await t.prepare("relay-a");
+    const changes: Partial<View>[] = [
+      { image: "vercel/sandbox/node:24" }, { image: `foreign/node@sha256:${"a".repeat(64)}` },
+      { image: `vercel/sandbox/node@sha256:${"b".repeat(64)}` }, { image: null },
+      { nodeVersion: "v22.19.0" }, { nodeVersion: null }, { vcpus: 2 }, { persistent: true }, { timeoutMs: 300_000 },
+    ];
+    for (const change of changes) {
+      t.transform((_method, view) => ({ ...view, ...change }));
+      await assert.rejects(t.call("apply", "relay-a"));
+      assert.equal(t.applications.length, 0);
+    }
+    t.transform((_method, view) => view);
+    const ready = await t.call("apply", "relay-a") as View;
+    assert.equal(ready.requestedImage, "vercel/sandbox/node:24");
+    assert.equal(ready.image, resolvedImage); assert.equal(ready.resolvedImage, resolvedImage);
     assert.equal(t.applications.length, 1);
   } finally { await t.harness.lifecycle.dispose(); }
 });
@@ -147,6 +170,7 @@ test("first access receipt pins generation, connection, origin, session and publ
       { accountId: "account_other" }, { teamId: "team_other" }, { projectId: "prj_other" },
       { fingerprint: "c".repeat(64) }, { artifactSha256: "c".repeat(64) }, { origin: "https://other.vercel.run" },
       { sessionId: "session_other" }, { commandId: "cmd_other" }, { sessionId: null }, { origin: null },
+      { resolvedImage: `vercel/sandbox/node@sha256:${"b".repeat(64)}` }, { resolvedImage: null },
     ];
     for (const change of changes) {
       t.transform((_method, view) => ({ ...view, ...change }));

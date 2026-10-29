@@ -23,7 +23,7 @@ it("actual public server harness pins relay intent before host call, survives lo
       hostId, accountId: identity.connection.accountId, teamId: identity.connection.teamId, projectId: identity.connection.projectId,
       phase: method === "relayStop" ? "removed" : "submitted", sessionId: null, commandId: null,
       origin: null, fingerprint: "a".repeat(64), expiresAt: null, computeEnded: false, metadataDeleted: false,
-      observedStatus: "unobserved", artifactSha256: "b".repeat(64), image: "vercel/sandbox/node:24", nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
+      observedStatus: "unobserved", artifactSha256: "b".repeat(64), requestedImage: "vercel/sandbox/node:24", image: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
     };
     return { ok: true, value: view };
   } });
@@ -99,7 +99,7 @@ it("a crash after durable first dispatch reservation cannot authorize initializa
 });
 
 it("binds every prepare/inspect/stop reply to original identity and first public receipt — fake host", async () => {
-  let change: Partial<RelayView> = { sessionId: null, origin: null, commandId: null };
+  let change: { [key: string]: unknown } = { sessionId: null, origin: null, commandId: null };
   let hostCalls = 0;
   const host = createFakePluginHost({ pluginId: "environment-vercel-sandbox", experimental_callHostRpc: async ({ method, input }) => {
     hostCalls++;
@@ -110,7 +110,7 @@ it("binds every prepare/inspect/stop reply to original identity and first public
       phase: method === "relayStop" ? "removed" : "ready", sessionId: "session_original", commandId: "cmd_original",
       origin: "https://synthetic-relay.vercel.run", fingerprint: "a".repeat(64), expiresAt: Date.now() + 600_000,
       computeEnded: method === "relayStop", metadataDeleted: method === "relayStop", observedStatus: "running", artifactSha256: "b".repeat(64),
-      image: "vercel/sandbox/node:24", nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
+      requestedImage: "vercel/sandbox/node:24", image: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
     };
     return { ok: true, value: { ...view, ...change } };
   } });
@@ -122,17 +122,21 @@ it("binds every prepare/inspect/stop reply to original identity and first public
   change = {};
   await host.harness.behavior.callRpc("relay.inspect", { key: setup.key });
   const receipt = await host.bb.storage.kv.get(`relay-receipts/${setup.key}`);
-  const mutations: Partial<RelayView>[] = [
+  const mutations: { [key: string]: unknown }[] = [
     { key: "foreign-relay" }, { generation: randomUUID() }, { name: `bb-relay-${"c".repeat(48)}` },
     { hostId: "host_foreign" }, { accountId: "account_foreign" }, { teamId: "team_foreign" }, { projectId: "prj_foreign" },
     { fingerprint: "c".repeat(64) }, { artifactSha256: "c".repeat(64) }, { sessionId: "session_foreign" },
     { origin: "https://foreign-relay.vercel.run" }, { commandId: "cmd_foreign" }, { origin: null }, { sessionId: null }, { commandId: null },
+    { requestedImage: "vercel/sandbox/node:22" }, { resolvedImage: `vercel/sandbox/node@sha256:${"b".repeat(64)}` }, { resolvedImage: null },
   ];
   for (const method of ["relay.prepare", "relay.inspect", "relay.stop"]) for (const mutation of mutations) {
     change = mutation;
     await expect(host.harness.behavior.callRpc(method, method === "relay.prepare" ? setup : { key: setup.key })).rejects.toThrow();
     expect(await host.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
   }
+  change = { image: `vercel/sandbox/node@sha256:${"b".repeat(64)}` };
+  for (const method of ["relay.prepare", "relay.inspect"]) await expect(host.harness.behavior.callRpc(method, method === "relay.prepare" ? setup : { key: setup.key })).rejects.toThrow();
+  expect(await host.harness.behavior.callRpc("relay.stop", { key: setup.key })).toMatchObject({ phase: "removed", resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}` });
   change = {};
   expect(await host.harness.behavior.callRpc("relay.inspect", { key: setup.key })).toMatchObject({ key: setup.key, hostId: connection.hostId });
   const next = await host.harness.lifecycle.reload(createVercelSandboxPlugin());

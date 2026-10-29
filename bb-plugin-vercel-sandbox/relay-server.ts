@@ -27,10 +27,12 @@ export function relayHandlers(bb: BbPluginApi, options: {
   });
   const observe = async (method: "relayPrepare" | "relayInspect" | "relayStop", identity: RelayIdentity, initialize = false) => {
     const view = await remote.relay(method, identity, options.signal(), initialize);
-    if (view.key !== identity.key || view.generation !== identity.generation || view.name !== relayName(identity) ||
+    if (view.requestedImage !== identity.image || view.key !== identity.key || view.generation !== identity.generation || view.name !== relayName(identity) ||
       view.hostId !== identity.connection.hostId || view.accountId !== identity.connection.accountId ||
       view.teamId !== identity.connection.teamId || view.projectId !== identity.connection.projectId)
       throw new SafeError("Relay reply does not match its retained allocation identity and original connection.");
+    if (method !== "relayStop" && view.phase === "ready" && (view.resolvedImage === null || view.image !== view.resolvedImage || view.nodeVersion === null))
+      throw new SafeError("Relay reply has no verified resolved image and Node24 runtime for use.");
     const receipt = relayReceipt(view);
     const stored = await bb.storage.kv.get<unknown>(`relay-receipts/${identity.key}`);
     if (stored !== undefined) {

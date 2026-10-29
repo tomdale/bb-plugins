@@ -8,7 +8,7 @@ This supersedes the project-wide impossibility interpretation of Phase 0/1's cor
 
 The [runtime review follow-up](vercel-access-phase2-runtime-followup.md) records the current pending-operation bounds, >15-second and observed >120-second HTTP evidence, released built-in artifact parity, peer-loss cleanup and cold-build isolation.
 
-**Not a cloud-ready machine MVP.** [Bounded host-side relay provisioning](vercel-access-provisioning.md) is code-implemented with fake vendor tests and a standalone local artifact process. Persistent admission/reconfiguration, real Vercel provisioning/network behavior, and independent final review remain gates. The parent owns integration, approval, deployment, push, and cleanup. No daily activation or cloud allocation/deployment/login/spend occurred.
+**Not a cloud-ready machine MVP.** [Bounded host-side relay provisioning](vercel-access-provisioning.md) is code-implemented with fake vendor tests and a standalone local artifact process. Persistent admission/reconfiguration, real Vercel provisioning/network behavior, and independent final review remain gates. The parent owns integration, approval, deployment, push, and cleanup. Daily activation and further cloud execution require separate approval.
 
 ## Alternatives considered
 
@@ -56,7 +56,7 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | Verification | Result |
 | --- | --- |
 | `npm ci`, `npm run typecheck`, `npm run build` | PASS |
-| `npm test` | PASS; 96 tests, including setup, reply-binding and no-allocation regressions |
+| `npm test` | PASS; 97 tests, including setup, reply-binding and no-allocation regressions |
 | `npm run test:slow` | PASS; both paths complete observed 125-second responses |
 | `npm run test:build` | PASS; declared-script cold isolated build |
 | `npm run test:core` | PASS; five real-core scenarios |

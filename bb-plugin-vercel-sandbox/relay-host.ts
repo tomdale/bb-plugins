@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Sandbox } from "@vercel/sandbox";
 import { relayArtifact } from "./relay-artifact.js";
 import { relayLaunchArgs } from "./relay-launch.js";
-import { relayIdentitySchema, relayViewSchema, type RelayIdentity, type RelayView } from "./relay-contract.js";
+import { relayIdentitySchema, relayViewSchema, resolvedRelayImageSchema, type RelayIdentity, type RelayView } from "./relay-contract.js";
 import { SafeError } from "./configuration.js";
 import type { createVercelClient } from "./client.js";
 
@@ -82,7 +82,7 @@ export async function relayOperation(options: {
         teamId: identity.connection.teamId, projectId: identity.connection.projectId,
         phase: "prepared", sessionId: null, commandId: null, origin: null, fingerprint: keys.fingerprint,
         expiresAt: null, computeEnded: false, metadataDeleted: false, observedStatus: "unobserved", artifactSha256: relayArtifact.sha256,
-        image: identity.image, nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
+        requestedImage: identity.image, image: null, resolvedImage: null, nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
       } };
       await save(record, true);
     }
@@ -94,20 +94,28 @@ export async function relayOperation(options: {
     const vendor = await options.vendor();
     let sandbox = await vendor.get(r.view.name, signal);
     let originChanged = false;
-    if (sandbox) {
-      checkOwned(r, sandbox);
+    let imageChanged = false;
+    const observe = (sandbox: Sandbox) => {
       r.view.sessionId = sandbox.currentSession().sessionId;
       r.view.expiresAt = sandbox.expiresAt?.getTime() ?? null;
       r.view.observedStatus = sandbox.currentSession().status;
-      r.view.image = sandbox.image ?? "unknown";
+      r.view.image = sandbox.image ?? null;
       r.view.vcpus = sandbox.currentSession().vcpus;
       r.view.persistent = sandbox.persistent;
       r.view.timeoutMs = sandbox.currentSession().timeout;
+      const image = resolvedRelayImageSchema.safeParse(sandbox.image);
+      imageChanged = !image.success || (r.view.resolvedImage !== null && r.view.resolvedImage !== image.data);
+      if (image.success && r.view.resolvedImage === null) r.view.resolvedImage = image.data;
+    };
+    if (sandbox) {
+      checkOwned(r, sandbox);
+      observe(sandbox);
       if (r.view.origin && options.operation !== "stop") {
         originChanged = originOf(sandbox) !== r.view.origin;
         if (originChanged && options.operation === "prepare") throw new SafeError("Relay origin changed; explicit stop and new setup are required.");
       }
       await save(r);
+      if (imageChanged && options.operation !== "stop") throw new SafeError("Relay resolved image is unsupported or changed. Retain the original identity and stop explicitly.");
     }
     if (options.operation === "inspect") {
       r.view.observedStatus = sandbox?.currentSession().status ?? "missing";
@@ -151,18 +159,16 @@ export async function relayOperation(options: {
       await transition("submitted");
       sandbox = await vendor.createRelay(r.view.name, relayTags(identity), identity.image, signal);
       checkOwned(r, sandbox);
-      r.view.sessionId = sandbox.currentSession().sessionId;
-      r.view.expiresAt = sandbox.expiresAt?.getTime() ?? null;
-      r.view.image = sandbox.image ?? "unknown";
-      r.view.vcpus = sandbox.currentSession().vcpus;
-      r.view.persistent = sandbox.persistent;
-      r.view.timeoutMs = sandbox.currentSession().timeout;
+      observe(sandbox);
       await transition("allocated");
     }
     if (r.view.phase === "submitted") await transition("allocated");
-    if (sandbox.image !== identity.image || sandbox.vcpus !== 1 || sandbox.currentSession().vcpus !== 1 || sandbox.currentSession().timeout !== 600_000)
+    if (imageChanged || r.view.resolvedImage === null || sandbox.vcpus !== 1 || sandbox.currentSession().vcpus !== 1 || sandbox.currentSession().timeout !== 600_000)
       throw new SafeError("Relay runtime or resource limits differ from setup. Inspect and stop the original allocation explicitly.");
-    if (r.view.phase === "ready") return r.view;
+    if (r.view.phase === "ready") {
+      if (r.view.nodeVersion === null) throw unresolved();
+      return r.view;
+    }
     if (r.view.phase !== "allocated" || sandbox.currentSession().status !== "running") throw unresolved();
     verifyRelayArtifact();
     r.view.origin = originOf(sandbox);

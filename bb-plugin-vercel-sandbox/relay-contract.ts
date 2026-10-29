@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { connectionSchema } from "./auth-contract.js";
 
+export const resolvedRelayImageSchema = z.string().length("vercel/sandbox/node@sha256:".length + 64).regex(/^vercel\/sandbox\/node@sha256:[a-f0-9]{64}$/);
 export const relayKeySchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 export const relaySetupSchema = z.object({
   key: relayKeySchema,
@@ -26,7 +27,9 @@ export const relayViewSchema = z.object({
   computeEnded: z.boolean(), metadataDeleted: z.boolean(),
   observedStatus: z.string().max(32),
   artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  image: z.string().max(300),
+  requestedImage: z.literal("vercel/sandbox/node:24").default("vercel/sandbox/node:24"),
+  image: z.string().max(300).nullable(),
+  resolvedImage: resolvedRelayImageSchema.nullable().default(null),
   vcpus: z.number().int().min(1).max(32).nullable(),
   persistent: z.boolean().nullable(),
   timeoutMs: z.number().int().positive().max(86_400_000).nullable(),
@@ -36,6 +39,7 @@ export type RelayView = z.infer<typeof relayViewSchema>;
 export const relayReceiptSchema = relayViewSchema.pick({
   key: true, generation: true, name: true, hostId: true, accountId: true, teamId: true, projectId: true,
   fingerprint: true, artifactSha256: true, sessionId: true, origin: true, commandId: true,
+  requestedImage: true, resolvedImage: true,
 });
 export type RelayReceipt = z.infer<typeof relayReceiptSchema>;
 export function relayReceipt(view: RelayView): RelayReceipt {

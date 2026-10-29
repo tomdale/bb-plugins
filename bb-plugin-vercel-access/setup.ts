@@ -5,6 +5,7 @@ import { z } from "zod";
 const keySchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const inputSchema = z.object({ key: keySchema }).strict();
 const imageSchema = z.literal("vercel/sandbox/node:24").default("vercel/sandbox/node:24");
+const resolvedImageSchema = z.string().length("vercel/sandbox/node@sha256:".length + 64).regex(/^vercel\/sandbox\/node@sha256:[a-f0-9]{64}$/);
 // This is the public, secret-free contract owned by the Vercel Sandbox plugin.
 export const relayViewSchema = z.object({
   key: keySchema, generation: z.string().uuid(), name: z.string().regex(/^bb-relay-[a-f0-9]{48}$/),
@@ -15,13 +16,14 @@ export const relayViewSchema = z.object({
   origin: z.string().url().max(300).nullable(), fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
   expiresAt: z.number().finite().nullable(), computeEnded: z.boolean(), metadataDeleted: z.boolean(),
   observedStatus: z.string().max(32), artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  image: z.string().max(300), vcpus: z.number().int().min(1).max(32).nullable(), persistent: z.boolean().nullable(),
+  requestedImage: imageSchema, image: z.string().max(300).nullable(), resolvedImage: resolvedImageSchema.nullable().default(null), vcpus: z.number().int().min(1).max(32).nullable(), persistent: z.boolean().nullable(),
   timeoutMs: z.number().int().positive().max(86_400_000).nullable(), nodeVersion: z.string().regex(/^v24\.[0-9]+\.[0-9]+$/).max(32).nullable(),
 }).strict();
 type View = z.infer<typeof relayViewSchema>;
 const receiptSchema = relayViewSchema.pick({
   key: true, generation: true, name: true, hostId: true, accountId: true, teamId: true, projectId: true,
   fingerprint: true, artifactSha256: true, sessionId: true, origin: true, commandId: true,
+  requestedImage: true, resolvedImage: true,
 });
 type Receipt = z.infer<typeof receiptSchema>;
 const recordSchema = z.object({ key: keySchema, image: imageSchema, authorizedKey: z.string().max(128), bridgePort: z.number().int().min(1024).max(65535), receipt: receiptSchema.nullable().default(null) }).strict();
@@ -72,7 +74,7 @@ export function registerSetup(bb: BbPluginApi, options: {
       if (previous) throw new Error("Previously observed relay identity is unavailable");
       return null;
     }
-    if (view.key !== record.key) throw new Error("Relay reply does not match the requested setup key");
+    if (view.key !== record.key || view.requestedImage !== record.image) throw new Error("Relay reply does not match the requested setup identity");
     const receipt = receiptSchema.parse(Object.fromEntries(Object.keys(receiptSchema.shape).map(key => [key, view[key as keyof View]])));
     if (previous) for (const key of Object.keys(previous) as (keyof Receipt)[]) {
       if (previous[key] !== null && previous[key] !== receipt[key]) throw new Error("Relay reply changed its recorded public identity");
@@ -129,7 +131,7 @@ export function registerSetup(bb: BbPluginApi, options: {
       if (!record || record.key !== key || config.enabled || !config.preparedConnectorPrivateKey || config.port !== record.bridgePort) throw new Error("Disable the bridge and restore its private setup identity and port");
       assertPrivateIdentity(config.preparedConnectorPrivateKey, record.authorizedKey);
       const view = await observe(record, "relay.inspect");
-      if (!view || !view.nodeVersion || view.phase !== "ready" || view.vcpus !== 1 || view.persistent !== false || view.timeoutMs !== 600_000 || view.image !== "vercel/sandbox/node:24" || !view.origin || !view.sessionId || view.computeEnded || !view.expiresAt || view.expiresAt <= Date.now() || view.observedStatus !== "command-pending-or-running") throw new Error("Relay is not provisioned");
+      if (!view || !/^v24\.[0-9]+\.[0-9]+$/.test(view.nodeVersion ?? "") || view.phase !== "ready" || view.vcpus !== 1 || view.persistent !== false || view.timeoutMs !== 600_000 || view.resolvedImage === null || view.image !== view.resolvedImage || !view.origin || !view.sessionId || view.computeEnded || !view.expiresAt || view.expiresAt <= Date.now() || view.observedStatus !== "command-pending-or-running") throw new Error("Relay is not provisioned");
       await options.apply(view, config.preparedConnectorPrivateKey);
       return view;
     }),
