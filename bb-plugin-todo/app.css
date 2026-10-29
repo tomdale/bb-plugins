@@ -130,6 +130,8 @@
   max-height: 184px;
   overflow-y: auto;
 }
+/* Wrapped rows keep their natural height and scroll instead of shrinking. */
+.todo-list > li { flex: none; }
 /* The lane scrolls inside the room the placement leaves. */
 .todo-card-floating .todo-list {
   max-height: var(--todo-gutter-max-height, 100vh);
@@ -252,7 +254,7 @@
   display: flex;
   min-width: 0;
   min-height: 24px;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   margin-inline-start: calc(var(--todo-depth, 0) * 16px);
   padding: 4px 8px;
@@ -270,6 +272,7 @@
 .todo-row-marker {
   display: inline-flex;
   width: 18px;
+  height: 16px;
   flex: none;
   align-items: center;
   justify-content: center;
@@ -279,15 +282,10 @@
 .todo-row-text {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-wrap: pretty;
 }
-/* The gutter is wide enough for labels to wrap, with markers pinned to the first line. Wrapped rows must not shrink to fit the scrolling list. */
-.todo-card-floating .todo-list > li { flex: none; }
-.todo-card-floating .todo-row { align-items: flex-start; }
-.todo-card-floating .todo-row-marker { height: 16px; align-items: center; }
-.todo-card-floating .todo-row-text { overflow: visible; text-overflow: clip; white-space: normal; text-wrap: pretty; }
 
 .todo-row-active { background: transparent; color: var(--foreground); }
 .todo-row-active .todo-row-text { font-weight: inherit; }
