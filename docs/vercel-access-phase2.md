@@ -58,7 +58,7 @@ Environment: BB **0.46.1**, public SDK **0.6.59**, protocol **244**, Node **24.2
 | `npm ci`, `npm run typecheck`, `npm run build` | PASS |
 | `npm test` | PASS; 86 tests |
 | `npm run test:slow` | PASS; both paths complete observed 125-second responses |
-| `npm run test:build` | PASS; declared-script cold isolated build |
+| `npm run test:build` | PASS; cold isolated build and SDK-free minimal standalone relay launch |
 | `npm run test:core` | PASS; five real-core scenarios |
 | `bb plugin types --check` | PASS; pin and installed SDK both 0.6.59 |
 | Throwaway repository activation smoke | PASS; plugin running, disabled by default |
@@ -80,7 +80,9 @@ Executed evidence includes:
 - Cancellation stops the native HTTP producer; transport release/expiry closes active WS; legal client/native close metadata survives. Both direct/SSH responses complete after 18.5 and 125 seconds, incomplete bodies remain bounded near 15 seconds with no native dispatch, and independent revoke/cancel preserves a sibling response and connector
 - No synthetic enrollment, admission, native or SSH credential in the exercised diagnostic/redacted-settings surfaces
 
-The actual installer shell and OS-service lifecycle are **not executed**. Public bootstrap uses a synthetic executor; the separate real daemon test is not evidence of installer execution. Local relay/connector components use real sockets; most share the test process. Core, the released daemon and the standalone-relay SIGTERM smokes also use separate OS processes. The shutdown smoke uses the relay's intended public bind with only synthetic keys and a harmless fixed backend; no real BB server or user data is exposed by it. Local WS/SSH success is not Vercel WSS/TLS or vendor ingress evidence.
+The standalone relay also starts from a minimal production-only source package with the SDK and plugin-server entry absent; the [README](../bb-plugin-vercel-access/README.md#relay-source-artifact-not-a-deployment) pins the launch command, exact control/data URLs and separate management/packaging responsibilities. This does not turn the plugin-server build into a relay deployment bundle or implement vendor provisioning RPC.
+
+The actual installer shell and OS-service lifecycle are **not executed**. The released daemon test loads the installed app's dependencies; it does not prove an extracted worker tarball is self-contained or independently hydrated. Public bootstrap uses a synthetic executor; the separate real daemon test is not evidence of installer execution. Local relay/connector components use real sockets; most share the test process. Core, the released daemon and the standalone-relay SIGTERM smokes also use separate OS processes. The shutdown smoke uses the relay's intended public bind with only synthetic keys and a harmless fixed backend; no real BB server or user data is exposed by it. Local WS/SSH success is not Vercel WSS/TLS or vendor ingress evidence.
 
 ## Lifecycle and intentional limits
 

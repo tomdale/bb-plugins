@@ -88,12 +88,46 @@ The repository activation smoke is also required, with an empty temporary HOME/X
 
 ## Relay source artifact; not a deployment
 
-`relay-main.ts` can start the relay after **separate** provisioning/deployment approval. It allocates nothing and contains no Vercel SDK or login flow:
+`relay-main.ts` is a standalone source entrypoint, not the BB plugin-server bundle. Its runtime closure is `relay-main.ts`, `bridge.ts`, `tunnel.ts`, `channels.ts`, `policy.ts`, `grants.ts`, `package.json`, `package-lock.json` and `.npmrc`. It has no runtime BB SDK import or shim dependency. `npm run build` produces the **plugin server** only; it does not assemble a relay deployment archive.
+
+The pinned standalone launch uses Node **24.22.1**, from the relay package directory:
 
 ```sh
+npm ci --omit=dev
 node relay-main.ts /private/relay-config.json
 ```
 
+Invoke the entrypoint relatively from that directory, as shown. An absolute entrypoint path must be canonical: a symlink-prefixed absolute alias does not satisfy the current main-module guard. `test:build` stages only this minimal closure, omits dev dependencies, verifies the SDK and plugin-server entry are absent, and observes standalone readiness/normal SIGTERM outside BB. This is local source-package launch proof, not a vendor deployment or worker-package closure proof.
+
+The config file and private key files are mode 0600 in a private directory. Only the config **file path**, not config/credential text, is an argument. No secret key/config bytes belong in argv, logs, machine inputs/resources or progress. The source entrypoint allocates no cloud resource and contains no Vercel SDK or login flow.
+
 The bounded JSON configuration has exactly `publicAuthority`, `port`, `reversePort`, `bridgePort`, `hostKeyFile`, and `authorizedKeyFile`. The relay host key is a bounded mode-0600 file; connector authorization is a dedicated public-key file. Use one exposed adapter port, a private reverse port, and the exact laptop bridge port. Provision the host fingerprint through a trusted control path. Never include Vercel OAuth/API credentials in laptop settings, worker bootstrap, tunnel traffic, or source artifacts.
+
+### Exact URL and port setup
+
+| Surface | Configuration |
+| --- | --- |
+| Native worker data | `serverUrl = https://<relay-host>`; workers use only the permitted native paths on that origin |
+| Laptop connector control | `relayUrl = wss://<relay-host>`; the client appends the fixed `/machine-connector` upgrade path |
+| Relay authority | `publicAuthority = <relay-host>` (include its explicit port when applicable), not a URL or a forwarded identity |
+| Exposed relay adapter | `port` is the single provider-exposed HTTP/WS port serving both surfaces |
+| Private relay reverse listener | `127.0.0.1:<reversePort>` only; never a separately public origin |
+| Laptop destination | `127.0.0.1:<bridgePort>` is the plugin-owned machine bridge, **not** BB's unrestricted app listener |
+
+The relay adapter reconstructs Host for the laptop bridge. Public origins and the host-key pin must come from trusted provisioning. Unknown platform headers remain denied; no blanket localhost or forwarding-header fallback exists.
+
+### Separate provisioning and packaging slice
+
+Vendor allocation, relay deployment-bundle assembly and an auth-machine management RPC are **not implemented by this runtime package**. They require their own reviewed implementation and artifact digest. The required management boundary is:
+
+| Operation | Bounded contract for the separate slice |
+| --- | --- |
+| Prepare | Stable idempotency key, approved source/artifact digest and private configuration delivery; caller deadline/cancellation; allocate/install/start only the owned relay and checkpoint its non-secret handle |
+| Inspect | Owned opaque handle; bounded health/state, exact data/control origins, observed artifact digest and trusted public host-key fingerprint; never public-network TOFU |
+| Stop | Owned handle/idempotency context; bounded cancellation-aware stop/delete and explicit residual cleanup state; no account-wide deletion |
+
+These are management responsibilities, **not registered method names or an available RPC API in this package**. The reviewed provisioning slice must supply its actual public-SDK host-RPC contract and limits. Vercel API/OAuth credentials stay on the existing authenticated machine. RPC carries bounded management JSON only, not tunnel bytes; connector-secret delivery is server-only/private settings, never public resource/progress metadata. The laptop receives only the distinct connector credential, trusted public fingerprint and safe origins.
+
+The served BB worker tarball is an npm package, not a proven self-contained executable archive. The released foreground-daemon test uses the installed app's dependency tree. Hydrating and starting an extracted worker package independently remains a separate local gate; do not apply the relay's omit-optional/ignore-scripts policy to worker native dependencies or claim the installed-tree test proves that recipe.
 
 Plugin settings remain disabled until explicitly configured/reloaded. `loopback-test` requires the exact local bridge URL. `ssh-ws` requires an explicit relay origin, host fingerprint, dedicated secret connector key, fixed private reverse port, and machine-facing adapter origin; availability starts only after an authenticated transport readiness probe. These are test/prototype controls, not authorization to enable daily access. Vercel allocation, bounded auth-machine provisioning RPC, TLS/WSS, plan behavior, cleanup, durable recovery, browser access, and preview sharing remain separate gates.
