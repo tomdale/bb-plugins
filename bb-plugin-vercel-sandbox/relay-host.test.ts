@@ -75,7 +75,7 @@ describe("relay lifecycle — fake cloud only", () => {
   it("persists intent before create and launch; returns bounded public pins, never private configuration", async () => {
     const t = await setup();
     const view = await t.call("prepare");
-    expect(JSON.parse(t.submitted).view.phase).toBe("submitted");
+    expect(JSON.parse(t.submitted).view).toMatchObject({ phase: "submitted", requestedImage: image, image: null, resolvedImage: null, nodeVersion: null });
     expect(JSON.parse(t.launching).view.phase).toBe("launching");
     expect(view).toMatchObject({ phase: "ready", commandId: "cmd_synthetic", origin: "https://synthetic-relay.vercel.run", requestedImage: image, image: resolvedImage, resolvedImage, nodeVersion: "v24.22.1" });
     expect(JSON.parse(await t.journal()).view.resolvedImage).toBe(resolvedImage);
@@ -87,7 +87,9 @@ describe("relay lifecycle — fake cloud only", () => {
     expect(JSON.stringify(t.files)).not.toMatch(/connectorPrivateKey|Bearer|OAuth/);
     const journalPath = join(t.dataDir, "relay-intents", (await readdir(join(t.dataDir, "relay-intents")))[0]!);
     expect((await stat(journalPath)).mode & 0o077).toBe(0);
-    expect(await t.call("prepare")).toMatchObject({ phase: "ready" });
+    expect(await t.call("inspect")).toMatchObject({ phase: "ready", image: resolvedImage, resolvedImage, fingerprint: view.fingerprint });
+    expect(await t.call("prepare")).toMatchObject({ phase: "ready", requestedImage: image, image: resolvedImage, resolvedImage, fingerprint: view.fingerprint });
+    expect(JSON.parse(await t.journal()).view.resolvedImage).toBe(resolvedImage);
     expect(t.creates).toBe(1); expect(t.launches).toBe(1);
     t.commandExited = true;
     expect(await t.call("inspect")).toMatchObject({ observedStatus: "command-exited" });

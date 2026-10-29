@@ -99,7 +99,7 @@ it("a crash after durable first dispatch reservation cannot authorize initializa
 });
 
 it("binds every prepare/inspect/stop reply to original identity and first public receipt — fake host", async () => {
-  let change: { [key: string]: unknown } = { sessionId: null, origin: null, commandId: null };
+  let change: { [key: string]: unknown } = { phase: "prepared", image: null, resolvedImage: null, sessionId: null, origin: null, commandId: null };
   let hostCalls = 0;
   const host = createFakePluginHost({ pluginId: "environment-vercel-sandbox", experimental_callHostRpc: async ({ method, input }) => {
     hostCalls++;
@@ -118,7 +118,7 @@ it("binds every prepare/inspect/stop reply to original identity and first public
   await host.bb.storage.kv.set("cli-connection", connection);
   await createVercelSandboxPlugin()(host.bb);
   await host.harness.behavior.callRpc("relay.prepare", setup);
-  expect(await host.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toMatchObject({ sessionId: null, origin: null, commandId: null });
+  expect(await host.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toMatchObject({ requestedImage: "vercel/sandbox/node:24", resolvedImage: null, sessionId: null, origin: null, commandId: null });
   change = {};
   await host.harness.behavior.callRpc("relay.inspect", { key: setup.key });
   const receipt = await host.bb.storage.kv.get(`relay-receipts/${setup.key}`);
@@ -140,6 +140,11 @@ it("binds every prepare/inspect/stop reply to original identity and first public
   change = {};
   expect(await host.harness.behavior.callRpc("relay.inspect", { key: setup.key })).toMatchObject({ key: setup.key, hostId: connection.hostId });
   const next = await host.harness.lifecycle.reload(createVercelSandboxPlugin());
+  for (const method of ["relay.prepare", "relay.inspect"]) expect(await next.harness.behavior.callRpc(method, method === "relay.prepare" ? setup : { key: setup.key })).toMatchObject({ requestedImage: "vercel/sandbox/node:24", image: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}` });
+  expect(await next.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
+  change = { image: `vercel/sandbox/node@sha256:${"b".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"b".repeat(64)}` };
+  await expect(next.harness.behavior.callRpc("relay.inspect", { key: setup.key })).rejects.toThrow();
+  expect(await next.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
   change = { fingerprint: "c".repeat(64) };
   await expect(next.harness.behavior.callRpc("relay.inspect", { key: setup.key })).rejects.toThrow();
   expect(await next.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
