@@ -8,6 +8,88 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Provider-neutral authenticated ingress for user-owned server access
+
+- **Status:** not filed; hard block on forwarding live BB traffic
+- **Observed:** installed BB 0.46.1 / host SDK 0.6.59; existing Vercel plugin
+  pins 0.6.54; public registry SDK 0.6.94 declarations also inspected. Latest
+  source at [bec24f2f8d6](https://github.com/get-bb/bb/commit/bec24f2f8d6da1877863dfa9155cf3867ea1ab18)
+  declares 0.6.98, not the installed/released contract
+- **Use case:** a local plugin opens an outbound tunnel to a user-owned relay;
+  a user-owned gateway authenticates individually scoped/revocable machine
+  access without a hosted BB account, while BB/database remain local
+- **Limit and evidence:** public `experimental_serverAccess` grants contain
+  `{ id, serverUrl, headers? }`, not a trusted core principal. Public
+  `server.loopbackBaseUrl` reaches ordinary trusted-localhost APIs. In
+  [request context](https://github.com/get-bb/bb/blob/bec24f2f8d6da1877863dfa9155cf3867ea1ab18/apps/server/src/request-context.ts)
+  and [host enrollment](https://github.com/get-bb/bb/blob/bec24f2f8d6da1877863dfa9155cf3867ea1ab18/apps/server/src/internal/hosts.ts),
+  local enrollment-key minting and remote machine/gate identity are distinct.
+  Proxying remote requests into loopback does not preserve that distinction.
+  The newer SDK's `internal_DO_NOT_USE_openTunnelIngress` is explicitly
+  Connect-only, and its [implementation](https://github.com/get-bb/bb/blob/bec24f2f8d6da1877863dfa9155cf3867ea1ab18/apps/server/src/services/connect-next/tunnel-ingress.ts)
+  verifies Connect assertions and marks requests remote. No supported external
+  plugin API attaches a provider-neutral principal or cross-checks an access
+  grant's host against the native daemon/enrollment credential. Core removal
+  can also skip provider release if the plugin is unavailable: cloud grant
+  expiry/startup reconciliation cannot rely solely on lifecycle callbacks.
+  Grants have no native credential-refresh callback: use a stable daemon
+  access token plus a provider-renewed lease, and explicit repair for rotation
+- **Workaround:** no live BB forwarding. Build/verify an independent transport
+  to a fixed harmless fixture. Do not synthesize trusted gate headers, invoke
+  internal hooks, fabricate Connect IDs, or expose trusted-localhost owner
+  APIs. Original BB daemon authentication remains mandatory after any future
+  ingress is added
+- **Possible API:** machine-only
+  `server.experimental_openAuthenticatedIngress({ verify })` returning a
+  private listener/close handle. Verification returns null or a typed
+  `{ kind: "machine", hostId, grantId, scopes }` from provider assertions.
+  Core owns out-of-band remote principal attachment, a versioned machine-only
+  bootstrap/runtime route policy, host equality with enrollment/session/
+  daemon credentials, denial of owner/local-only APIs, and HTTP/WS lifecycle
+  cancellation including active-stream revocation by grant. Do not simply
+  publish the existing Connect-only method unchanged. Owner/browser ingress
+  needs separate approval and a session/Origin/CSRF contract
+- **Details:** [Phase 0 report and exact endpoint inventory](vercel-access-phase0.md)
+
+## Provider-neutral worker preview sharing
+
+- **Status:** not filed; not required for the independent transport probe
+- **Observed:** BB 0.46.1 / SDK 0.6.59; same restriction in public 0.6.94 and
+  [latest backend contract](https://github.com/get-bb/bb/blob/bec24f2f8d6da1877863dfa9155cf3867ea1ab18/packages/plugin-sdk/src/backend-contract.ts)
+- **Use case:** authenticated Vercel worker previews should go directly from
+  a user-owned gateway to the worker, without laptop transit or Connect
+- **Limit and evidence:** `hosts.ensureSharedPortTunnel` returns the daemon's
+  trusted gate label/baseDomain; `declareSharedPorts` requires trusted machine
+  credentials. The plugin cannot select a different credential issuer/gate,
+  or register a provider-owned preview transport into native unified sharing
+- **Workaround:** plugin-owned preview controls and scoped provider URLs, with
+  independent origin authentication/revocation. Do not present these as native
+  shared ports or silently fall back through the laptop
+- **Possible API:** a preview/share provider registration that resolves typed
+  host/port targets to scoped URLs with availability, expiry, revoke, and
+  lifecycle signals; core retains target ownership while the provider owns
+  transport/authentication. Keep this separate from server-access grants
+
+## Typed host RPC is not a live duplex transport
+
+- **Status:** not filed; no SDK addition needed for the Phase 1 probe
+- **Observed:** BB 0.46.1 / SDK 0.6.59; toolbelt Vercel plugin at its committed
+  SDK 0.6.54 and Sandbox 3.5.1 pins
+- **Use case:** carry a sustained outbound relay tunnel without buffering an
+  entire command before delivering its output
+- **Limit and evidence:** typed host calls return schema-validated JSON results,
+  not a duplex byte-stream lease. Toolbelt's `bb-plugin-vercel-sandbox/host.ts`
+  `exec` accumulates output; `host-contract.ts` caps that string at 131072
+  characters, not a streaming byte budget.
+  Sandbox 3.7 writable stdin does not change this host RPC return contract
+- **Workaround:** use an independently managed outbound streaming transport,
+  initially to the harmless fixture. Keep host RPC for bounded management
+  commands, not tunnel data. It is unnecessary to change the existing Vercel
+  plugin or SDK pins for the local foundation
+- **Possible API:** only if a concrete host-stream consumer needs it later,
+  a cancellable typed byte-stream lease with backpressure, bounded queues,
+  lifecycle disposal, and explicit host ownership; no request is made here
+
 ## Route inline Markdown file links outside a workspace
 
 - **Status:** not filed
