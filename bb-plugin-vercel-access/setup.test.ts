@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import plugin from "./server.ts";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { TESTED_CORE } from "./policy.ts";
 
 const image = "vercel/sandbox/node:24";
 function fixture() {
@@ -86,4 +89,30 @@ test("owner CLI does not accept private setup data or silently approve allocatio
     assert.doesNotMatch(result.stdout, /PRIVATE KEY|authorizedKey/);
     assert.equal((await t.harness.behavior.runCli(["relay", "prepare", "--key", "synthetic-relay", "--image", "latest", "--confirm-cost"])).exitCode === 0, false);
   } finally { await t.harness.lifecycle.dispose(); }
+});
+
+
+test("availability, native acquire/release and readiness do not call provisioning", async () => {
+  const core = createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(TESTED_CORE)); });
+  core.listen(0, "127.0.0.1"); await once(core, "listening");
+  const coreUrl = `http://127.0.0.1:${(core.address() as { port: number }).port}`;
+  const reserve = createServer(); reserve.listen(0, "127.0.0.1"); await once(reserve, "listening");
+  const port = (reserve.address() as { port: number }).port;
+  await new Promise<void>(resolve => reserve.close(() => resolve()));
+  const t = createFakePluginHost({ pluginId: "vercel-access", loopbackBaseUrl: coreUrl,
+    settings: { enabled: true, port, serverUrl: `http://127.0.0.1:${port}` } });
+  try {
+    await plugin(t.bb);
+    const provider = t.harness.registrations.serverAccessProviders.get("machine-bridge")!;
+    assert.equal((await provider.availability()).status, "unavailable");
+    const service = t.harness.behavior.runService("machine-bridge");
+    for (let i = 0; i < 100 && (await provider.availability()).status !== "available"; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal((await provider.availability()).status, "available");
+    const grant = await provider.acquire({ key: "synthetic-worker", hostId: "host_synthetic", signal: new AbortController().signal });
+    assert.ok("id" in grant);
+    await provider.release({ key: "synthetic-worker", hostId: "host_synthetic", grantId: grant.id });
+    assert.equal(t.harness.inspection.sdk.callsTo("plugins.callRpc").length, 0);
+    assert.equal(t.harness.experimental_hostRpcCalls.length, 0);
+    service.controller.abort(); await service.done;
+  } finally { await t.harness.lifecycle.dispose(); await new Promise<void>(resolve => core.close(() => resolve())); }
 });
