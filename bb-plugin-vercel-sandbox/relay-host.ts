@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Sandbox } from "@vercel/sandbox";
 import { relayArtifact } from "./relay-artifact.js";
 import { relayLaunchArgs } from "./relay-launch.js";
-import { relayIdentitySchema, relayViewSchema, resolvedRelayImageSchema, type RelayIdentity, type RelayView } from "./relay-contract.js";
+import { relayIdentitySchema, relayViewSchema, resolvedRelayImageSchema, relayAdmissionSnapshotSchema, type RelayIdentity, type RelayView } from "./relay-contract.js";
 import { SafeError } from "./configuration.js";
 import type { createVercelClient } from "./client.js";
 
@@ -83,6 +83,7 @@ export async function relayOperation(options: {
         phase: "prepared", sessionId: null, commandId: null, origin: null, fingerprint: keys.fingerprint,
         expiresAt: null, computeEnded: false, metadataDeleted: false, observedStatus: "unobserved", artifactSha256: relayArtifact.sha256,
         requestedImage: identity.image, image: null, resolvedImage: null, nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
+        commandObservation: { state: "not-submitted", exitCode: null, reason: "none" }, adapterObservation: { state: "unobserved", snapshot: null },
       } };
       await save(record, true);
     }
@@ -120,8 +121,34 @@ export async function relayOperation(options: {
     if (options.operation === "inspect") {
       r.view.observedStatus = sandbox?.currentSession().status ?? "missing";
       if (sandbox && r.view.commandId && sandbox.currentSession().status === "running") {
-        const command = await sandbox.currentSession().getCommand(r.view.commandId, { signal });
-        r.view.observedStatus = command.exitCode === null ? "command-pending-or-running" : "command-exited";
+        try {
+          const command = await sandbox.currentSession().getCommand(r.view.commandId, { signal });
+          const code = command.exitCode;
+          if (code === null) r.view.commandObservation = { state: "pending-or-running", exitCode: null, reason: "none" };
+          else if (Number.isInteger(code) && code >= -255 && code <= 255) r.view.commandObservation = { state: "exited", exitCode: code, reason: "none" };
+          else r.view.commandObservation = { state: "unavailable", exitCode: null, reason: "invalid-exit-code" };
+          r.view.observedStatus = code === null ? "command-pending-or-running" : r.view.commandObservation.state === "exited" ? "command-exited" : "command-observation-unavailable";
+        } catch {
+          signal.throwIfAborted();
+          r.view.commandObservation = { state: "unavailable", exitCode: null, reason: "observation-failed" };
+          r.view.observedStatus = "command-observation-unavailable";
+        }
+        let diagnostics: Readable | null = null;
+        try {
+          diagnostics = await sandbox.currentSession().readFile({ path: `/tmp/bb-relay-${identity.generation}/host.pem.diagnostics.json` }, { signal }) as Readable | null;
+          if (!diagnostics) r.view.adapterObservation = { state: "missing", snapshot: null };
+          else {
+            let text = "";
+            for await (const chunk of diagnostics) {
+              text += Buffer.from(chunk).toString("utf8");
+              if (Buffer.byteLength(text) > 4096) throw new Error("Diagnostic snapshot limit");
+            }
+            r.view.adapterObservation = { state: "available", snapshot: relayAdmissionSnapshotSchema.parse(JSON.parse(text)) };
+          }
+        } catch {
+          signal.throwIfAborted();
+          r.view.adapterObservation = { state: diagnostics ? "invalid" : "unavailable", snapshot: null };
+        } finally { diagnostics?.destroy(); }
       }
       if (!sandbox && r.view.sessionId && !r.view.computeEnded) {
         const session = await vendor.getSession({ sessionId: r.view.sessionId, projectId: identity.connection.projectId, sandboxName: r.view.name }, signal);
@@ -195,10 +222,12 @@ export async function relayOperation(options: {
       { path: `${root}/authorized.pub`, content: identity.authorizedKey, mode: 0o600 },
       { path: `${root}/config.json`, content: JSON.stringify({ publicAuthority: new URL(r.view.origin).host, port: 8080, reversePort: 38992, bridgePort: identity.bridgePort, hostKeyFile: `${root}/host.pem`, authorizedKeyFile: `${root}/authorized.pub` }), mode: 0o600 },
     ], { signal });
+    r.view.commandObservation = { state: "submission-uncertain", exitCode: null, reason: "none" };
     await transition("launching");
     const command = await session.runCommand({ cmd: "node", args: relayLaunchArgs(root), detached: true, timeoutMs: 600_000, signal });
     r.view.commandId = command.cmdId;
-    r.view.observedStatus = "running";
+    r.view.observedStatus = "command-submitted";
+    r.view.commandObservation = { state: "submitted", exitCode: null, reason: "none" };
     await transition("ready");
     return r.view;
   });

@@ -26,6 +26,7 @@ function fixture() {
       fingerprint: "a".repeat(64), artifactSha256: "b".repeat(64), expiresAt: Date.now() + 600_000,
       computeEnded: false, metadataDeleted: false, observedStatus: "command-pending-or-running",
       requestedImage: "vercel/sandbox/node:24", image: resolvedImage, resolvedImage, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
+      commandObservation: { state: "pending-or-running", exitCode: null, reason: "none" }, adapterObservation: { state: "unobserved", snapshot: null },
     });
     const view = views.get(key)!;
     if (input.method === "relay.stop") Object.assign(view, { phase: "removed", computeEnded: true, metadataDeleted: true, observedStatus: "stopped" });

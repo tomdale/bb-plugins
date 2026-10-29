@@ -1,4 +1,5 @@
 import { createServer, type Socket } from "node:net";
+import { TLSSocket } from "node:tls";
 import { createHash, timingSafeEqual } from "node:crypto";
 import ssh2, { type Connection } from "ssh2";
 const { Client, Server, utils } = ssh2;
@@ -6,6 +7,7 @@ import { WebSocket, WebSocketServer, createWebSocketStream } from "ws";
 import { createServer as createHttpServer } from "node:http";
 import { once } from "node:events";
 import { CHANNEL_LIMIT, forwardFixedBridge, forwardReverseSocket } from "./channels.ts";
+import { networkReason, report, methodCategories, type AdmissionDiagnostics, type DiagnosticSink, type DiagnosticStage, type MethodCategory } from "./diagnostics.ts";
 
 export const CONNECTOR_PATH = "/machine-connector";
 
@@ -20,32 +22,49 @@ function port(value: number) { if (!Number.isInteger(value) || value < 1 || valu
  * the one loopback bridge port, never any address received from the relay.
  */
 export async function startConnector(options: {
-  relayUrl: string; privateKey: string; hostFingerprint: string; bridgePort: number; reversePort: number; signal?: AbortSignal;
+  relayUrl: string; privateKey: string; hostFingerprint: string; bridgePort: number; reversePort: number; signal?: AbortSignal; diagnostics?: DiagnosticSink;
 }) {
-  options.signal?.throwIfAborted();
-  port(options.bridgePort); port(options.reversePort);
-  const origin = new URL(options.relayUrl);
+  if (options.signal?.aborted) { report(options.diagnostics, "readiness", "closed", "cancelled"); throw new DOMException("Connector start cancelled", "AbortError"); }
+  try { port(options.bridgePort); port(options.reversePort); } catch { report(options.diagnostics, "reverse", "failed", "invalid-config"); throw new Error("Invalid fixed tunnel port"); }
+  let origin: URL;
+  try { origin = new URL(options.relayUrl); } catch { report(options.diagnostics, "wss", "failed", "invalid-config"); throw new Error("Invalid connector configuration"); }
   if (origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash ||
-      (origin.protocol !== "wss:" && !(origin.protocol === "ws:" && origin.hostname === "127.0.0.1"))) throw new Error("Expected WSS control origin or isolated WS loopback origin");
-  if (!/^[a-f0-9]{64}$/.test(options.hostFingerprint)) throw new Error("Expected SHA-256 SSH host key fingerprint in hex");
+      (origin.protocol !== "wss:" && !(origin.protocol === "ws:" && origin.hostname === "127.0.0.1"))) { report(options.diagnostics, "wss", "failed", "invalid-config"); throw new Error("Expected WSS control origin or isolated WS loopback origin"); }
+  if (!/^[a-f0-9]{64}$/.test(options.hostFingerprint)) { report(options.diagnostics, "ssh-host", "failed", "invalid-config"); throw new Error("Expected SHA-256 SSH host key fingerprint in hex"); }
   const privateKey = utils.parseKey(options.privateKey);
-  if (privateKey instanceof Error) throw new Error("Invalid dedicated connector private key");
+  if (privateKey instanceof Error || Array.isArray(privateKey) || privateKey.isPrivateKey() !== true) {
+    report(options.diagnostics, "ssh-auth", "failed", "invalid-config");
+    throw new Error("Invalid dedicated connector private key");
+  }
+  report(options.diagnostics, "wss", "pending");
+  if (origin.protocol === "wss:") report(options.diagnostics, "tls", "pending");
+  let pendingStage: DiagnosticStage = "wss";
   const socket = new WebSocket(new URL(CONNECTOR_PATH, origin), {
     perMessageDeflate: false, maxPayload: 64 * 1024, maxFragments: 64, maxBufferedChunks: 128,
     handshakeTimeout: 5000, followRedirects: false, rejectUnauthorized: true,
+    finishRequest: request => {
+      request.once("socket", socket => {
+        if (socket instanceof TLSSocket) socket.once("secureConnect", () => report(options.diagnostics, "tls", socket.authorized ? "verified" : "failed", socket.authorized ? "none" : "tls-certificate"));
+      });
+      request.end();
+    },
   });
   const stream = createWebSocketStream(socket, { highWaterMark: 64 * 1024 });
   const ssh = new Client();
   const local = new Set<Socket>();
   let closed = false;
   let registered = false;
+  let hostRejected = false;
+  let disposing = false;
   let resolveExit!: () => void;
   const exited = new Promise<void>(resolve => { resolveExit = resolve; });
   let rejectReady: ((error: Error) => void) | undefined;
   const close = () => {
     if (closed) return;
     closed = true;
+    if (options.signal?.aborted) report(options.diagnostics, "readiness", "closed", "cancelled");
     options.signal?.removeEventListener("abort", close);
+    if (registered) report(options.diagnostics, "reverse", "closed", disposing ? "disposed" : options.signal?.aborted ? "cancelled" : "peer-closed");
     registered = false;
     try {
       for (const connection of local) connection.destroy();
@@ -56,9 +75,35 @@ export async function startConnector(options: {
       resolveExit();
     }
   };
-  socket.on("error", close); socket.on("close", close);
-  stream.on("error", close); stream.on("end", close); stream.on("close", close);
-  ssh.on("error", close); ssh.on("end", close); ssh.on("close", close);
+  socket.on("upgrade", response => {
+    report(options.diagnostics, "wss", "verified", "none", { httpStatus: response.statusCode });
+    if (origin.protocol === "wss:") report(options.diagnostics, "tls", "verified");
+    pendingStage = "ssh-host";
+  });
+  socket.on("unexpected-response", (_request, response) => {
+    if (!closed) report(options.diagnostics, "wss", "failed", "upgrade-denied", { httpStatus: response.statusCode });
+    response.destroy(); close();
+  });
+  socket.on("error", error => {
+    if (!closed) {
+      const reason = networkReason(error);
+      if (reason === "tls-certificate" || reason === "tls-handshake") report(options.diagnostics, "tls", "failed", reason);
+      report(options.diagnostics, "wss", "failed", reason);
+    }
+    close();
+  });
+  socket.on("close", () => { if (!closed) report(options.diagnostics, "wss", "closed", "peer-closed"); close(); });
+  stream.on("error", () => { if (!closed) report(options.diagnostics, pendingStage, "failed", "peer-closed"); close(); });
+  const peerEnded = () => { if (!closed) report(options.diagnostics, pendingStage, "closed", "peer-closed"); close(); };
+  stream.on("end", peerEnded); stream.on("close", peerEnded);
+  ssh.on("error", error => {
+    if (!closed && !hostRejected) {
+      const authentication = "level" in error && error.level === "client-authentication";
+      report(options.diagnostics, authentication ? "ssh-auth" : pendingStage, "failed", authentication ? "ssh-auth-rejected" : "ssh-handshake");
+    }
+    close();
+  });
+  ssh.on("end", peerEnded); ssh.on("close", peerEnded);
   ssh.on("tcp connection", (info, accept, reject) => {
     if (closed || !registered || info.destIP !== "127.0.0.1" || info.destPort !== options.reversePort || local.size >= CHANNEL_LIMIT) { reject(); return; }
     // Only local configuration crosses this boundary, never relay metadata.
@@ -67,13 +112,16 @@ export async function startConnector(options: {
   let deadline: NodeJS.Timeout;
   const ready = new Promise<void>((resolve, reject) => {
     rejectReady = reject;
-    deadline = setTimeout(() => { close(); reject(new Error("SSH reverse-listener deadline exceeded")); }, 5000);
+    deadline = setTimeout(() => { report(options.diagnostics, pendingStage, "failed", "timeout"); close(); reject(new Error("SSH reverse-listener deadline exceeded")); }, 5000);
     ssh.once("error", () => reject(new Error("SSH connector authentication failed")));
     ssh.once("close", () => reject(new Error("SSH connector closed before readiness")));
     ssh.once("ready", () => {
+      report(options.diagnostics, "ssh-auth", "verified");
+      pendingStage = "reverse";
+      report(options.diagnostics, "reverse", "pending");
       ssh.forwardIn("127.0.0.1", options.reversePort, error => {
-        if (error || closed) reject(new Error("Fixed reverse listener rejected"));
-        else { registered = true; rejectReady = undefined; resolve(); }
+        if (error || closed) { report(options.diagnostics, "reverse", "failed", "reverse-rejected"); reject(new Error("Fixed reverse listener rejected")); }
+        else { registered = true; rejectReady = undefined; report(options.diagnostics, "reverse", "verified"); resolve(); }
       });
     });
   });
@@ -83,18 +131,24 @@ export async function startConnector(options: {
     options.signal?.throwIfAborted();
     ssh.connect({
     sock: stream, username: "machine-connector", privateKey: options.privateKey,
-    hostHash: "sha256", hostVerifier: (hash: string) => timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(options.hostFingerprint, "hex")),
+    hostHash: "sha256", hostVerifier: (hash: string) => {
+      const accepted = timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(options.hostFingerprint, "hex"));
+      hostRejected = !accepted;
+      report(options.diagnostics, "ssh-host", accepted ? "verified" : "failed", accepted ? "none" : "host-pin-mismatch");
+      if (accepted) { pendingStage = "ssh-auth"; report(options.diagnostics, "ssh-auth", "pending"); }
+      return accepted;
+    },
     readyTimeout: 5000, keepaliveInterval: 15_000, keepaliveCountMax: 3,
     });
     await ready;
-  } catch (error) { close(); throw error; } finally { clearTimeout(deadline!); }
-  return { exited, running: () => !closed, async close() { close(); await exited; } };
+  } catch { close(); throw new Error("SSH/WSS connector failed; inspect bounded diagnostics"); } finally { clearTimeout(deadline!); }
+  return { exited, running: () => !closed, async close() { disposing = true; close(); await exited; } };
 }
 
 /** Relay-side SSH endpoint; only one authenticated connector and TCP reverse listener. */
 export async function openTunnelRelay(options: {
   hostKey: string; authorizedKey: string; reversePort: number; port?: number;
-  bind?: "127.0.0.1" | "0.0.0.0"; publicAuthority?: string;
+  bind?: "127.0.0.1" | "0.0.0.0"; publicAuthority?: string; diagnostics?: AdmissionDiagnostics;
 }) {
   port(options.reversePort);
   const authorized = utils.parseKey(options.authorizedKey);
@@ -161,7 +215,10 @@ export async function openTunnelRelay(options: {
   const upgrade = (req: import("node:http").IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => {
     wireSockets.add(req.socket);
     req.socket.once("close", () => wireSockets.delete(req.socket));
-    if (closed || req.method !== "GET" || req.url !== CONNECTOR_PATH || (options.publicAuthority && req.headers.host !== options.publicAuthority) || req.headers.origin || req.headers.authorization || req.headers.cookie || req.headers["x-vercel-access"] || ws.clients.size >= 4) { socket.destroy(); return; }
+    if (closed || req.method !== "GET" || req.url !== CONNECTOR_PATH || (options.publicAuthority && req.headers.host !== options.publicAuthority) || req.headers.origin || req.headers.authorization || req.headers.cookie || req.headers["x-vercel-access"] || ws.clients.size >= 4) {
+      options.diagnostics?.record({ reason: options.publicAuthority && req.headers.host !== options.publicAuthority ? "host-mismatch" : ws.clients.size >= 4 ? "capacity" : "upgrade", headerNames: ["origin", "authorization", "cookie", "x-vercel-access"].filter(name => req.headers[name] !== undefined), route: "connector", method: methodCategories.includes(req.method as MethodCategory) ? req.method as MethodCategory : "OTHER", status: null, hostMatches: !options.publicAuthority || req.headers.host === options.publicAuthority });
+      socket.destroy(); return;
+    }
     try { ws.handleUpgrade(req, socket, head, websocket => {
       req.socket.setTimeout(0);
       websocket.on("error", () => {});

@@ -1,12 +1,23 @@
 import { cliCommand, defineCli, defineRpcContract, PluginCliError, type BbPluginApi } from "@get-bb/plugin-sdk";
 import ssh2 from "ssh2";
 import { z } from "zod";
+import { DiagnosticStore, type DiagnosticSnapshot } from "./diagnostics.ts";
+import { diagnosticSnapshotSchema } from "./diagnostic-contract.ts";
 
 const keySchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 const inputSchema = z.object({ key: keySchema }).strict();
 const imageSchema = z.literal("vercel/sandbox/node:24").default("vercel/sandbox/node:24");
 const resolvedImageSchema = z.string().length("vercel/sandbox/node@sha256:".length + 64).regex(/^vercel\/sandbox\/node@sha256:[a-f0-9]{64}$/);
 // This is the public, secret-free contract owned by the Vercel Sandbox plugin.
+const admissionSnapshotSchema = z.object({
+  version: z.literal(1), count: z.number().int().min(0).max(32), suppressed: z.number().int().min(0).max(65535),
+  last: z.object({
+    reason: z.enum(["route", "http-version", "duplicate-header", "unlisted-header", "header-value", "host-mismatch", "fetch-metadata", "admission", "framing", "artifact-condition", "body-metadata", "upgrade", "connection", "capacity", "policy"]),
+    headerNames: z.array(z.string().max(64).regex(/^[a-z][a-z0-9-]*$/).refine(name => name === name.trim())).max(8),
+    route: z.enum(["version", "installer", "enrollment", "session", "artifact", "native-ws", "connector", "unlisted"]),
+    method: z.enum(["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "CONNECT", "OTHER"]), status: z.number().int().min(100).max(599).nullable(), hostMatches: z.boolean(),
+  }).strict().nullable(),
+}).strict();
 export const relayViewSchema = z.object({
   key: keySchema, generation: z.string().uuid(), name: z.string().regex(/^bb-relay-[a-f0-9]{48}$/),
   hostId: z.string().min(1).max(200), accountId: z.string().min(1).max(200),
@@ -18,6 +29,8 @@ export const relayViewSchema = z.object({
   observedStatus: z.string().max(32), artifactSha256: z.string().regex(/^[a-f0-9]{64}$/),
   requestedImage: imageSchema, image: z.string().max(300).nullable(), resolvedImage: resolvedImageSchema.nullable().default(null), vcpus: z.number().int().min(1).max(32).nullable(), persistent: z.boolean().nullable(),
   timeoutMs: z.number().int().positive().max(86_400_000).nullable(), nodeVersion: z.string().regex(/^v24\.[0-9]+\.[0-9]+$/).max(32).nullable(),
+  commandObservation: z.object({ state: z.enum(["unobserved", "not-submitted", "submission-uncertain", "submitted", "pending-or-running", "exited", "unavailable"]), exitCode: z.number().int().min(-255).max(255).nullable(), reason: z.enum(["none", "observation-failed", "invalid-exit-code"]) }).strict().default({ state: "unobserved", exitCode: null, reason: "none" }),
+  adapterObservation: z.object({ state: z.enum(["unobserved", "available", "missing", "invalid", "unavailable"]), snapshot: admissionSnapshotSchema.nullable() }).strict().default({ state: "unobserved", snapshot: null }),
 }).strict();
 type View = z.infer<typeof relayViewSchema>;
 const receiptSchema = relayViewSchema.pick({
@@ -34,6 +47,7 @@ function assertPrivateIdentity(privateKey: string | undefined, authorizedKey: st
   if (parsed instanceof Error || Array.isArray(parsed) || parsed.isPrivateKey() !== true || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== authorizedKey) throw new Error("Connector identity changed");
 }
 export const setupContract = defineRpcContract({
+  "setup.status": { input: z.object({}).strict(), output: diagnosticSnapshotSchema },
   "setup.prepare": { input: inputSchema.extend({ approveAllocation: z.literal(true), image: imageSchema }).strict(), output: relayViewSchema },
   "setup.inspect": { input: inputSchema, output: relayViewSchema.nullable() },
   "setup.stop": { input: inputSchema, output: relayViewSchema.nullable() },
@@ -46,6 +60,7 @@ export function registerSetup(bb: BbPluginApi, options: {
   saveKey: (key: string) => Promise<void>;
   apply: (view: View, key: string) => Promise<void>;
   disable: () => Promise<void>;
+  diagnostics?: () => DiagnosticSnapshot;
 }) {
   let tail: Promise<unknown> = Promise.resolve();
   const serialized = <T>(fn: () => Promise<T>) => {
@@ -112,6 +127,7 @@ export function registerSetup(bb: BbPluginApi, options: {
     return view;
   });
   const handlers = {
+    "setup.status": () => diagnosticSnapshotSchema.parse(options.diagnostics?.() ?? new DiagnosticStore().snapshot()),
     "setup.prepare": ({ key, image }: { key: string; image: string; approveAllocation: true }) => prepare(key, image),
     "setup.inspect": ({ key }: { key: string }) => serialized(async () => {
       const record = await getRecord(key);
@@ -139,6 +155,7 @@ export function registerSetup(bb: BbPluginApi, options: {
   bb.rpc.register(setupContract, handlers);
   const cli = <T>(run: () => Promise<T>) => run().then(value => ({ exitCode: 0, stdout: JSON.stringify(value) })).catch(() => { throw new PluginCliError("Relay setup was not confirmed; inspect or stop the retained setup key. No private setup values are emitted."); });
   bb.cli.register(defineCli({ name: "vercel-access", summary: "Explicit bounded relay setup; never allocates during machine acquisition", commands: {
+    "relay status": cliCommand({ summary: "Show bounded local readiness diagnostics without vendor access", run() { return cli(async () => handlers["setup.status"]()); } }),
     "relay prepare": cliCommand({ summary: "Allocate at most one 1-vCPU, ten-minute relay in the connected account", options: {
       key: { type: "string", required: true, description: "Stable setup key; reuse it after an uncertain reply" },
       "confirm-cost": { type: "boolean", description: "Explicitly approve this bounded allocation" },

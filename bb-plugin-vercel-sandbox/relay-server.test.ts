@@ -24,6 +24,7 @@ it("actual public server harness pins relay intent before host call, survives lo
       phase: method === "relayStop" ? "removed" : "submitted", sessionId: null, commandId: null,
       origin: null, fingerprint: "a".repeat(64), expiresAt: null, computeEnded: false, metadataDeleted: false,
       observedStatus: "unobserved", artifactSha256: "b".repeat(64), requestedImage: "vercel/sandbox/node:24", image: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, nodeVersion: null, vcpus: null, persistent: null, timeoutMs: null,
+      commandObservation: { state: "unobserved", exitCode: null, reason: "none" }, adapterObservation: { state: "unobserved", snapshot: null },
     };
     return { ok: true, value: view };
   } });
@@ -111,6 +112,7 @@ it("binds every prepare/inspect/stop reply to original identity and first public
       origin: "https://synthetic-relay.vercel.run", fingerprint: "a".repeat(64), expiresAt: Date.now() + 600_000,
       computeEnded: method === "relayStop", metadataDeleted: method === "relayStop", observedStatus: "running", artifactSha256: "b".repeat(64),
       requestedImage: "vercel/sandbox/node:24", image: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, resolvedImage: `vercel/sandbox/node@sha256:${"a".repeat(64)}`, nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
+      commandObservation: { state: "pending-or-running", exitCode: null, reason: "none" }, adapterObservation: { state: "unobserved", snapshot: null },
     };
     return { ok: true, value: { ...view, ...change } };
   } });

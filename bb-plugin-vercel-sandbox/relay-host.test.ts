@@ -27,14 +27,19 @@ async function setup() {
   let creates = 0, launches = 0, deletes = 0, stops = 0;
   let firstDispatch = true;
   let createReplyLost = false, launchReplyLost = false, stopReplyLost = false, deleteReplyLost = false;
-  let sessionMissing = false, commandExited = false;
+  let sessionMissing = false;
+  let commandExit: number | null = null, commandReadFailure = false;
+  let adapterContents: string | null = null;
   let runtimeVersion = "v24.22.1";
   let submittedSnapshot = "", launchingSnapshot = "";
   const files: { path: string; content: string | Uint8Array; mode?: number }[] = [];
   const session = { sessionId: "session_synthetic", status: "running", vcpus: 1, timeout: 600_000, async stop() { stops++; stopped = true; session.status = "stopped"; if (stopReplyLost) throw new Error("synthetic-secret"); },
-    async getCommand() { return { exitCode: commandExited ? 1 : null }; },
+    async getCommand() { if (commandReadFailure) throw new Error("synthetic-secret-command-error"); return { exitCode: commandExit }; },
     async writeFiles(input: typeof files) { files.push(...input); },
-    async readFile() { return Readable.from([JSON.stringify({ node: runtimeVersion })]); },
+    async readFile(input: { path: string }) {
+      if (input.path.endsWith(".diagnostics.json")) return adapterContents === null ? null : Readable.from([adapterContents]);
+      return Readable.from([JSON.stringify({ node: runtimeVersion })]);
+    },
     async runCommand(input: { detached?: boolean }) {
       if (input.detached) { launches++; launchingSnapshot = await journal(); if (launchReplyLost) throw new Error("synthetic-secret"); return { cmdId: "cmd_synthetic" }; }
       return { exitCode: 0 };
@@ -67,7 +72,10 @@ async function setup() {
     set createReplyLost(v: boolean) { createReplyLost = v; }, set launchReplyLost(v: boolean) { launchReplyLost = v; },
     set stopReplyLost(v: boolean) { stopReplyLost = v; }, set deleteReplyLost(v: boolean) { deleteReplyLost = v; },
     set runtimeVersion(value: string) { runtimeVersion = value; },
-    set sessionMissing(v: boolean) { sessionMissing = v; }, set commandExited(v: boolean) { commandExited = v; },
+    set sessionMissing(v: boolean) { sessionMissing = v; }, set commandExited(v: boolean) { commandExit = v ? 1 : null; },
+    set commandExitCode(value: number | null) { commandExit = value; },
+    set commandReadFailure(value: boolean) { commandReadFailure = value; },
+    set adapterContents(value: string | null) { adapterContents = value; },
     set present(v: boolean) { present = v; },
   };
 }
@@ -93,6 +101,31 @@ describe("relay lifecycle — fake cloud only", () => {
     expect(t.creates).toBe(1); expect(t.launches).toBe(1);
     t.commandExited = true;
     expect(await t.call("inspect")).toMatchObject({ observedStatus: "command-exited" });
+  });
+  it("distinguishes detached submission, pending-or-running and bounded observed exits without logs", async () => {
+    const t = await setup();
+    expect(await t.call("prepare")).toMatchObject({ observedStatus: "command-submitted", commandObservation: { state: "submitted", exitCode: null } });
+    expect(await t.call("inspect")).toMatchObject({ commandObservation: { state: "pending-or-running", exitCode: null }, adapterObservation: { state: "missing", snapshot: null } });
+    t.commandExitCode = 1;
+    expect(await t.call("inspect")).toMatchObject({ observedStatus: "command-exited", commandObservation: { state: "exited", exitCode: 1 } });
+    t.commandExitCode = 9999;
+    expect(await t.call("inspect")).toMatchObject({ commandObservation: { state: "unavailable", exitCode: null, reason: "invalid-exit-code" } });
+    t.commandReadFailure = true;
+    const failed = await t.call("inspect");
+    expect(failed.commandObservation).toMatchObject({ state: "unavailable", reason: "observation-failed" });
+    expect(JSON.stringify(failed)).not.toContain("synthetic-secret-command-error");
+    expect(t.creates).toBe(1); expect(t.launches).toBe(1);
+  });
+  it("reads only a bounded schema-validated private adapter snapshot", async () => {
+    const t = await setup(); await t.call("prepare");
+    t.adapterContents = JSON.stringify({ version: 1, count: 1, suppressed: 0, last: { reason: "unlisted-header", headerNames: ["x-synthetic-unknown"], route: "version", method: "GET", status: 403, hostMatches: true } });
+    expect(await t.call("inspect")).toMatchObject({ adapterObservation: { state: "available", snapshot: { last: { reason: "unlisted-header", headerNames: ["x-synthetic-unknown"] } } } });
+    for (const invalid of ["synthetic-secret-payload", "x".repeat(4097), JSON.stringify({ version: 1, count: 1, suppressed: 0, last: null, payload: "synthetic-secret-payload" })]) {
+      t.adapterContents = invalid;
+      const view = await t.call("inspect");
+      expect(view.adapterObservation).toEqual({ state: "invalid", snapshot: null });
+      expect(JSON.stringify(view)).not.toContain("synthetic-secret-payload");
+    }
   });
   it("pins the first official resolved digest and rejects later drift without blocking owned cleanup", async () => {
     const t = await setup(); await t.call("prepare");

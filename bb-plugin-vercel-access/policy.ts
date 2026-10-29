@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import { AdmissionDenied, type RouteCategory } from "./diagnostics.ts";
 
 export const ACCESS_HEADER = "x-vercel-access";
 export const DAEMON_PROTOCOL = "bb-host-daemon.v1";
@@ -39,6 +40,16 @@ export function route(method: string, target: string): Route | null {
   return null;
 }
 
+export function routeCategory(method: string, target: string): RouteCategory {
+  if (!route(method, target)) return "unlisted";
+  if (target === "/install/version") return "version";
+  if (target.startsWith("/install")) return "installer";
+  if (target === "/internal/hosts/enroll") return "enrollment";
+  if (route(method, target) === "ws") return "native-ws";
+  if (target.startsWith("/internal/session/")) return "session";
+  return "artifact";
+}
+
 const commonHeaders = new Set([
   "host", ACCESS_HEADER, "authorization", "content-type", "content-length",
   "if-none-match", "accept", "accept-encoding", "accept-language", "sec-fetch-mode", "user-agent", "connection",
@@ -51,36 +62,38 @@ export function admitRequest(req: IncomingMessage, authority: string, upgrade: b
   token: string; target: string; headers: Record<string, string>; length: number;
 } {
   const target = req.url ?? "";
-  if (req.httpVersion !== "1.1" || route(req.method ?? "", target) !== (upgrade ? "ws" : "http")) throw new Error("denied");
+  if (req.httpVersion !== "1.1") throw new AdmissionDenied("http-version");
+  if (route(req.method ?? "", target) !== (upgrade ? "ws" : "http")) throw new AdmissionDenied("route");
   const headers: Record<string, string> = {};
   const seen = new Set<string>();
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
     const name = req.rawHeaders[i].toLowerCase();
     const value = req.rawHeaders[i + 1];
-    if (seen.has(name) || (!commonHeaders.has(name) && !(upgrade && wsHeaders.has(name)) && !(discardPlatformMetadata && discardedPlatformHeaders.has(name)))) throw new Error("denied");
-    if (value.length > 8192 || /[^\x20-\x7e]/.test(value)) throw new Error("denied");
+    if (seen.has(name)) throw new AdmissionDenied("duplicate-header", [name]);
+    if (!commonHeaders.has(name) && !(upgrade && wsHeaders.has(name)) && !(discardPlatformMetadata && discardedPlatformHeaders.has(name))) throw new AdmissionDenied("unlisted-header", [name]);
+    if (value.length > 8192 || /[^\x20-\x7e]/.test(value)) throw new AdmissionDenied("header-value", [name]);
     seen.add(name);
     headers[name] = value;
   }
-  if (headers.host !== authority) throw new Error("denied");
+  if (headers.host !== authority) throw new AdmissionDenied("host-mismatch", ["host"]);
   // Node's native fetch adds these browser-shaped fields. They are inert
   // metadata, not authority, and are discarded rather than forwarded to core.
-  if (headers["accept-language"] !== undefined && headers["accept-language"] !== "*") throw new Error("denied");
-  if (headers["sec-fetch-mode"] !== undefined && headers["sec-fetch-mode"] !== "cors") throw new Error("denied");
+  if (headers["accept-language"] !== undefined && headers["accept-language"] !== "*") throw new AdmissionDenied("fetch-metadata", ["accept-language"]);
+  if (headers["sec-fetch-mode"] !== undefined && headers["sec-fetch-mode"] !== "cors") throw new AdmissionDenied("fetch-metadata", ["sec-fetch-mode"]);
   const token = headers[ACCESS_HEADER];
-  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error("denied");
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new AdmissionDenied("admission");
   const length = headers["content-length"] === undefined ? 0 : Number(headers["content-length"]);
-  if (!Number.isSafeInteger(length) || length < 0 || length > MAX_BODY || (headers["content-length"] !== undefined && String(length) !== headers["content-length"])) throw new Error("denied");
-  if (headers["if-none-match"] !== undefined && (req.method !== "GET" || target !== "/install/bb-app.tgz" || !/^"sha256-[a-f0-9]{64}"$/.test(headers["if-none-match"]))) throw new Error("denied");
+  if (!Number.isSafeInteger(length) || length < 0 || length > MAX_BODY || (headers["content-length"] !== undefined && String(length) !== headers["content-length"])) throw new AdmissionDenied("framing");
+  if (headers["if-none-match"] !== undefined && (req.method !== "GET" || target !== "/install/bb-app.tgz" || !/^"sha256-[a-f0-9]{64}"$/.test(headers["if-none-match"]))) throw new AdmissionDenied("artifact-condition");
   if (req.method === "POST") {
-    if (!seen.has("content-length") || headers["content-type"] !== "application/json") throw new Error("denied");
-  } else if (length !== 0) throw new Error("denied");
+    if (!seen.has("content-length") || headers["content-type"] !== "application/json") throw new AdmissionDenied("body-metadata");
+  } else if (length !== 0) throw new AdmissionDenied("framing");
   if (upgrade) {
-    if (headers["sec-websocket-extensions"] !== undefined && headers["sec-websocket-extensions"] !== "permessage-deflate; client_max_window_bits") throw new Error("denied");
+    if (headers["sec-websocket-extensions"] !== undefined && headers["sec-websocket-extensions"] !== "permessage-deflate; client_max_window_bits") throw new AdmissionDenied("upgrade");
     if (headers.upgrade?.toLowerCase() !== "websocket" || headers.connection?.toLowerCase() !== "upgrade" ||
         headers["sec-websocket-protocol"] !== DAEMON_PROTOCOL || headers["sec-websocket-version"] !== "13" ||
-        !/^[A-Za-z0-9+/]{22}==$/.test(headers["sec-websocket-key"] ?? "")) throw new Error("denied");
-  } else if (headers.connection && !["close", "keep-alive"].includes(headers.connection.toLowerCase())) throw new Error("denied");
+        !/^[A-Za-z0-9+/]{22}==$/.test(headers["sec-websocket-key"] ?? "")) throw new AdmissionDenied("upgrade");
+  } else if (headers.connection && !["close", "keep-alive"].includes(headers.connection.toLowerCase())) throw new AdmissionDenied("connection");
   // No caller authority, cookies, forwarding metadata, enrollment lookup or
   // transport credential reaches core; native Authorization stays opaque.
   const native: Record<string, string> = {};

@@ -3,7 +3,8 @@ import type { Duplex } from "node:stream";
 import type { Socket } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
 import { AdmissionLeases } from "./grants.ts";
-import { ACCESS_HEADER, admitRequest, DAEMON_PROTOCOL, MAX_BODY, MAX_CONNECTIONS, MAX_RESPONSE, TESTED_CORE } from "./policy.ts";
+import { ACCESS_HEADER, admitRequest, routeCategory, DAEMON_PROTOCOL, MAX_BODY, MAX_CONNECTIONS, MAX_RESPONSE, TESTED_CORE } from "./policy.ts";
+import { AdmissionDenied, AdmissionDiagnostics, methodCategories, type AdmissionSnapshot, type MethodCategory } from "./diagnostics.ts";
 
 function loopback(baseUrl: string): URL {
   const url = new URL(baseUrl);
@@ -39,9 +40,9 @@ function denied(res: ServerResponse, status = 403) {
  * may be attached to a separately authenticated tunnel. It is not remote-owner
  * ingress: core sees loopback, so this allowlist is the owner isolation boundary.
  */
-export async function openBridge(options: { baseUrl: string; leases: AdmissionLeases; port?: number }) {
+export async function openBridge(options: { baseUrl: string; leases: AdmissionLeases; port?: number; onRejection?: (snapshot: AdmissionSnapshot) => void }) {
   await checkCore(options.baseUrl);
-  return openSurface({ upstream: loopback(options.baseUrl), leases: options.leases, port: options.port, bind: "127.0.0.1" });
+  return openSurface({ upstream: loopback(options.baseUrl), leases: options.leases, port: options.port, bind: "127.0.0.1", onRejection: options.onRejection });
 }
 
 /**
@@ -52,6 +53,8 @@ export async function openBridge(options: { baseUrl: string; leases: AdmissionLe
 export async function openRelayAdapter(options: {
   reversePort: number; bridgePort: number; publicAuthority: string;
   port?: number; bind?: "127.0.0.1" | "0.0.0.0";
+  onRejection?: (snapshot: AdmissionSnapshot) => void;
+  diagnostics?: AdmissionDiagnostics;
   connector?: Pick<Awaited<ReturnType<typeof import("./tunnel.ts").openTunnelRelay>>, "upgrade">;
 }) {
   for (const port of [options.reversePort, options.bridgePort]) if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid fixed relay port");
@@ -59,13 +62,15 @@ export async function openRelayAdapter(options: {
   return openSurface({
     upstream: new URL(`http://127.0.0.1:${options.reversePort}`), leases: null,
     authority: options.publicAuthority, upstreamAuthority: `127.0.0.1:${options.bridgePort}`,
-    port: options.port, bind: options.bind ?? "127.0.0.1", connector: options.connector,
+    port: options.port, bind: options.bind ?? "127.0.0.1", connector: options.connector, onRejection: options.onRejection, diagnostics: options.diagnostics,
   });
 }
 
 async function openSurface(options: {
   upstream: URL; leases: AdmissionLeases | null; port?: number; bind: "127.0.0.1" | "0.0.0.0";
   authority?: string; upstreamAuthority?: string;
+  onRejection?: (snapshot: AdmissionSnapshot) => void;
+  diagnostics?: AdmissionDiagnostics;
   connector?: Pick<Awaited<ReturnType<typeof import("./tunnel.ts").openTunnelRelay>>, "upgrade">;
 }) {
   const { upstream, leases } = options;
@@ -76,6 +81,14 @@ async function openSurface(options: {
   let closing = false;
   let authority = "";
   let inFlight = 0;
+  const diagnostics = options.diagnostics ?? new AdmissionDiagnostics(options.onRejection);
+  const rejected = (req: IncomingMessage, error: unknown, connector = false) => diagnostics.record({
+    reason: error instanceof AdmissionDenied ? error.reason : "policy",
+    headerNames: error instanceof AdmissionDenied ? error.headerNames : [],
+    route: connector ? "connector" : routeCategory(req.method ?? "", req.url ?? ""),
+    method: methodCategories.includes(req.method as MethodCategory) ? req.method as MethodCategory : "OTHER",
+    status: connector ? null : 403, hostMatches: req.headers.host === authority,
+  });
   const server = createServer({ maxHeaderSize: 16 * 1024, requestTimeout: 15_000, headersTimeout: 10_000, keepAliveTimeout: 1000 }, (req, res) => {
     void http(req, res);
   });
@@ -101,9 +114,9 @@ async function openSurface(options: {
   server.on("connect", (_req, socket) => socket.destroy());
 
   function admit(req: IncomingMessage, upgrade: boolean) {
-    if (closing || inFlight >= 16) throw new Error("denied");
+    if (closing || inFlight >= 16) throw new AdmissionDenied("capacity");
     const accepted = admitRequest(req, authority, upgrade, leases === null);
-    if (leases && !leases.accepts(accepted.token)) throw new Error("denied");
+    if (leases && !leases.accepts(accepted.token)) throw new AdmissionDenied("admission");
     admitted.set(req.socket, leases ? leases.digest(accepted.token) : "relay");
     if (!leases) accepted.headers[ACCESS_HEADER] = accepted.token;
     return accepted;
@@ -111,7 +124,7 @@ async function openSurface(options: {
 
   async function http(req: IncomingMessage, res: ServerResponse) {
     let accepted: ReturnType<typeof admit>;
-    try { accepted = admit(req, false); } catch { denied(res); return; }
+    try { accepted = admit(req, false); } catch (error) { rejected(req, error); denied(res); return; }
     inFlight++;
     let native: ReturnType<typeof request> | undefined;
     let timer: NodeJS.Timeout | undefined;
@@ -176,12 +189,12 @@ async function openSurface(options: {
 
   server.on("upgrade", (req, socket, head) => {
     if (options.connector && req.url === "/machine-connector") {
-      if (req.headers.host !== authority) { socket.destroy(); return; }
+      if (req.headers.host !== authority) { rejected(req, new AdmissionDenied("host-mismatch", ["host"]), true); socket.destroy(); return; }
       options.connector.upgrade(req, socket, head);
       return;
     }
     let accepted: ReturnType<typeof admit>;
-    try { accepted = admit(req, true); } catch { socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
+    try { accepted = admit(req, true); } catch (error) { rejected(req, error); socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
     inFlight++;
     let remote: WebSocket | undefined;
     let done = false;
@@ -246,6 +259,7 @@ async function openSurface(options: {
   authority = options.authority ?? localAuthority;
   return {
     url: `http://${localAuthority}`,
+    diagnostics: () => diagnostics.snapshot(),
     async close() {
       if (closing) return;
       closing = true;

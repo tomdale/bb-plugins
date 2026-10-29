@@ -13,6 +13,21 @@ export const relayIdentitySchema = relaySetupSchema.extend({
   owner: z.string().uuid(), generation: z.string().uuid(), connection: connectionSchema,
 }).strict();
 export type RelayIdentity = z.infer<typeof relayIdentitySchema>;
+export const relayAdmissionSnapshotSchema = z.object({
+  version: z.literal(1), count: z.number().int().min(0).max(32), suppressed: z.number().int().min(0).max(65535),
+  last: z.object({
+    reason: z.enum(["route", "http-version", "duplicate-header", "unlisted-header", "header-value", "host-mismatch", "fetch-metadata", "admission", "framing", "artifact-condition", "body-metadata", "upgrade", "connection", "capacity", "policy"]),
+    headerNames: z.array(z.string().max(64).regex(/^[a-z][a-z0-9-]*$/).refine(name => name === name.trim())).max(8),
+    route: z.enum(["version", "installer", "enrollment", "session", "artifact", "native-ws", "connector", "unlisted"]),
+    method: z.enum(["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "CONNECT", "OTHER"]),
+    status: z.number().int().min(100).max(599).nullable(), hostMatches: z.boolean(),
+  }).strict().nullable(),
+}).strict();
+export const relayCommandObservationSchema = z.object({
+  state: z.enum(["unobserved", "not-submitted", "submission-uncertain", "submitted", "pending-or-running", "exited", "unavailable"]),
+  exitCode: z.number().int().min(-255).max(255).nullable(), reason: z.enum(["none", "observation-failed", "invalid-exit-code"]),
+}).strict();
+export const relayAdapterObservationSchema = z.object({ state: z.enum(["unobserved", "available", "missing", "invalid", "unavailable"]), snapshot: relayAdmissionSnapshotSchema.nullable() }).strict();
 export const relayViewSchema = z.object({
   key: relayKeySchema, generation: z.string().uuid(),
   name: z.string().regex(/^bb-relay-[a-f0-9]{48}$/),
@@ -34,6 +49,8 @@ export const relayViewSchema = z.object({
   persistent: z.boolean().nullable(),
   timeoutMs: z.number().int().positive().max(86_400_000).nullable(),
   nodeVersion: z.string().regex(/^v24\.[0-9]+\.[0-9]+$/).max(32).nullable(),
+  commandObservation: relayCommandObservationSchema.default({ state: "unobserved", exitCode: null, reason: "none" }),
+  adapterObservation: relayAdapterObservationSchema.default({ state: "unobserved", snapshot: null }),
 }).strict();
 export type RelayView = z.infer<typeof relayViewSchema>;
 export const relayReceiptSchema = relayViewSchema.pick({

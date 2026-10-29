@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { openRelayAdapter } from "./bridge.ts";
 import { openTunnelRelay } from "./tunnel.ts";
+import { relayDiagnosticFile } from "./relay-diagnostics.ts";
 
 interface RelayConfig {
   publicAuthority: string; port: number; reversePort: number; bridgePort: number;
@@ -14,17 +15,18 @@ export async function runRelay(config: RelayConfig) {
   if (!secret.isFile() || secret.size > 32768 || (secret.mode & 0o077) !== 0) throw new Error("Relay host key must be a private bounded file");
   const publicKey = await stat(config.authorizedKeyFile);
   if (!publicKey.isFile() || publicKey.size > 32768) throw new Error("Invalid connector public key file");
+  const diagnosis = relayDiagnosticFile(config.hostKeyFile);
   const tunnel = await openTunnelRelay({
     hostKey: await readFile(config.hostKeyFile, "utf8"), authorizedKey: await readFile(config.authorizedKeyFile, "utf8"),
-    reversePort: config.reversePort, publicAuthority: config.publicAuthority,
+    reversePort: config.reversePort, publicAuthority: config.publicAuthority, diagnostics: diagnosis.diagnostics,
   });
   try {
     const adapter = await openRelayAdapter({
       reversePort: config.reversePort, bridgePort: config.bridgePort, publicAuthority: config.publicAuthority,
-      port: config.port, bind: "0.0.0.0", connector: tunnel,
+      port: config.port, bind: "0.0.0.0", connector: tunnel, diagnostics: diagnosis.diagnostics,
     });
-    return { async close() { await adapter.close(); await tunnel.close(); } };
-  } catch (error) { await tunnel.close(); throw error; }
+    return { async close() { await adapter.close(); await tunnel.close(); await diagnosis.flush(); } };
+  } catch (error) { await tunnel.close(); await diagnosis.flush(); throw error; }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === import.meta.filename) {

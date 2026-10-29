@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { createServer } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { generateKeyPairSync } from "node:crypto";
@@ -44,5 +44,17 @@ it("pinned standalone artifact starts without npm packages or BB, reads private 
   }
   expect(output.slice(-2000)).toBe("");
   expect(response?.status).toBe(403);
+  const secret = "synthetic-secret-header-value";
+  expect((await fetch(`http://127.0.0.1:${port}/install/version`, { headers: { "x-vercel-access": "a".repeat(43), "x-synthetic-unknown": secret }, signal: AbortSignal.timeout(2000) })).status).toBe(403);
+  const path = join(root, "host.pem.diagnostics.json");
+  let snapshot = "";
+  for (let i = 0; i < 50; i++) {
+    try { snapshot = await readFile(path, "utf8"); if (JSON.parse(snapshot).last?.reason === "unlisted-header") break; } catch {}
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  expect(Buffer.byteLength(snapshot)).toBeLessThanOrEqual(4096);
+  expect(JSON.parse(snapshot).last).toMatchObject({ reason: "unlisted-header", headerNames: ["x-synthetic-unknown"], method: "GET", route: "version", status: 403, hostMatches: true });
+  expect(snapshot).not.toContain(secret); expect(snapshot).not.toContain("/install/version");
+  expect((await stat(path)).mode & 0o077).toBe(0);
   expect(output).not.toMatch(/PRIVATE KEY|authorizedKey|hostKey/);
 });

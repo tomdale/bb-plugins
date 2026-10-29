@@ -1,10 +1,12 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { openBridge } from "./bridge.ts";
 import { AdmissionLeases } from "./grants.ts";
-import { ACCESS_HEADER, TESTED_CORE } from "./policy.ts";
+import { ACCESS_HEADER } from "./policy.ts";
 import { startConnector } from "./tunnel.ts";
 import { randomUUID } from "node:crypto";
 import { registerSetup } from "./setup.ts";
+import { DiagnosticStore } from "./diagnostics.ts";
+import { probeVersion } from "./readiness.ts";
 
 export default async function plugin(bb: BbPluginApi) {
   const settings = bb.settings.define({
@@ -18,7 +20,9 @@ export default async function plugin(bb: BbPluginApi) {
     preparedConnectorPrivateKey: { type: "string", label: "Private pending relay setup identity", secret: true },
     reversePort: { type: "number", label: "Dedicated relay reverse-listener port", default: 38992 },
   });
+  const diagnostics = new DiagnosticStore();
   registerSetup(bb, {
+    diagnostics: () => diagnostics.snapshot(),
     config: () => settings.get(),
     saveKey: async key => { await settings.experimental_set({ preparedConnectorPrivateKey: key }); },
     apply: async (view, key) => { await settings.experimental_set({
@@ -28,7 +32,7 @@ export default async function plugin(bb: BbPluginApi) {
     disable: async () => { await settings.experimental_set({ enabled: false }); },
   });
   const config = await settings.get();
-  if (!config.enabled) return;
+  if (!config.enabled) { diagnostics.record("readiness", "closed", "disabled"); return; }
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error("Invalid bridge port");
   const external = new URL(config.serverUrl);
   if (external.username || external.password || external.pathname !== "/" || external.search || external.hash ||
@@ -49,14 +53,14 @@ export default async function plugin(bb: BbPluginApi) {
     bridge = undefined;
     bb.experimental_serverAccess.recheck();
   };
-  settings.onChange(async () => { invalidated = true; leases.clear(); await stop(); });
-  bb.onDispose(stop);
+  settings.onChange(async () => { invalidated = true; leases.clear(); diagnostics.record("readiness", "closed", "cancelled"); await stop(); });
+  bb.onDispose(async () => { diagnostics.record("readiness", "closed", "disposed"); await stop(); });
   bb.experimental_serverAccess.register({
     id: "machine-bridge", displayName: "Vercel Access local prototype",
     description: "Machine-only network admission. Native BB credentials determine host authority. No owner or preview access.",
     availability: () => ready
       ? { status: "available", serverUrl: external.origin }
-      : { status: "unavailable", message: "Local prototype not ready; verify the tested BB release and reload. Cloud connectivity is not validated." },
+      : { status: "unavailable", message: (() => { const failure = diagnostics.snapshot().firstFailure; return failure ? `Machine bridge unavailable: ${failure.stage}/${failure.reason}` : "Machine bridge unavailable; inspect local setup status"; })() },
     async acquire({ key, hostId, signal }) {
       if (!ready) return { status: "failed", message: "Machine bridge unavailable" };
       const grant = leases.acquire(key, hostId, signal);
@@ -67,12 +71,17 @@ export default async function plugin(bb: BbPluginApi) {
   bb.background.service("machine-bridge", {
     async start(signal) {
       if (invalidated || signal.aborted) return;
+      diagnostics.begin();
+      diagnostics.record("readiness", "pending");
+      diagnostics.record("local-core", "pending");
       try {
-        bridge = await openBridge({ baseUrl: bb.server.loopbackBaseUrl, leases, port: config.port });
+        try { bridge = await openBridge({ baseUrl: bb.server.loopbackBaseUrl, leases, port: config.port }); }
+        catch { diagnostics.record("local-core", "failed", "core-check-failed"); throw new Error("Local machine surface not verified"); }
+        diagnostics.record("local-core", "verified");
         if (config.transport === "ssh-ws") {
           connector = await startConnector({
             relayUrl: config.relayUrl, privateKey: config.connectorPrivateKey!, hostFingerprint: config.relayFingerprint,
-            bridgePort: config.port, reversePort: config.reversePort, signal,
+            bridgePort: config.port, reversePort: config.reversePort, signal, diagnostics: diagnostics.record,
           });
           // Readiness means this specific external origin reaches the checked
           // native machine surface, not merely that a child process spawned.
@@ -81,30 +90,15 @@ export default async function plugin(bb: BbPluginApi) {
           try {
             let reached = false;
             for (let attempt = 0; attempt < 20 && !signal.aborted && !invalidated && connector.running(); attempt++) {
-              try {
-                const response = await fetch(new URL("/install/version", external), {
-                  headers: { [ACCESS_HEADER]: probe.token }, redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(1000)]),
-                });
-                const chunks: Uint8Array[] = [];
-                let size = 0;
-                if (!response.body) throw new Error("Empty readiness response");
-                for await (const chunk of response.body) {
-                  size += chunk.length;
-                  if (size > 4096) throw new Error("Oversized readiness response");
-                  chunks.push(chunk);
-                }
-                if (response.ok) {
-                  const value = JSON.parse(Buffer.concat(chunks).toString());
-                  if (value.version === TESTED_CORE.version && value.protocolVersion === TESTED_CORE.protocolVersion) { reached = true; break; }
-                }
-              } catch { signal.throwIfAborted(); }
+              if (await probeVersion({ origin: external, token: probe.token, signal, attempt: attempt + 1, diagnostics: diagnostics.record })) { reached = true; break; }
               await new Promise(resolve => setTimeout(resolve, 250));
             }
-            if (!reached) throw new Error("Dedicated relay machine path not ready");
+            if (!reached) { diagnostics.record("readiness", "failed", "probe-exhausted"); throw new Error("Dedicated relay machine path not ready"); }
           } finally { leases.release(probeKey, "readiness", probe.id); }
         }
         if (invalidated || signal.aborted) return;
         ready = true;
+        diagnostics.record("readiness", "verified");
         bb.experimental_serverAccess.recheck();
         await new Promise<void>(resolve => {
           const abort = () => resolve();
@@ -112,7 +106,11 @@ export default async function plugin(bb: BbPluginApi) {
           if (signal.aborted) resolve();
           connector?.exited.then(() => { signal.removeEventListener("abort", abort); resolve(); });
         });
-        if (!signal.aborted && !invalidated) throw new Error("Connector disconnected; retrying the same pinned relay");
+        if (!signal.aborted && !invalidated) { diagnostics.record("readiness", "failed", "transport-lost"); throw new Error("Connector disconnected; retrying the same pinned relay"); }
+      } catch {
+        if (signal.aborted || invalidated) diagnostics.record("readiness", "closed", "cancelled");
+        else if (diagnostics.snapshot().stages.find(item => item.stage === "readiness")?.state === "pending") diagnostics.record("readiness", "failed", "transport-lost");
+        throw new Error("Machine bridge unavailable; inspect bounded setup status");
       } finally { await stop(); }
     },
   });
