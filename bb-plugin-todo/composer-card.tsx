@@ -184,7 +184,8 @@ export function TodoCard() {
   const listStyle = twoColumns
     ? {
       gridAutoFlow: "column",
-      gridTemplateRows: `repeat(${Math.ceil(card.roots.length / 2)}, auto)`,
+      // Auto tracks can shrink to the list's max height and make wrapped rows overlap.
+      gridTemplateRows: `repeat(${Math.ceil(card.roots.length / 2)}, max-content)`,
     } as CSSProperties
     : undefined;
 

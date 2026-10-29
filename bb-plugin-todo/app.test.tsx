@@ -487,11 +487,32 @@ it("uses two columns only after the expanded list reaches its max height", async
   fireEvent.scroll(list);
   await waitFor(() => expect(list.classList.contains("todo-list-two-columns")).toBe(true));
   expect(list.style.gridAutoFlow).toBe("column");
-  expect(list.style.gridTemplateRows).toBe("repeat(5, auto)");
+  expect(list.style.gridTemplateRows).toBe("repeat(5, max-content)");
 
   fireEvent.click(slot.getByRole("button", { name: "Show compact todos" }));
   fireEvent.click(slot.getByRole("button", { name: "Show all 10 todos" }));
   expect(slot.container.querySelector(".todo-list")?.classList.contains("todo-list-two-columns")).toBe(false);
+  slot.lifecycle.unmount();
+});
+
+it("sizes two-column tracks to fit long tasks and grouped subtasks", async () => {
+  const tasks = Array.from({ length: 15 }, (_, i) => ({
+    id: i + 1,
+    subject: `Task ${i + 1}: ${"Explain the work and how to verify it. ".repeat(8)}`,
+    status: "pending" as const,
+  }));
+  const slot = await mount(() => ({ tasks: [...tasks, {
+    id: 16, subject: "A long nested task that belongs with its parent", status: "pending", parentId: 1,
+  }], nextId: 17 }));
+  fireEvent.click(slot.container.querySelector(".todo-card")!);
+  const list = slot.container.querySelector<HTMLUListElement>(".todo-list")!;
+  list.style.maxHeight = "100px";
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+  Object.defineProperty(list, "scrollHeight", { configurable: true, value: 400 });
+  fireEvent.scroll(list);
+  await waitFor(() => expect(list.classList.contains("todo-list-two-columns")).toBe(true));
+  expect(list.style.gridTemplateRows).toBe("repeat(8, max-content)");
+  expect(list.querySelector(".todo-item-group .todo-subtasks")?.textContent).toContain("A long nested task");
   slot.lifecycle.unmount();
 });
 
