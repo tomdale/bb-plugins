@@ -12,6 +12,9 @@ import { SafeError, safeMessage } from "./configuration.js";
 import { hostContract } from "./host-contract.js";
 import { IMAGE } from "./provider-id.js";
 import type { Connection } from "./auth-contract.js";
+import { relayOperation } from "./relay-host.js";
+import type { RelayIdentity } from "./relay-contract.js";
+import type { ExperimentalHostRpcContext } from "@get-bb/plugin-sdk/host";
 
 function view(sandbox: Sandbox) {
   return {
@@ -75,9 +78,18 @@ export function createVercelHostEntry(
     assertOwnership(input.resource, sandbox);
     return sandbox;
   };
+  const relay = (operation: "prepare" | "inspect" | "stop", identity: RelayIdentity, context: ExperimentalHostRpcContext, initialize = false) =>
+    guarded(context.signal, () => relayOperation({
+      dataDir: context.experimental_paths.dataDir, identity, operation, signal: context.signal, initialize,
+      vendor: async () => createVercelClient(await auth.credentials(identity.connection, context.signal), transport,
+        signal => auth.credentials(identity.connection, signal)),
+    }));
   return experimental_defineHostEntry({
     contract: hostContract,
     handlers: {
+      relayPrepare: ({ initialize, ...identity }, context) => relay("prepare", identity, context, initialize),
+      relayInspect: (input, context) => relay("inspect", input, context),
+      relayStop: (input, context) => relay("stop", input, context),
       teams: (_input, context) =>
         guarded(context.signal, () => auth.teams(context.signal)),
       projects: (input, context) =>

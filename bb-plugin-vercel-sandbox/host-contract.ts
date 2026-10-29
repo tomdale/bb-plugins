@@ -13,6 +13,7 @@ import {
 } from "./auth-contract.js";
 import { resourceSchema } from "./allocations.js";
 import { stateSchema } from "./rpc.js";
+import { relayIdentitySchema, relayViewSchema } from "./relay-contract.js";
 export const sandboxViewSchema = z
   .object({
     name: z.string(),
@@ -45,6 +46,9 @@ const result = <S extends z.ZodType>(value: S) =>
   ]);
 const empty = z.object({}).strict();
 export const hostContract = defineRpcContract({
+  relayPrepare: { input: relayIdentitySchema.extend({ initialize: z.boolean() }).strict(), output: result(relayViewSchema) },
+  relayInspect: { input: relayIdentitySchema, output: result(relayViewSchema) },
+  relayStop: { input: relayIdentitySchema, output: result(relayViewSchema) },
   teams: {
     input: accountHostInputSchema,
     output: result(accountChoicesSchema),

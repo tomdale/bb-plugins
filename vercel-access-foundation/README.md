@@ -168,6 +168,8 @@ only compiles public SDK 0.6.59 types; transport runtime imports no BB SDK.
 See the [Phase 1 evidence report](../docs/vercel-access-phase1.md) and complete
 [Phase 0 scope and gates](../docs/vercel-access-phase0.md). WSS, Vercel gateway
 routing, vendor maximum duration and all cloud behavior are **NOT EXECUTED**.
-Live BB traffic remains blocked on a released, supported, tested machine
-principal ingress. Owner/browser access and native previews remain separate
-security surfaces. Do not turn this fixed fixture into a loopback BB proxy.
+The separate [Phase 2 plugin](../bb-plugin-vercel-access/README.md) exercises a
+narrow native-machine boundary without requiring a core principal API; it does
+not change this package's fixture-only destinations. Owner/browser access and
+native previews remain separate surfaces. Do not generalize this fixed fixture
+into a loopback BB proxy.
