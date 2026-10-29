@@ -61,18 +61,19 @@ export interface ClientOptions {
 }
 export interface ClientConnection { wire: Wire; epoch: string; connectorEpoch: string }
 export async function connect(options: ClientOptions): Promise<ClientConnection> {
+  options.signal?.throwIfAborted();
   localRelay(options.url);
   const socket = new WebSocket(options.url, { headers: { "x-fixture-role": options.role },
     maxPayload: LIMITS.frame, maxFragments: 64, maxBufferedChunks: 64, perMessageDeflate: false, handshakeTimeout: LIMITS.ttl });
   const epoch = fresh();
   const wire = new Wire(socket, options.privateKey, options.keys.relay, options.identity, options.now, options.automaticTick);
   const abort = () => wire.close();
-  options.signal?.addEventListener("abort", abort, { once: true });
-  if (options.signal?.aborted) wire.close();
   return await new Promise<ClientConnection>((resolve, reject) => {
     let challenge: string | undefined;
     const fail = () => { options.signal?.removeEventListener("abort", abort); reject(new Error("Relay handshake closed")); };
     wire.once("closed", fail);
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) { wire.close(); return; }
     wire.handler = async (payload) => {
       if (payload.type === "challenge" && !challenge) {
         challenge = payload.challenge;

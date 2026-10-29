@@ -11,6 +11,7 @@ export class Connector {
   readonly fixtureState = { mutations: 0 };
   constructor(readonly options: Omit<ClientOptions, "role" | "signal">, readonly authority: Authority) {}
   async open(signal?: AbortSignal): Promise<Session> {
+    signal?.throwIfAborted();
     this.session?.close();
     const connection = await connect({ ...this.options, role: "connector", signal });
     const session = new Session(connection, "connector", this.authority, this.options.automaticTick);

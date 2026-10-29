@@ -127,7 +127,7 @@ Executed from `vercel-access-foundation/`, Node v25.9.0 and npm 11.10.0:
 | --- | --- |
 | `npm ci` | PASS; lockfile install, zero audit findings |
 | `npm run typecheck` | PASS |
-| `npm test` | PASS; 83 tests including 10 unchanged Phase 0 tests |
+| `npm test` | PASS; 91 tests including 10 unchanged Phase 0 tests |
 | `npm run build` | PASS |
 | `npm audit` | PASS; zero vulnerabilities |
 | `git diff --check` and scoped secret/diff review | PASS; generated credentials only, no live/private material |
@@ -143,7 +143,8 @@ runs them; source-level parameter properties require TypeScript compilation.
 - Binary POST echo, 512 KiB streamed response, concurrent independent gateways,
   text/binary WS echo, exact client→fixture and fixture→client close metadata;
   two independent gateways/distinct host grants preserve the sibling stream and
-  all tunnel wires after code-4000 and legal 81-byte-reason closes
+  all tunnel wires after codes 4000/1002, 81/100-byte ASCII reasons and a
+  123-byte multibyte UTF-8 reason
 - Anonymous/wrong machine tokens, forged BB/browser/forwarded headers, Host,
   method/target ambiguity, control-vs-gateway signer, identity/generation,
   host/grant/acquisition epoch, expiry/lifetime, scope and direct relay origin
@@ -156,6 +157,12 @@ runs them; source-level parameter properties require TypeScript compilation.
 - Incremental first HTTP bytes while the producer awaits credit; 17 successive
   ACK-withheld cancellations settle credits/producers/maps, with sibling grant
   probes succeeding on the same session
+- Deterministically delayed verified response data and paused ACK continuations
+  crossing cancellation, plus immediate WS send/normal-close races, preserve
+  sibling holds on two gateways; unknown/stale signed streams still fail closed
+- Pre-aborted connect/open reject without allocation or abort listeners and leave
+  an existing connector intact; abort during a real challenge handshake settles
+  both APIs, removes listeners and closes the remote socket
 - Six acquisition/release interruption boundaries, serialized recovery, failed
   save preventing issuance, pending expiry, same-key repair, delayed null-ID
   release, remote-revoke outage and private-file reconstruction/fencing
@@ -169,17 +176,24 @@ at its boundary; queue and active-stream exhaustion traverse real components.
 Tests close listeners/sockets and stop timers; completion requires no forced
 process exit. No real application credentials or user data are fixture payloads.
 
-Independent checkpoint reviews were arranged by the parent. One found retained
-credit waiters on cancellation; centralized terminal cleanup and the 17-cycle
-regression address it. The security/API review found that legal application
-close codes and long reasons could exceed the checkpoint frame schema and
-close unrelated transports. The current decoder permits valid WebSocket close
-codes and 123-byte reasons. A two-gateway, distinct-host-grant regression closes
-one client's stream with code 4000 and then with code 1000/81-byte ASCII reason;
-only that stream disappears, every tunnel wire survives, and the sibling's
-active WS echo and subsequent HTTP probe succeed. Checkpoint review is not a
-release/security approval; parent must reconcile its full findings against the
-final commit.
+### Independent review disposition
+
+Parent arranged three fresh-context checkpoint reviews. Their de-duplicated
+required findings are addressed as follows; review is not a release/security
+approval, and parent owns reconciliation against the final commit.
+
+| Finding | Implementation and regression disposition |
+| --- | --- |
+| High: cancelled streams retain credits/producers | Central terminal cleanup settles waiters; 17 ACK-withheld cancellations leave no credits/producers/maps and preserve a sibling grant |
+| High: late HTTP frames, in-flight ACK cancellation or WS echo to a closing client tears down shared transport | Bounded tombstones retire known terminal streams; gateway handles lost-consumer delivery and `StreamCancelled` ACK/tail continuation stream-locally; deterministic late-frame and paused-ACK barriers plus three immediate send/normal-close attempts preserve holds on both independent gateways |
+| Medium: legal WS close metadata exceeds internal schema | Current decoder permits valid close codes and 123-byte reasons; two gateways/distinct grants retain the sibling's active echo and probe for codes 4000/1002, ASCII 81/100 bytes and multibyte UTF-8 at 123 bytes |
+| Medium: pre-aborted connect/open never settles | Abort checked before allocation or replacing a current connector; handshake failure listener precedes any close path; pre-abort and abort-during-challenge tests reject and leave no abort listener/socket |
+
+Only validated frames belonging to bounded terminal tombstones are discarded.
+Genuinely unknown streams and stale epochs remain fatal, with independent
+negative regressions. Signature, role and current connection identity are checked
+before terminal retirement; no retired frame can reopen or execute work. Live
+streams retain host/grant, sequence and complete-body validation.
 
 ## Phase 2 reuse and blocked evidence
 

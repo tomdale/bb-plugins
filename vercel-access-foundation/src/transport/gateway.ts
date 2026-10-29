@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { Authority, type Lease } from "./authority.ts";
-import { Session } from "./session.ts";
+import { Session, StreamCancelled } from "./session.ts";
 import { connect, type ClientOptions } from "./wire.ts";
 import { binding, fresh, LIMITS, route, safeHeaders, type Frame } from "./protocol.ts";
 
@@ -40,14 +40,14 @@ export class Gateway {
             tail = tail.then(async () => { await this.session!.data(open, data, binary); }).finally(() => {
               queued -= data.length; if (!closed && queued === 0) ws.resume();
             });
-            void tail.catch(() => ws.terminate());
+            void tail.catch((error) => { if (!(error instanceof StreamCancelled)) ws.terminate(); });
           });
           ws.on("close", (code, reason) => {
             closed = true;
             tail = tail.then(async () => { await this.session?.end(open, code === 1006 || code === 1005 ? 1001 : code, reason.toString()); });
-            void tail.catch(() => this.session?.close()).finally(() => this.streams.delete(open.id));
+            void tail.catch((error) => { if (!(error instanceof StreamCancelled)) this.session?.close(); }).finally(() => this.streams.delete(open.id));
           });
-          void tail.catch(() => ws.terminate());
+          void tail.catch((error) => { if (!(error instanceof StreamCancelled)) ws.terminate(); });
         });
       } catch { socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"); }
     });
@@ -102,6 +102,15 @@ export class Gateway {
       if (res.headersSent) res.destroy(); else { res.writeHead(403, { "cache-control": "no-store" }); res.end(); }
     }
   }
+  async #retire(session: Session, frame: Frame): Promise<void> {
+    if (session.ledger.streams.has(`${frame.gatewayEpoch}/${frame.id}`)) {
+      await session.send({ ...binding(frame), type: "cancel" });
+    }
+    const stream = this.streams.get(frame.id);
+    if (stream?.ws?.readyState === WebSocket.OPEN) stream.ws.close(1001, "stream retired");
+    stream?.response?.destroy();
+    this.streams.delete(frame.id);
+  }
   async attach(): Promise<void> {
     this.session?.close();
     const connection = await connect({ ...this.options, role: "gateway" });
@@ -113,25 +122,32 @@ export class Gateway {
     });
     session.receive = async (frame) => {
       const stream = this.streams.get(frame.id);
-      if (!stream) throw new Error("Gateway client gone");
+      // Session validation rejects unknown streams before dispatch. A verified live
+      // stream may merely have lost its consumer while signed data was in flight.
+      if (!stream || frame.type === "data" && stream.ws && stream.ws.readyState !== WebSocket.OPEN || stream.response?.destroyed) {
+        await this.#retire(session, frame); return;
+      }
       if (frame.type === "start") {
         stream.response?.writeHead(200, { "content-type": "application/octet-stream", "cache-control": "no-store" });
         stream.response?.flushHeaders();
       } else if (frame.type === "data") {
         const bytes = Buffer.from(frame.bytes, "base64");
-        if (stream.ws) {
-          const ws = stream.ws;
-          if (ws.bufferedAmount + bytes.length > LIMITS.queue) throw new Error("Client queue budget");
-          await new Promise<void>((resolve, reject) => ws.send(bytes, { binary: frame.binary }, (error) => error ? reject(error) : resolve()));
-        } else {
-          const response = stream.response!;
-          if (!response.write(bytes)) await new Promise<void>((resolve, reject) => {
-            const done = () => { cleanup(); resolve(); }, gone = () => { cleanup(); reject(new Error("Client gone")); };
-            const cleanup = () => { response.off("drain", done); response.off("close", gone); };
-            response.once("drain", done); response.once("close", gone);
-          });
-        }
-        await session.ack(frame);
+        try {
+          if (stream.ws) {
+            const ws = stream.ws;
+            if (ws.bufferedAmount + bytes.length > LIMITS.queue) throw new Error("Client queue budget");
+            await new Promise<void>((resolve, reject) => ws.send(bytes, { binary: frame.binary }, (error) => error ? reject(error) : resolve()));
+          } else {
+            const response = stream.response!;
+            if (!response.write(bytes)) await new Promise<void>((resolve, reject) => {
+              const done = () => { cleanup(); resolve(); }, gone = () => { cleanup(); reject(new Error("Client gone")); };
+              const cleanup = () => { response.off("drain", done); response.off("close", gone); };
+              response.once("drain", done); response.once("close", gone);
+            });
+          }
+        } catch { await this.#retire(session, frame); return; }
+        try { await session.ack(frame); }
+        catch (error) { if (!(error instanceof StreamCancelled)) throw error; }
       } else if (frame.type === "end") {
         stream.response?.end(); stream.ws?.close(frame.code, frame.reason); this.streams.delete(frame.id);
       } else if (frame.type === "cancel") {

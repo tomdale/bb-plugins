@@ -96,6 +96,10 @@ non-idempotent upstream execution. WebSocket messages are limited to one 16 KiB
 data frame; text is validated as UTF-8. Both directions transport close codes
 and reasons. Cancellation releases credits, producers and maps; terminal
 stream tombstones discard late signed frames without recreating stream state.
+Delivery to a closing external WebSocket or an aborted HTTP consumer retires
+only that stream, including an ACK continuation already in flight. Unknown
+streams and stale epochs still fail closed; cancellation does not bypass
+signature or binding validation.
 
 ### Resource bounds
 
@@ -143,6 +147,9 @@ old socket and its streams. A holder of the still-current control signing key
 can register anew; production control-key rotation and stale-process admission
 require a separate reviewed controller. Restart changes connection epochs, so
 old signed stream traffic cannot be replayed after replay-cache loss.
+
+Already-aborted connect/open calls reject before allocating a socket or replacing
+an existing connector. Abort during handshake also settles and removes listeners.
 
 The connector reconnect loop establishes only a new transport session. It
 never reissues HTTP or WS opens or mutations, including an uncertain response

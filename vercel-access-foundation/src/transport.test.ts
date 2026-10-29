@@ -1,9 +1,9 @@
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { once } from "node:events";
-import { request } from "node:http";
-import WebSocket from "ws";
+import { once, getEventListeners } from "node:events";
+import { request, createServer } from "node:http";
+import WebSocket, { WebSocketServer } from "ws";
 import { Authority, MemoryPersistence } from "./transport/authority.ts";
 import { Relay, LocalFence, MemoryFenceStorage } from "./transport/relay.ts";
 import { Connector } from "./transport/connector.ts";
@@ -459,7 +459,8 @@ test("legal application closes stay stream-local across independent gateways and
   t.after(() => clientB.terminate());
   const connectorWire = s.connector.session!.connection.wire;
   const gatewayAWire = s.gateway.session!.connection.wire, gatewayBWire = gatewayB.session!.connection.wire;
-  for (const [code, reason] of [[4000, "fixture application close"], [1000, "r".repeat(81)]] as const) {
+  for (const [code, reason] of [[4000, "fixture application close"], [1000, "r".repeat(81)],
+    [1002, "protocol close"], [1000, "r".repeat(100)], [1000, "界".repeat(41)]] as const) {
     opened = once(fixture, "opened");
     const clientA = await websocket(s.gateway, s.lease.token), [open] = await opened as [Extract<Frame, { type: "open" }>];
     const peerClosed = once(fixture, "peer-close"), clientClosed = once(clientA, "close");
@@ -475,4 +476,92 @@ test("legal application closes stay stream-local across independent gateways and
     assert.equal((await echo)[0].toString(), "sibling remains usable");
     assert.equal((await http(gatewayB.url, "/v0/probe", s.sibling.token)).status, 200);
   }
+});
+
+async function producersIdle(fixture: NonNullable<Connector["fixture"]>): Promise<void> {
+  if (!fixture.producers) return;
+  await new Promise<void>((resolve) => {
+    const settled = () => { if (!fixture.producers) { fixture.off("producer-settled", settled); resolve(); } };
+    fixture.on("producer-settled", settled);
+  });
+}
+test("late verified data, paused ACK cancellation and immediate WS close preserve sibling gateways", { timeout: 10_000 }, async (t) => {
+  const s = await setup(t), fixture = s.connector.fixture!, session = s.gateway.session!;
+  const gatewayB = new Gateway(s.gateway.options, s.gatewayAuthority); await gatewayB.listen(); t.after(() => gatewayB.close());
+  const holdA = await hold(s.gateway, s.sibling.token), holdB = await hold(gatewayB, s.sibling.token);
+  t.after(() => { holdA.res.destroy(); holdB.res.destroy(); });
+  const healthy = async () => {
+    await producersIdle(fixture);
+    assert.equal(session.connection.wire.closed, false); assert.equal(gatewayB.session!.connection.wire.closed, false);
+    assert.equal(s.connector.session!.connection.wire.closed, false); assert.equal(s.relay.sockets.size, 3);
+    assert.equal(s.relay.ledger.streams.size, 2); assert.equal(fixture.streams.size, 2);
+    assert.equal(session.ledger.streams.size, 1); assert.equal(gatewayB.session!.ledger.streams.size, 1);
+    assert.equal(s.connector.session!.ledger.streams.size, 2); assert.equal(s.connector.session!.pendingCredits, 0);
+    assert.equal((await http(gatewayB.url, "/v0/probe", s.sibling.token)).status, 200);
+  };
+  for (const pauseAck of [false, true]) {
+    let proceed!: () => void, reached!: () => void;
+    const released = new Promise<void>((resolve) => { proceed = resolve; });
+    const barrier = new Promise<void>((resolve) => { reached = resolve; });
+    const originalHandler = session.connection.wire.handler, originalAck = session.ack.bind(session);
+    let frames = 0;
+    if (pauseAck) session.ack = async (frame) => { reached(); await released; await originalAck(frame); };
+    else session.connection.wire.handler = async (frame, raw) => {
+      if (frame.type === "data" && ++frames === 2) { reached(); await released; }
+      await originalHandler(frame, raw);
+    };
+    const first = await new Promise<import("node:http").IncomingMessage>((resolve, reject) => {
+      const req = request(s.gateway.url + "/v1/fixture/bytes", { headers: { "x-fixture-access": s.lease.token } }, (res) => {
+        res.on("error", () => {}); res.once("data", () => resolve(res));
+      }); req.on("error", reject); req.end();
+    });
+    await barrier;
+    const cancelled = once(fixture, "cancelled"); first.destroy(); await cancelled;
+    proceed(); await session.connection.wire.idle();
+    session.connection.wire.handler = originalHandler; session.ack = originalAck;
+    await healthy();
+  }
+  for (let i = 0; i < 3; i++) {
+    const opened = once(fixture, "opened"), client = await websocket(s.gateway, s.lease.token); await opened;
+    const terminal = once(s.connector.session!, "terminal"), closed = once(client, "close");
+    client.send("echo may be discarded during normal close"); client.close(1000, "done");
+    await Promise.all([terminal, closed]); await session.connection.wire.idle();
+    await healthy();
+  }
+});
+test("pre-aborted connect/open reject before allocation and preserve the current connector", { timeout: 10_000 }, async (t) => {
+  const s = await setup(t), signal = AbortSignal.abort(), current = s.connector.session!;
+  await assert.rejects(connect({ ...s.gateway.options, role: "gateway", signal }), { name: "AbortError" });
+  await assert.rejects(s.connector.open(signal), { name: "AbortError" });
+  assert.equal(s.relay.sockets.size, 2); assert.equal(s.connector.session, current); assert.equal(current.connection.wire.closed, false);
+  assert.equal(getEventListeners(signal, "abort").length, 0);
+});
+test("abort during a real challenge handshake settles connect/open and removes listeners", { timeout: 10_000 }, async (t) => {
+  const s = await setup(t);
+  for (const role of ["gateway", "connector"] as const) await t.test(role, async (t) => {
+    const server = createServer(), wss = new WebSocketServer({ server, path: "/tunnel", maxPayload: LIMITS.frame, perMessageDeflate: false });
+    t.after(async () => { for (const client of wss.clients) client.terminate(); wss.close(); await new Promise<void>((resolve) => server.close(() => resolve())); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = `ws://127.0.0.1:${(server.address() as { port: number }).port}/tunnel`, controller = new AbortController();
+    let helloSeen!: (ws: WebSocket) => void;
+    const hello = new Promise<WebSocket>((resolve) => { helloSeen = resolve; });
+    wss.on("connection", (ws) => {
+      ws.on("error", () => {});
+      ws.once("message", () => helloSeen(ws));
+      ws.send(seal({ ...s.identity, type: "challenge", challenge: fresh() }, s.signing.relay.privateKey));
+    });
+    const connector = new Connector({ ...s.connector.options, url }, s.connectorAuthority);
+    const attempt = role === "gateway" ? connect({ ...s.gateway.options, url, role, signal: controller.signal }) : connector.open(controller.signal);
+    const remote = await hello, remoteClosed = once(remote, "close");
+    controller.abort(); await assert.rejects(attempt, /handshake closed/); await remoteClosed;
+    assert.equal(getEventListeners(controller.signal, "abort").length, 0); assert.equal(wss.clients.size, 0);
+  });
+});
+test("unknown and stale frames are still fatal rather than treated as cancelled tombstones", { timeout: 10_000 }, async (t) => {
+  for (const stale of [false, true]) await t.test(stale ? "stale epoch" : "unknown stream", async (t) => {
+    const s = await setup(t), closed = once(s.gateway.session!, "closed");
+    const frame = { ...binding(openFrame(s, s.gateway.session!.connection.epoch)), type: "data" as const,
+      seq: 0, bytes: "AA==", binary: true, ...(stale ? { connectorEpoch: "stale" } : {}) };
+    await [...s.relay.sockets][1]!.sendRaw(seal(frame, s.signing.connector.privateKey)); await closed;
+  });
 });
