@@ -497,7 +497,9 @@ test("late verified data, paused ACK cancellation and immediate WS close preserv
     assert.equal(s.relay.ledger.streams.size, 2); assert.equal(fixture.streams.size, 2);
     assert.equal(session.ledger.streams.size, 1); assert.equal(gatewayB.session!.ledger.streams.size, 1);
     assert.equal(s.connector.session!.ledger.streams.size, 2); assert.equal(s.connector.session!.pendingCredits, 0);
-    assert.equal((await http(gatewayB.url, "/v0/probe", s.sibling.token)).status, 200);
+    assert.equal(holdA.res.destroyed, false); assert.equal(holdB.res.destroyed, false);
+    const probes = await Promise.all([http(s.gateway.url, "/v0/probe", s.sibling.token), http(gatewayB.url, "/v0/probe", s.sibling.token)]);
+    assert.deepEqual(probes.map((p) => p.status), [200, 200]);
   };
   for (const pauseAck of [false, true]) {
     let proceed!: () => void, reached!: () => void;
@@ -522,10 +524,10 @@ test("late verified data, paused ACK cancellation and immediate WS close preserv
     await healthy();
   }
   for (let i = 0; i < 3; i++) {
-    const opened = once(fixture, "opened"), client = await websocket(s.gateway, s.lease.token); await opened;
+    const opened = once(fixture, "opened"), client = await websocket(s.gateway, s.lease.token);
     const terminal = once(s.connector.session!, "terminal"), closed = once(client, "close");
     client.send("echo may be discarded during normal close"); client.close(1000, "done");
-    await Promise.all([terminal, closed]); await session.connection.wire.idle();
+    await Promise.all([opened, terminal, closed]); await session.connection.wire.idle();
     await healthy();
   }
 });
