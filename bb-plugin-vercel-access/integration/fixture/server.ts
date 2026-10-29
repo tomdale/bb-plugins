@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { request } from "node:http";
 
 const DAEMON_PROTOCOL = "bb-host-daemon.v1";
-const TESTED_CORE = { protocolVersion: 244 };
+const TESTED_CORE = { protocolVersion: 258 };
 async function http(base: string, path: string, options: { method?: string; headers?: Record<string, string>; body?: string }) {
   const url = new URL(base);
   return new Promise<{ status: number; body: Buffer }>((resolve, reject) => {

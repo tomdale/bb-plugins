@@ -30,6 +30,6 @@ test("declared build succeeds from cold isolated HOME/data despite package npm f
   assert.match(result.stdout, /dist\/server\.js/);
   const metadata = JSON.parse(await readFile(join(root, "dist/server.meta.json"), "utf8"));
   assert.equal(metadata.pluginId, "vercel-access");
-  assert.equal(metadata.sdkVersion, "0.6.59");
-  assert.equal(metadata.builtWith.bbVersion, "0.46.1");
+  assert.equal(metadata.sdkVersion, "0.6.100");
+  assert.equal(metadata.builtWith.bbVersion, "0.48.0");
 });

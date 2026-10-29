@@ -4,13 +4,13 @@
   "private": true,
   "type": "module",
   "engines": {
-    "bb": "0.46.1",
+    "bb": "0.48.0",
     "bbPluginSdk": "0.6.59",
     "node": "^22.19.0 || ^24.0.0 || ^26.0.0"
   },
   "bb": {
     "name": "Vercel Access [Experimental]",
-    "description": "Disabled-by-default local machine-only bridge prototype; Vercel transport is not deployed.",
+    "description": "User-owned Vercel tunnel for local BB machine access; disabled until explicitly set up.",
     "branding": {
       "icon": "Server"
     },

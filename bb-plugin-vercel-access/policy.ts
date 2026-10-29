@@ -6,7 +6,7 @@ export const DAEMON_PROTOCOL = "bb-host-daemon.v1";
 export const MAX_BODY = 1024 * 1024;
 export const MAX_RESPONSE = 256 * 1024 * 1024;
 export const MAX_CONNECTIONS = 32;
-export const TESTED_CORE = { version: "0.46.1", protocolVersion: 244 } as const;
+export const TESTED_CORE = { version: "0.48.0", protocolVersion: 258 } as const;
 
 type Route = "http" | "ws";
 const getRoutes = new Set(["/install.sh", "/install.ps1", "/install/version", "/install/bb-app.tgz"]);

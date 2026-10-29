@@ -39,6 +39,7 @@ test("owner setup requires cost confirmation, keeps dedicated private key server
   try {
     await plugin(t.bb);
     assert.equal(t.requests.length, 0);
+    assert.deepEqual(await t.harness.behavior.callRpc("setup.current", {}), { key: null });
     const local = await t.harness.behavior.callRpc("setup.status", {}) as { stages: { stage: string; reason: string }[] };
     assert.equal(local.stages.find(item => item.stage === "readiness")!.reason, "disabled");
     const statusCli = await t.harness.behavior.runCli(["relay", "status"]);
@@ -50,6 +51,8 @@ test("owner setup requires cost confirmation, keeps dedicated private key server
     assert.equal(t.requests.length, 0);
     const prepared = await t.harness.behavior.callRpc("setup.prepare", { key: "synthetic-relay", image, approveAllocation: true });
     assert.equal(t.requests.length, 1);
+    assert.deepEqual(await t.harness.behavior.callRpc("setup.current", {}), { key: "synthetic-relay" });
+    assert.equal(t.requests.length, 1, "Reading the retained key never contacts the vendor");
     const record = t.requests[0]!.input as { key: string; authorizedKey: string };
     assert.match(record.authorizedKey, /^ssh-ed25519 /);
     assert.doesNotMatch(JSON.stringify(record), /PRIVATE KEY|Bearer|OAuth/);

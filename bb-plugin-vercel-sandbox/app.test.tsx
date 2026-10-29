@@ -516,6 +516,7 @@ describe("settings section", () => {
       {},
       {
         rpc: {
+          "access.status": () => ({ available: false, ready: false, message: "Enable Vercel Access", key: null, phase: null, expiresAt: null, selected: false, defaultProvider: "direct", canRestore: false }),
           "launch.options": () => LAUNCH_OPTIONS,
           "account.teams": () => ({
             choices: [{ id: "team_abc", name: "My team" }],
@@ -1201,7 +1202,7 @@ describe("settings section", () => {
         },
       },
     ]);
-    expect(slot.queryByRole("checkbox")).toBeNull();
+    expect(slot.queryByRole("checkbox", { name: /manage and clean up/ })).toBeNull();
   });
 
   it("drops consent and old notes when the connection changes to another account", async () => {
@@ -1289,7 +1290,7 @@ describe("settings section", () => {
     expect(
       slot.getByText("Checking which earlier sandboxes still need an account…"),
     ).toBeTruthy();
-    expect(slot.queryByRole("checkbox")).toBeNull();
+    expect(slot.queryByRole("checkbox", { name: /manage and clean up/ })).toBeNull();
     expect(slot.queryByRole("button", { name: /Use this account/ })).toBeNull();
     expect(slot.queryByText(/BB recorded/)).toBeNull();
     await act(async () => {
@@ -1335,7 +1336,7 @@ describe("settings section", () => {
       /Couldn't check which earlier sandboxes still need an account/,
     );
     expect(slot.getByText(/Some may already use this account/)).toBeTruthy();
-    expect(slot.queryByRole("checkbox")).toBeNull();
+    expect(slot.queryByRole("checkbox", { name: /manage and clean up/ })).toBeNull();
     expect(slot.queryByText(/BB recorded/)).toBeNull();
   });
 

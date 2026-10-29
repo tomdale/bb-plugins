@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accessHandlers } from "./access-server.js";
 import {
   cliCommand,
   defineCli,
@@ -375,6 +376,7 @@ export function createVercelSandboxPlugin() {
       };
     };
     bb.rpc.register(vercelRpcContract, {
+      ...accessHandlers(bb),
       ...relayHandlers(bb, { owner: allocations.owner, connection: currentConnection, run: allocations.run, signal: () => operationSignal(undefined, 180_000) }),
       "launch.options": async () => {
         try {

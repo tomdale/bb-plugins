@@ -47,6 +47,7 @@ function assertPrivateIdentity(privateKey: string | undefined, authorizedKey: st
   if (parsed instanceof Error || Array.isArray(parsed) || parsed.isPrivateKey() !== true || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== authorizedKey) throw new Error("Connector identity changed");
 }
 export const setupContract = defineRpcContract({
+  "setup.current": { input: z.object({}).strict(), output: z.object({ key: keySchema.nullable() }).strict() },
   "setup.status": { input: z.object({}).strict(), output: diagnosticSnapshotSchema },
   "setup.prepare": { input: inputSchema.extend({ approveAllocation: z.literal(true), image: imageSchema }).strict(), output: relayViewSchema },
   "setup.inspect": { input: inputSchema, output: relayViewSchema.nullable() },
@@ -127,6 +128,7 @@ export function registerSetup(bb: BbPluginApi, options: {
     return view;
   });
   const handlers = {
+    "setup.current": async () => ({ key: (await activeRecord())?.key ?? null }),
     "setup.status": () => diagnosticSnapshotSchema.parse(options.diagnostics?.() ?? new DiagnosticStore().snapshot()),
     "setup.prepare": ({ key, image }: { key: string; image: string; approveAllocation: true }) => prepare(key, image),
     "setup.inspect": ({ key }: { key: string }) => serialized(async () => {

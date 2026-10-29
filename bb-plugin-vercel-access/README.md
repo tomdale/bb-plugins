@@ -1,6 +1,6 @@
 # Vercel Access machine bridge prototype
 
-**Disabled by default. Locally tested against released BB 0.46.1 / SDK 0.6.59 / daemon protocol 244. Daily activation and cloud use require separate approval and independent review.**
+**Disabled by default. Native conformance is pinned to released BB 0.48.0 / daemon protocol 258, using the public SDK 0.6.59 contract. Relay allocation requires explicit cost consent.**
 
 This plugin provides a deliberately narrow machine-only connection path without BB/SDK modifications, private APIs, Connect identities, hosted BB services, or copying a BB database. The [Phase 2 decision record](../docs/vercel-access-phase2.md) describes the security boundary and remaining gates.
 
@@ -20,7 +20,7 @@ native worker HTTP/WS -> dedicated relay's fixed HTTP/WS adapter
                        BB native machine authentication
 ```
 
-The relay's one public HTTP listener handles `/machine-connector` upgrades for SSH control and the explicitly allowed machine HTTP/WS routes. Its reverse listener is loopback-only. Public Host and a short, explicit list of platform forwarding headers are checked/discarded at the adapter; Host is rebuilt for the laptop bridge. The laptop never trusts those headers as identity. Unknown platform headers fail closed until independently reviewed. Real Vercel header behavior is untested.
+The relay's one public HTTP listener handles `/machine-connector` upgrades for SSH control and the explicitly allowed machine HTTP/WS routes. Its reverse listener is loopback-only. Public Host is checked; bounded `x-vercel-*` and listed forwarding metadata are discarded at the adapter. Host is rebuilt for the laptop bridge, which stays strict and never trusts platform metadata as identity.
 
 ## Security contract
 
@@ -63,7 +63,7 @@ Leases are intentionally **process/factory-lifetime only**. Transient connector 
 
 ## Verify without touching the daily app
 
-Requires a supported BB 0.46.1 installation and Node 24 for the exercised native test environment (`.prototools` pins 24.22.1).
+Requires a supported BB 0.48.0 installation and Node 24 for the exercised native test environment (`.prototools` pins 24.22.1).
 
 ```sh
 npm ci
@@ -92,7 +92,7 @@ The [bounded provisioning contract](../docs/vercel-access-provisioning.md) adds 
 
 `npm run build:relay` builds the pinned standalone artifact into the sandbox package. `npm run check:relay` verifies that committed artifact against source and the dependency lockfile. No cloud-side dependency installation is used. The official Node24 base image is Vercel-managed and updated nightly, not immutable; its observed runtime and resources are returned for inspection.
 
-Setup apply copies trusted URL/pin and a dedicated secret connector key into **disabled** settings. Explicit enabling/reload and the existing through-origin readiness probe remain required. Setup stop disables local access and cleans up only the originally owned relay. Neither action reconfigures an already-enrolled worker after grant expiry or origin replacement.
+Setup apply copies trusted URL/pin and a dedicated secret connector key into **disabled** settings. The Vercel Sandbox Settings page's **Local BB tunnel** section provides explicit prepare, inspect, connect, readiness and stop controls. Connect applies the checked setup, enables and reloads only Vercel Access; the through-origin readiness probe must pass before selecting the tunnel. `setup.current` reads only the retained setup key locally, including after an uncertain prepare reply. Preparation and status reads never select a machine default. Setup stop disables local access and cleans up only the originally owned relay. Neither action reconfigures an already-enrolled worker after grant expiry or origin replacement.
 
 ## Relay source entrypoint
 
@@ -104,4 +104,4 @@ node relay-main.ts /private/relay-config.json
 
 The bounded JSON configuration has exactly `publicAuthority`, `port`, `reversePort`, `bridgePort`, `hostKeyFile`, and `authorizedKeyFile`. The relay host key is a bounded mode-0600 file; connector authorization is a dedicated public-key file. Use one exposed adapter port, a private reverse port, and the exact laptop bridge port. Provision the host fingerprint through a trusted control path. Never include Vercel OAuth/API credentials in laptop settings, worker bootstrap, tunnel traffic, or source artifacts.
 
-Plugin settings remain disabled until explicitly configured/reloaded. `loopback-test` requires the exact local bridge URL. `ssh-ws` requires an explicit relay origin, host fingerprint, dedicated secret connector key, fixed private reverse port, and machine-facing adapter origin; availability starts only after an authenticated transport readiness probe. These are test/prototype controls, not authorization to enable daily access. The provisioning code has fake-vendor and standalone-artifact local evidence only. Actual Vercel allocation/network behavior and teardown remain cloud gates; durable admission and existing-worker reconfiguration remain product gates. Browser access and preview sharing are separate.
+Plugin settings remain disabled until explicitly configured/reloaded. `loopback-test` requires the exact local bridge URL. `ssh-ws` requires an explicit relay origin, host fingerprint, dedicated secret connector key, fixed private reverse port, and machine-facing adapter origin; availability starts only after an authenticated transport readiness probe. These controls support fresh workers and bounded sessions only. Real cloud allocation requires a separate explicit budget; installing or checking the UI does not authorize spending. Durable admission and existing-worker reconfiguration are not implemented. Browser access and preview sharing are separate.

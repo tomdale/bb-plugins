@@ -8,6 +8,26 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Per-launch machine access selection and conditional settings writes
+
+- **Status:** not filed; not required for the bounded Vercel UI
+- **Observed:** released BB 0.48.0 / host SDK 0.6.100; public npm SDK
+  0.6.99 and the plugins' 0.6.54/0.6.59 public contracts inspected
+- **Use case:** create a fresh Vercel machine through a user-owned relay without
+  changing unrelated new-machine launches or overwriting another settings editor
+- **Limit and evidence:** machine bootstrap selects the server-access provider
+  from `generalSettings.defaultMachineAccess` and retains it on the host;
+  public machine/thread creation inputs expose no per-launch access selector.
+  `sdk.system.updateGeneralSettings` requires the complete general-settings
+  record and has no expected revision, unlike UI preference writes
+- **Workaround:** the Sandbox UI requires an explicit global-default action,
+  checks the expected current selection, saves the previous value privately,
+  and offers restoration only while its own bridge is still selected. It
+  preserves the latest other settings and warns against concurrent settings
+  edits. Preparing or connecting a relay never changes the default
+- **Possible API:** optional `serverAccessProviderId` on machine launch and
+  composition selection; partial general-settings patches with expected revision
+
 ## Provider-neutral authenticated ingress for user-owned server access
 
 - **Status:** rejected implementation direction; not filed or required for the

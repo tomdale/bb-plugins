@@ -57,6 +57,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import type { vercelRpcContract } from "./rpc.js";
+import { AccessSettings } from "./access-settings.js";
 import { PROVIDER_ID } from "./provider-id.js";
 import { PLAN_LIMITS, PLAN_NAMES, type Plan } from "./plans.js";
 
@@ -1590,6 +1591,8 @@ function VercelSettingsSection() {
         onConnected={connectionLoaded}
         reinspect={account.retry}
       />
+
+      <AccessSettings />
 
       <LaunchDefaultsSection
         planKey={JSON.stringify([
