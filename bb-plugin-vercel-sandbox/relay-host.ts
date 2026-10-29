@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
@@ -10,9 +10,7 @@ import { relayIdentitySchema, relayViewSchema, type RelayIdentity, type RelayVie
 import { SafeError } from "./configuration.js";
 import type { createVercelClient } from "./client.js";
 
-export const hash = (text: string | Buffer) => createHash("sha256").update(text).digest("hex");
-export const relayName = (identity: RelayIdentity) => `bb-relay-${hash(JSON.stringify([identity.owner, identity.key, identity.generation])).slice(0, 48)}`;
-export const relayTags = (i: RelayIdentity) => ({ bbProvider: "vercel-access-relay", bbOwner: i.owner, bbKey: hash(i.key), bbGeneration: i.generation });
+import { hash, relayName, relayTags } from "./relay-identity.js";
 const recordSchema = z.object({ identity: relayIdentitySchema, view: relayViewSchema, hostKey: z.string().max(8192) }).strict();
 type Record = z.infer<typeof recordSchema>;
 type Vendor = Pick<ReturnType<typeof createVercelClient>, "get" | "getSession" | "stopSession"> & {

@@ -19,7 +19,18 @@ export const relayViewSchema = z.object({
   timeoutMs: z.number().int().positive().max(86_400_000).nullable(), nodeVersion: z.string().regex(/^v24\.[0-9]+\.[0-9]+$/).max(32).nullable(),
 }).strict();
 type View = z.infer<typeof relayViewSchema>;
-const recordSchema = z.object({ key: keySchema, image: imageSchema, authorizedKey: z.string().max(128), bridgePort: z.number().int().min(1024).max(65535) }).strict();
+const receiptSchema = relayViewSchema.pick({
+  key: true, generation: true, name: true, hostId: true, accountId: true, teamId: true, projectId: true,
+  fingerprint: true, artifactSha256: true, sessionId: true, origin: true, commandId: true,
+});
+type Receipt = z.infer<typeof receiptSchema>;
+const recordSchema = z.object({ key: keySchema, image: imageSchema, authorizedKey: z.string().max(128), bridgePort: z.number().int().min(1024).max(65535), receipt: receiptSchema.nullable().default(null) }).strict();
+type SetupRecord = z.infer<typeof recordSchema>;
+function assertPrivateIdentity(privateKey: string | undefined, authorizedKey: string): asserts privateKey is string {
+  if (!privateKey) throw new Error("Private connector identity is unavailable");
+  const parsed = ssh2.utils.parseKey(privateKey);
+  if (parsed instanceof Error || Array.isArray(parsed) || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== authorizedKey) throw new Error("Connector identity changed");
+}
 export const setupContract = defineRpcContract({
   "setup.prepare": { input: inputSchema.extend({ approveAllocation: z.literal(true), image: imageSchema }).strict(), output: relayViewSchema },
   "setup.inspect": { input: inputSchema, output: relayViewSchema.nullable() },
@@ -53,16 +64,35 @@ export function registerSetup(bb: BbPluginApi, options: {
     if (record.key !== key) throw new Error("Retained relay key does not match its record");
     return record;
   };
-  const inspect = (key: string) => bb.sdk.plugins.callRpc({ pluginId: "environment-vercel-sandbox", method: "relay.inspect", input: { key }, outputSchema: relayViewSchema.nullable() });
+  const observe = async (record: SetupRecord, method: "relay.prepare" | "relay.inspect" | "relay.stop") => {
+    const { receipt: previous, ...setup } = record;
+    const view = await bb.sdk.plugins.callRpc({ pluginId: "environment-vercel-sandbox", method,
+      input: method === "relay.prepare" ? setup : { key: record.key }, outputSchema: relayViewSchema.nullable() });
+    if (!view) {
+      if (previous) throw new Error("Previously observed relay identity is unavailable");
+      return null;
+    }
+    if (view.key !== record.key) throw new Error("Relay reply does not match the requested setup key");
+    const receipt = receiptSchema.parse(Object.fromEntries(Object.keys(receiptSchema.shape).map(key => [key, view[key as keyof View]])));
+    if (previous) for (const key of Object.keys(previous) as (keyof Receipt)[]) {
+      if (previous[key] !== null && previous[key] !== receipt[key]) throw new Error("Relay reply changed its recorded public identity");
+    }
+    const active = await activeRecord();
+    const storageKey = active?.key === record.key ? "relay-setup" : `relay-setup-history/${record.key}`;
+    await bb.storage.kv.set(storageKey, { ...record, receipt });
+    return view;
+  };
   const prepare = (key: string, image: string) => serialized(async () => {
     const config = await options.config();
     if (config.enabled) throw new Error("Disable the current bridge before preparing setup");
     let record = await activeRecord();
     if (record && record.key !== key) {
-      const previous = await inspect(record.key);
+      const previous = await observe(record, "relay.inspect");
       if (previous?.phase !== "removed" || !previous.computeEnded || !previous.metadataDeleted) throw new Error("Previous relay cleanup is unresolved");
       if (await getRecord(key)) throw new Error("A retained setup key cannot be reused");
-      await bb.storage.kv.set(`relay-setup-history/${record.key}`, record);
+      const retained = await activeRecord();
+      if (!retained || retained.key !== record.key) throw new Error("Active relay setup changed");
+      await bb.storage.kv.set(`relay-setup-history/${record.key}`, retained);
       record = null;
     }
     if (record && record.image !== image) throw new Error("Restore the original relay image");
@@ -74,26 +104,32 @@ export function registerSetup(bb: BbPluginApi, options: {
       record = recordSchema.parse({ key, image, authorizedKey: pair.public, bridgePort: config.port });
       await bb.storage.kv.set("relay-setup", record);
     }
-    if (!privateKey) throw new Error("Private connector identity is unavailable");
-    const parsed = ssh2.utils.parseKey(privateKey);
-    if (parsed instanceof Error || Array.isArray(parsed) || `ssh-ed25519 ${parsed.getPublicSSH().toString("base64")}` !== record.authorizedKey) throw new Error("Connector identity changed");
-    return bb.sdk.plugins.callRpc({ pluginId: "environment-vercel-sandbox", method: "relay.prepare", input: record, outputSchema: relayViewSchema });
+    assertPrivateIdentity(privateKey, record.authorizedKey);
+    const view = await observe(record, "relay.prepare");
+    if (!view) throw new Error("Relay preparation returned no identity");
+    return view;
   });
   const handlers = {
     "setup.prepare": ({ key, image }: { key: string; image: string; approveAllocation: true }) => prepare(key, image),
-    "setup.inspect": ({ key }: { key: string }) => serialized(async () => { await getRecord(key); return inspect(key); }),
+    "setup.inspect": ({ key }: { key: string }) => serialized(async () => {
+      const record = await getRecord(key);
+      return record ? observe(record, "relay.inspect") : null;
+    }),
     "setup.stop": ({ key }: { key: string }) => serialized(async () => {
-      if (!await getRecord(key)) return null;
-      // Revocation is local even when the original auth machine is offline.
-      await options.disable();
-      return bb.sdk.plugins.callRpc({ pluginId: "environment-vercel-sandbox", method: "relay.stop", input: { key }, outputSchema: relayViewSchema.nullable() });
+      const record = await getRecord(key);
+      if (!record) return null;
+      // Revoke the matching current setup even while its auth host is offline.
+      // Historical cleanup must not invalidate a replacement's live leases.
+      if ((await activeRecord())?.key === key) await options.disable();
+      return observe(record, "relay.stop");
     }),
     "setup.apply": ({ key }: { key: string }) => serialized(async () => {
       const record = await activeRecord();
       const config = await options.config();
       if (!record || record.key !== key || config.enabled || !config.preparedConnectorPrivateKey || config.port !== record.bridgePort) throw new Error("Disable the bridge and restore its private setup identity and port");
-      const view = await inspect(key);
-      if (!view || view.phase !== "ready" || view.vcpus !== 1 || view.persistent !== false || view.timeoutMs !== 600_000 || view.image !== "vercel/sandbox/node:24" || !view.origin || !view.sessionId || view.computeEnded || !view.expiresAt || view.expiresAt <= Date.now() || view.observedStatus !== "command-pending-or-running") throw new Error("Relay is not provisioned");
+      assertPrivateIdentity(config.preparedConnectorPrivateKey, record.authorizedKey);
+      const view = await observe(record, "relay.inspect");
+      if (!view || !view.nodeVersion || view.phase !== "ready" || view.vcpus !== 1 || view.persistent !== false || view.timeoutMs !== 600_000 || view.image !== "vercel/sandbox/node:24" || !view.origin || !view.sessionId || view.computeEnded || !view.expiresAt || view.expiresAt <= Date.now() || view.observedStatus !== "command-pending-or-running") throw new Error("Relay is not provisioned");
       await options.apply(view, config.preparedConnectorPrivateKey);
       return view;
     }),

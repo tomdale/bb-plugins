@@ -33,6 +33,14 @@ export const relayViewSchema = z.object({
   nodeVersion: z.string().regex(/^v24\.[0-9]+\.[0-9]+$/).max(32).nullable(),
 }).strict();
 export type RelayView = z.infer<typeof relayViewSchema>;
+export const relayReceiptSchema = relayViewSchema.pick({
+  key: true, generation: true, name: true, hostId: true, accountId: true, teamId: true, projectId: true,
+  fingerprint: true, artifactSha256: true, sessionId: true, origin: true, commandId: true,
+});
+export type RelayReceipt = z.infer<typeof relayReceiptSchema>;
+export function relayReceipt(view: RelayView): RelayReceipt {
+  return relayReceiptSchema.parse(Object.fromEntries(Object.keys(relayReceiptSchema.shape).map(key => [key, view[key as keyof RelayView]])));
+}
 export const relayMethods = {
   "relay.prepare": { input: relaySetupSchema, output: relayViewSchema },
   "relay.inspect": { input: z.object({ key: relayKeySchema }).strict(), output: relayViewSchema.nullable() },

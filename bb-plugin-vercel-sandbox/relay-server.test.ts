@@ -4,6 +4,7 @@ import { createVercelSandboxPlugin } from "./server.js";
 import { relayIdentitySchema, type RelayView } from "./relay-contract.js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { relayName } from "./relay-identity.js";
 
 const closes: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closes.splice(0)) await close(); });
@@ -18,7 +19,7 @@ it("actual public server harness pins relay intent before host call, survives lo
     calls.push({ method, hostId, input: identity, initialize });
     expect(await live.storage.kv.get(`relay-intents/${setup.key}`)).toEqual(identity);
     if (method === "relayPrepare" && lost) throw new Error("synthetic-secret response lost");
-    const view: RelayView = { key: identity.key, generation: identity.generation, name: `bb-relay-${"a".repeat(48)}`,
+    const view: RelayView = { key: identity.key, generation: identity.generation, name: relayName(identity),
       hostId, accountId: identity.connection.accountId, teamId: identity.connection.teamId, projectId: identity.connection.projectId,
       phase: method === "relayStop" ? "removed" : "submitted", sessionId: null, commandId: null,
       origin: null, fingerprint: "a".repeat(64), expiresAt: null, computeEnded: false, metadataDeleted: false,
@@ -95,6 +96,53 @@ it("a crash after durable first dispatch reservation cannot authorize initializa
   const next = await host.harness.lifecycle.reload(createVercelSandboxPlugin());
   await expect(next.harness.behavior.callRpc("relay.prepare", setup)).rejects.toThrow();
   expect(flags).toEqual([true, false]);
+});
+
+it("binds every prepare/inspect/stop reply to original identity and first public receipt — fake host", async () => {
+  let change: Partial<RelayView> = { sessionId: null, origin: null, commandId: null };
+  let hostCalls = 0;
+  const host = createFakePluginHost({ pluginId: "environment-vercel-sandbox", experimental_callHostRpc: async ({ method, input }) => {
+    hostCalls++;
+    const { initialize: _initialize, ...identity } = relayIdentitySchema.extend({ initialize: z.boolean().optional() }).parse(input);
+    const view: RelayView = {
+      key: identity.key, generation: identity.generation, name: relayName(identity), hostId: identity.connection.hostId,
+      accountId: identity.connection.accountId, teamId: identity.connection.teamId, projectId: identity.connection.projectId,
+      phase: method === "relayStop" ? "removed" : "ready", sessionId: "session_original", commandId: "cmd_original",
+      origin: "https://synthetic-relay.vercel.run", fingerprint: "a".repeat(64), expiresAt: Date.now() + 600_000,
+      computeEnded: method === "relayStop", metadataDeleted: method === "relayStop", observedStatus: "running", artifactSha256: "b".repeat(64),
+      image: "vercel/sandbox/node:24", nodeVersion: "v24.22.1", vcpus: 1, persistent: false, timeoutMs: 600_000,
+    };
+    return { ok: true, value: { ...view, ...change } };
+  } });
+  closes.push(() => host.harness.lifecycle.dispose());
+  await host.bb.storage.kv.set("cli-connection", connection);
+  await createVercelSandboxPlugin()(host.bb);
+  await host.harness.behavior.callRpc("relay.prepare", setup);
+  expect(await host.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toMatchObject({ sessionId: null, origin: null, commandId: null });
+  change = {};
+  await host.harness.behavior.callRpc("relay.inspect", { key: setup.key });
+  const receipt = await host.bb.storage.kv.get(`relay-receipts/${setup.key}`);
+  const mutations: Partial<RelayView>[] = [
+    { key: "foreign-relay" }, { generation: randomUUID() }, { name: `bb-relay-${"c".repeat(48)}` },
+    { hostId: "host_foreign" }, { accountId: "account_foreign" }, { teamId: "team_foreign" }, { projectId: "prj_foreign" },
+    { fingerprint: "c".repeat(64) }, { artifactSha256: "c".repeat(64) }, { sessionId: "session_foreign" },
+    { origin: "https://foreign-relay.vercel.run" }, { commandId: "cmd_foreign" }, { origin: null }, { sessionId: null }, { commandId: null },
+  ];
+  for (const method of ["relay.prepare", "relay.inspect", "relay.stop"]) for (const mutation of mutations) {
+    change = mutation;
+    await expect(host.harness.behavior.callRpc(method, method === "relay.prepare" ? setup : { key: setup.key })).rejects.toThrow();
+    expect(await host.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
+  }
+  change = {};
+  expect(await host.harness.behavior.callRpc("relay.inspect", { key: setup.key })).toMatchObject({ key: setup.key, hostId: connection.hostId });
+  const next = await host.harness.lifecycle.reload(createVercelSandboxPlugin());
+  change = { fingerprint: "c".repeat(64) };
+  await expect(next.harness.behavior.callRpc("relay.inspect", { key: setup.key })).rejects.toThrow();
+  expect(await next.bb.storage.kv.get(`relay-receipts/${setup.key}`)).toEqual(receipt);
+  await next.bb.storage.kv.delete(`relay-intents/${setup.key}`);
+  const before = hostCalls;
+  for (const method of ["relay.prepare", "relay.inspect", "relay.stop"]) await expect(next.harness.behavior.callRpc(method, method === "relay.prepare" ? setup : { key: setup.key })).rejects.toThrow();
+  expect(hostCalls).toBe(before);
 });
 
 it("unknown relay inspect/stop are observational and never initialize an account or call a host", async () => {
