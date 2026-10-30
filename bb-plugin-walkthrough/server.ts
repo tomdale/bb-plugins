@@ -96,11 +96,10 @@ export default function plugin(bb: BbPluginApi) {
     wrapUp: ({ walkthroughId }) => handle(async () => (await service.wrapUp(walkthroughId), ok)),
     close: ({ walkthroughId }) => handle(async () => (await service.close(walkthroughId), ok)),
     handOff: ({ walkthroughId }) => handle(async () => ({ sent: await service.handOff(walkthroughId) })),
-    addNote: ({ walkthroughId, kind, text, groupIndex, location, quote }) =>
-      handle(() => service.addNote(walkthroughId, { kind, text, groupIndex, location, quote }, "user")),
+    addNote: ({ walkthroughId, kind, text, groupIndex, location, quote, includeInReview }) =>
+      handle(() => service.addNote(walkthroughId, { kind, text, groupIndex, location, quote, includeInReview }, "user")),
     updateNote: ({ walkthroughId, noteId, ...patch }) => handle(() => service.updateNote(walkthroughId, noteId, patch, "user")),
     deleteNote: ({ walkthroughId, noteId }) => handle(() => ({ deleted: service.deleteNote(walkthroughId, noteId) })),
-    setNotesFileEnabled: ({ walkthroughId, enabled }) => handle(() => (service.setNotesFileEnabled(walkthroughId, enabled), ok)),
     diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>
       service.diff(walkthroughId, path, { startLine, endLine }, withFullFile ?? false),
     excerpt: ({ walkthroughId, path, startLine, endLine }) => service.excerpt(walkthroughId, path, startLine, endLine),

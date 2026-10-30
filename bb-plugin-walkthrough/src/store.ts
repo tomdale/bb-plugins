@@ -5,7 +5,15 @@
 // instead of flowing into the UI or the agent. better-sqlite3 is synchronous,
 // which lets the instruction contributor read state without awaiting.
 import type Database from "better-sqlite3";
-import { noteSchema, walkthroughSchema, type Note, type Walkthrough } from "./schemas.ts";
+import {
+  defaultIntent,
+  noteSchema,
+  walkthroughSchema,
+  type Block,
+  type Note,
+  type Part,
+  type Walkthrough,
+} from "./schemas.ts";
 
 export const MIGRATIONS = [
   `CREATE TABLE walkthroughs (
@@ -36,11 +44,47 @@ export const MIGRATIONS = [
   `CREATE INDEX walkthroughs_v2_by_worker ON walkthroughs_v2 (worker_thread_id)`,
 ];
 
+/** Fills a code block's newer fields; a block already carrying them is unchanged. */
+function upgradeBlock(block: Block): Block {
+  if (block.kind !== "code") return block;
+  return { ...block, view: block.view ?? "diff", snapshot: block.snapshot ?? null, snapshotError: block.snapshotError ?? null };
+}
+
+function upgradePart(part: Part): Part {
+  return {
+    ...part,
+    blocks: part.blocks.map(upgradeBlock),
+    discussion: part.discussion.map((exchange) => (exchange.suggestions === undefined ? exchange : { ...exchange, suggestions: exchange.suggestions.slice(0, 4) })),
+  };
+}
+
+/**
+ * Parses a stored walkthrough and backfills what older rows lack: `intent`
+ * from the mode, and each code block's `view`, `snapshot`, and
+ * `snapshotError`. Fields that fail to parse fall back (see the schemas)
+ * instead of discarding the record.
+ */
+export function readWalkthrough(raw: unknown): Walkthrough {
+  const parsed = walkthroughSchema.parse(raw);
+  return {
+    ...parsed,
+    intent: parsed.intent ?? defaultIntent(parsed.mode),
+    parts: parsed.parts.map(upgradePart),
+    wrapUp: parsed.wrapUp && upgradePart(parsed.wrapUp),
+  };
+}
+
+/** Parses a stored note and backfills `includeInReview`: comments default to included. */
+export function readNote(raw: unknown): Note {
+  const parsed = noteSchema.parse(raw);
+  return { ...parsed, includeInReview: parsed.includeInReview ?? parsed.kind === "comment" };
+}
+
 export class WalkthroughStore {
   constructor(private readonly db: Database.Database) {}
 
   private parse(row: { data: string } | undefined): Walkthrough | null {
-    return row ? walkthroughSchema.parse(JSON.parse(row.data)) : null;
+    return row ? readWalkthrough(JSON.parse(row.data)) : null;
   }
 
   get(id: string): Walkthrough | null {
@@ -61,7 +105,7 @@ export class WalkthroughStore {
     const rows = this.db
       .prepare(`SELECT data FROM walkthroughs_v2 WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`)
       .all(threadId, limit) as Array<{ data: string }>;
-    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
+    return rows.map((row) => readWalkthrough(JSON.parse(row.data)));
   }
 
   /** Walkthroughs from every thread, newest first. */
@@ -69,7 +113,7 @@ export class WalkthroughStore {
     const rows = this.db
       .prepare(`SELECT data FROM walkthroughs_v2 ORDER BY created_at DESC, rowid DESC LIMIT ?`)
       .all(limit) as Array<{ data: string }>;
-    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
+    return rows.map((row) => readWalkthrough(JSON.parse(row.data)));
   }
 
   /** Unfinished walkthroughs, for resuming worker requests after a restart. */
@@ -77,11 +121,11 @@ export class WalkthroughStore {
     const rows = this.db
       .prepare(`SELECT data FROM walkthroughs_v2 WHERE status NOT IN ('done', 'failed')`)
       .all() as Array<{ data: string }>;
-    return rows.map((row) => walkthroughSchema.parse(JSON.parse(row.data)));
+    return rows.map((row) => readWalkthrough(JSON.parse(row.data)));
   }
 
   save(walkthrough: Walkthrough): void {
-    const data = JSON.stringify(walkthroughSchema.parse(walkthrough));
+    const data = JSON.stringify(readWalkthrough(walkthrough));
     this.db
       .prepare(
         `INSERT INTO walkthroughs_v2 (id, thread_id, worker_thread_id, status, data, created_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -94,14 +138,14 @@ export class WalkthroughStore {
     const rows = this.db
       .prepare(`SELECT data FROM notes WHERE walkthrough_id = ? ORDER BY created_at, rowid`)
       .all(walkthroughId) as Array<{ data: string }>;
-    return rows.map((row) => noteSchema.parse(JSON.parse(row.data)));
+    return rows.map((row) => readNote(JSON.parse(row.data)));
   }
 
   note(walkthroughId: string, id: string): Note | null {
     const row = this.db.prepare(`SELECT data FROM notes WHERE walkthrough_id = ? AND id = ?`).get(walkthroughId, id) as
       | { data: string }
       | undefined;
-    return row ? noteSchema.parse(JSON.parse(row.data)) : null;
+    return row ? readNote(JSON.parse(row.data)) : null;
   }
 
   /**
@@ -110,7 +154,7 @@ export class WalkthroughStore {
    * the agent with its next walkthrough tool result.
    */
   saveNote(note: Note, reported: boolean): void {
-    const data = JSON.stringify(noteSchema.parse(note));
+    const data = JSON.stringify(readNote(note));
     this.db
       .prepare(
         `INSERT INTO notes (id, walkthrough_id, data, reported, created_at) VALUES (?, ?, ?, ?, ?)
@@ -126,7 +170,7 @@ export class WalkthroughStore {
       if (note === null) continue;
       this.db
         .prepare(`UPDATE notes SET data = ? WHERE walkthrough_id = ? AND id = ?`)
-        .run(JSON.stringify(noteSchema.parse({ ...note, sentAt })), walkthroughId, id);
+        .run(JSON.stringify(readNote({ ...note, sentAt })), walkthroughId, id);
     }
   }
 
@@ -141,7 +185,7 @@ export class WalkthroughStore {
         .prepare(`SELECT data FROM notes WHERE walkthrough_id = ? AND reported = 0 ORDER BY created_at, rowid`)
         .all(id) as Array<{ data: string }>;
       this.db.prepare(`UPDATE notes SET reported = 1 WHERE walkthrough_id = ? AND reported = 0`).run(id);
-      return rows.map((row) => noteSchema.parse(JSON.parse(row.data)));
+      return rows.map((row) => readNote(JSON.parse(row.data)));
     });
     return take(walkthroughId);
   }

@@ -3,9 +3,10 @@
 // bb.agents.configure in server.ts).
 import type { BbPluginApi, PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { describeNoteForAgent, describeNotesForAgent, describeOutline, NOTE_KIND_LABEL } from "./model.ts";
+import { COVERED_RESOLUTION, describeNoteForAgent, describeNotesForAgent, describeOutline, mergedReviewDraft, NOTE_KIND_LABEL } from "./model.ts";
 import {
-  blockSchema,
+  blockInputSchema,
+  intentSchema,
   locationSchema,
   modeSchema,
   noteKindSchema,
@@ -15,11 +16,13 @@ import {
   WORKER_ROLE,
 } from "./schemas.ts";
 import { WalkthroughError, type WalkthroughService } from "./service.ts";
+import { PLAN_INSTRUCTIONS, SUGGEST_INSTRUCTIONS, WRAP_UP_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } from "./worker.ts";
 
 export const USER_TOOLS = ["walkthrough_open"] as const;
 export const WORKER_TOOLS = [
   "walkthrough_plan",
   "walkthrough_write_part",
+  "walkthrough_suggest",
   "walkthrough_wrap_up",
   "walkthrough_note",
   "walkthrough_status",
@@ -30,7 +33,7 @@ const suggestionsSchema = z
   .array(z.string().trim().min(1).max(200))
   .max(4)
   .default([])
-  .describe("Short prompts in the user's voice; clicking one asks it.");
+  .describe("2 or 3 specific questions in the reader's voice, each about something named in this part; clicking one asks it. Never generic.");
 
 function failure(message: string): PluginAgentToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
@@ -75,10 +78,14 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
     name: "walkthrough_plan",
     description:
       "Set up the walkthrough once you know what to walk through: mode, title, base, an introduction, and the ordered parts. Call it once, before writing any part.",
+    instructions: PLAN_INSTRUCTIONS,
     presentation: { label: { pending: "Planning walkthrough", completed: "Planned walkthrough" }, icon: { glyph: "ListView" } },
     parameters: z
       .object({
         mode: modeSchema.describe("pr for a GitHub PR review, local otherwise."),
+        intent: intentSchema
+          .optional()
+          .describe("review: judging someone else's work (default for pr). own-change: checking changes the user or their agent made (default for local). understand: learning how code works, no change to judge."),
         title: z.string().trim().min(1).max(200).describe('Short and human, e.g. "Read aloud plugin" or "PR #123: Retry uploads".'),
         baseRef: z
           .string()
@@ -125,38 +132,56 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
     execute: (input, ctx) =>
       guard(() => {
         const walkthrough = service.plan(ctx.threadId, input);
-        return `Planned ${walkthrough.parts.length} parts. Wait for the next request; do not write parts until asked.`;
+        return `Planned ${walkthrough.parts.length} parts. Now call walkthrough_write_part for part 1 in this turn, and write no later part until asked.`;
       }),
   });
 
   bb.agents.registerTool({
     name: "walkthrough_write_part",
-    description: "Deliver one part of the walkthrough as prose and code blocks, plus suggested questions.",
+    description: "Deliver one part of the walkthrough as prose and code blocks (each code block with a view of code or diff), plus 2 or 3 specific suggested questions.",
+    instructions: WRITE_PART_INSTRUCTIONS,
     presentation: { label: { pending: "Writing walkthrough part", completed: "Wrote walkthrough part" }, icon: { glyph: "Edit" } },
     parameters: z
       .object({
         part: z.number().int().positive().describe("1-based part number."),
-        blocks: z.array(blockSchema).min(1).max(40),
+        blocks: z.array(blockInputSchema).min(1).max(40),
         suggestions: suggestionsSchema,
       })
       .strict(),
     execute: ({ part, blocks, suggestions }, ctx) =>
+      guard(async () => {
+        const { unreadable } = await service.writePart(ctx.threadId, part - 1, blocks, suggestions);
+        const missing = unreadable.map((block) => `${block.path}:${block.startLine}-${block.endLine} (${block.snapshotError ?? "unreadable"})`);
+        return missing.length === 0
+          ? `Part ${part} is on the page.`
+          : `Part ${part} is on the page, but the code for ${missing.join("; ")} could not be read, so those blocks show no code. If the path or line range is wrong, call walkthrough_write_part for this part again with it fixed.`;
+      }),
+  });
+
+  bb.agents.registerTool({
+    name: "walkthrough_suggest",
+    description: "While answering a question, set 2 or 3 specific follow-up questions the reader can click next.",
+    instructions: SUGGEST_INSTRUCTIONS,
+    presentation: { label: { pending: "Suggesting follow-ups", completed: "Suggested follow-ups" }, icon: { glyph: "Edit" }, suppress: true },
+    parameters: z.object({ suggestions: z.array(z.string().trim().min(1).max(200)).min(1).max(4) }).strict(),
+    execute: ({ suggestions }, ctx) =>
       guard(() => {
-        service.writePart(ctx.threadId, part - 1, blocks, suggestions);
-        return `Part ${part} is on the page.`;
+        service.suggest(ctx.threadId, suggestions);
+        return "The follow-up questions are on the page. Now give your answer as your final message.";
       }),
   });
 
   bb.agents.registerTool({
     name: "walkthrough_wrap_up",
     description: "Deliver the wrap-up: a short recap in prose blocks, plus follow-ups in the user's voice.",
+    instructions: WRAP_UP_INSTRUCTIONS,
     presentation: { label: { pending: "Writing wrap-up", completed: "Wrote wrap-up" }, icon: { glyph: "CircleCheck" } },
     parameters: z
-      .object({ blocks: z.array(blockSchema).min(1).max(20), followUps: suggestionsSchema })
+      .object({ blocks: z.array(blockInputSchema).min(1).max(20), followUps: suggestionsSchema })
       .strict(),
     execute: ({ blocks, followUps }, ctx) =>
-      guard(() => {
-        service.writeWrapUp(ctx.threadId, blocks, followUps);
+      guard(async () => {
+        await service.writeWrapUp(ctx.threadId, blocks, followUps);
         return "The wrap-up is on the page.";
       }),
   });
@@ -213,7 +238,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
     execute: (_input, ctx) =>
       guard(() => {
         const walkthrough = service.requireForWorker(ctx.threadId);
-        const review = walkthrough.review;
+        const review = mergedReviewDraft(walkthrough, service.notes(walkthrough.id));
         return [
           `${JSON.stringify(walkthrough.title)}, ${walkthrough.mode} mode, base ${walkthrough.baseRef}${walkthrough.pr ? `, PR #${walkthrough.pr.number}` : ""}.`,
           `Parts:\n${describeOutline(walkthrough)}`,
@@ -265,7 +290,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         service.setReview(walkthrough.id, review);
         for (const noteId of input.coveredNotes ?? []) {
           try {
-            service.updateNote(walkthrough.id, noteId, { status: "resolved", resolution: "Included in the draft PR review." }, "agent");
+            service.updateNote(walkthrough.id, noteId, { status: "resolved", resolution: COVERED_RESOLUTION }, "agent");
           } catch {
             // Unknown ids are ignored; the draft is saved.
           }

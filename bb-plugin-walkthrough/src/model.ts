@@ -1,7 +1,7 @@
 // Pure walkthrough logic shared by the server and the pane: labels, the
-// notes Markdown mirror, and text handed to the worker agent.
+// review draft derivation, and text handed to the worker agent.
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
-import type { Location, Mode, Note, NoteKind, Part, Walkthrough, WalkthroughStatus } from "./schemas.ts";
+import type { DerivedReviewComment, Intent, Location, Mode, Note, NoteKind, Part, ReviewDraft, Walkthrough, WalkthroughStatus } from "./schemas.ts";
 
 export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
   question: "Question",
@@ -220,35 +220,55 @@ export function parseCommand(input: string): CommandIntent {
 }
 
 // ---------------------------------------------------------------------------
-// Notes file mirror
+// Review draft
 // ---------------------------------------------------------------------------
 
-function bullet(walkthrough: Walkthrough, note: Note, prefix: string | null): string {
-  const locus = noteLocus(walkthrough, note);
-  const label = [prefix, locus].filter(Boolean).join(" · ");
-  const head = label === "" ? "" : `[${label}] `;
-  const lines = [`- ${head}${note.text.replace(/\n+/gu, " ")} (${note.id})`];
-  if (note.quote) lines.push(`  > ${note.quote.replace(/\n+/gu, " ").slice(0, 400)}`);
-  if (note.resolution) lines.push(`  ${note.kind === "todo" ? "Outcome" : "Answer"}: ${note.resolution.replace(/\n+/gu, " ")}`);
-  return lines.join("\n");
+/** The resolution a note gets when the worker folds it into its own drafted comment. */
+export const COVERED_RESOLUTION = "Included in the draft PR review.";
+
+/** A walkthrough's intent, for rows that predate it. */
+export function intentOf(walkthrough: Pick<Walkthrough, "intent" | "mode">): Intent {
+  return walkthrough.intent ?? (walkthrough.mode === "pr" ? "review" : "own-change");
 }
 
-/** The `.agent/review-notes/<id>.md` mirror: nonempty sections only. */
-export function renderNotesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
-  const out = ["# Review Notes", ""];
-  const scope = walkthrough.mode === "pr" ? "PR review" : "Local review";
-  out.push(`${walkthrough.title} (${scope}; base \`${shortRef(walkthrough.baseRef)}\`).`, "");
-  for (const section of NOTE_SECTIONS) {
-    const items = notes.filter((note) => note.kind === section.kind && note.status === "open");
-    if (items.length === 0) continue;
-    out.push(`## ${section.title}`, "", ...items.map((note) => bullet(walkthrough, note, null)), "");
+/**
+ * Inline comments from the notes the reader marked for the review: open comment
+ * notes with a file and line. A note the worker folded into its own drafted
+ * comment is resolved, so it never appears twice.
+ */
+export function deriveReviewComments(notes: Note[]): DerivedReviewComment[] {
+  const comments: DerivedReviewComment[] = [];
+  for (const note of notes) {
+    const included = note.includeInReview ?? note.kind === "comment";
+    const location = note.location;
+    if (note.kind !== "comment" || !included || note.status !== "open" || !location) continue;
+    const line = location.endLine ?? location.startLine;
+    if (line === undefined) continue;
+    const startLine = location.startLine !== undefined && location.startLine < line ? location.startLine : undefined;
+    comments.push({ path: location.path, line, ...(startLine === undefined ? {} : { startLine }), side: "RIGHT", body: note.text.slice(0, 20_000), noteId: note.id });
   }
-  const resolved = notes.filter((note) => note.status === "resolved");
-  if (resolved.length > 0) {
-    out.push("## Resolved / Answered", "", ...resolved.map((note) => bullet(walkthrough, note, NOTE_KIND_LABEL[note.kind])), "");
-  }
-  return `${out.join("\n").trimEnd()}\n`;
+  return comments;
 }
+
+/**
+ * The review the pane shows and the worker posts: the worker's drafted
+ * comments plus those derived from included notes. Null outside PR mode, or
+ * when there is neither a draft nor an included comment. A posted review is
+ * returned as it was posted.
+ */
+export function mergedReviewDraft(walkthrough: Walkthrough, notes: Note[]): MergedReviewDraft | null {
+  if (walkthrough.mode !== "pr") return null;
+  const review = walkthrough.review;
+  if (review?.status === "posted") return review;
+  const derived = deriveReviewComments(notes);
+  if (review === null && derived.length === 0) return null;
+  const base: ReviewDraft = review ?? { body: "", event: "COMMENT", comments: [], status: "draft", url: null, updatedAt: walkthrough.updatedAt };
+  const key = (comment: { path: string; line: number; body: string }) => `${comment.path}\0${comment.line}\0${comment.body.trim()}`;
+  const seen = new Set(base.comments.map(key));
+  return { ...base, comments: [...base.comments, ...derived.filter((comment) => !seen.has(key(comment)))].slice(0, 400) };
+}
+
+export type MergedReviewDraft = Omit<ReviewDraft, "comments"> & { comments: DerivedReviewComment[] };
 
 // ---------------------------------------------------------------------------
 // Text for the worker

@@ -1,94 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createFakePluginHost, makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
-import plugin from "../server.ts";
+import { makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import { isOutdated } from "../src/staleness.ts";
-
-const THREAD = "thr_user";
-const WORKER = "thr_worker";
-
-async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null } = {}) {
-  const sent: Array<{ threadId: string; text: string }> = [];
-  const writes: Array<{ path: string; content: string }> = [];
-  const { bb, harness } = createFakePluginHost({
-    pluginId: "walkthrough",
-    experimental_hostEntry: true,
-    experimental_callHostRpc: () => options.readCode?.(),
-    sdk: {
-      threads: {
-        get: async (args: { threadId: string }) => makeThreadResponse({ id: args.threadId, environmentId: "env_1", status: "idle" }),
-        fork: async () => {
-          if (options.forkFails) throw new Error("fork unsupported");
-          return makeThreadResponse({ id: WORKER, visibility: "hidden" });
-        },
-        spawn: async () => makeThreadResponse({ id: WORKER, visibility: "hidden" }),
-        send: async (args) => {
-          const failure = options.sendError?.();
-          if (failure) throw failure;
-          const first = args.input[0];
-          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "" });
-          return {} as never;
-        },
-        stop: async () => ({}) as never,
-        archive: async () => ({}) as never,
-        events: {
-          list: async (args: { types?: readonly string[] }) =>
-            (args.types?.includes("turn/completed")
-              ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }]
-              : args.types?.includes("client/turn/requested")
-                ? (options.userTurns?.() ?? [])
-                : args.types?.includes("item/agentMessage/delta")
-                  ? ((options.agentText?.() ?? null) === null ? [] : [{ seq: 100, type: "item/agentMessage/delta", data: { itemId: "i1", delta: options.agentText!() } }])
-                  : []) as never,
-        },
-        queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
-      },
-      environments: {
-        get: async () => ({ id: "env_1", hostId: "host_1", path: "/work/repo" }) as never,
-      },
-      files: {
-        write: async (args: { path: string; content: string }) => {
-          writes.push({ path: args.path, content: args.content });
-          return { outcome: "written", sha256: "x", sizeBytes: args.content.length } as never;
-        },
-      },
-    },
-  });
-  await plugin(bb);
-  const rpc = (method: string, input: unknown) => harness.behavior.callRpc(method, input) as Promise<any>;
-  const tool = (name: string, input: unknown, threadId = WORKER) => harness.behavior.callAgentTool(name, input, { threadId });
-  const idle = (text: string) =>
-    harness.behavior.emitThreadEvent("thread.idle", {
-      thread: makeThreadResponse({ id: WORKER, status: "idle" }),
-      lastAssistantText: text,
-    });
-  const view = async (id: string) => (await rpc("get", { walkthroughId: id })).view;
-  return { bb, harness, rpc, tool, idle, view, sent, writes };
-}
-
-async function settle() {
-  for (let index = 0; index < 5; index += 1) await new Promise((resolve) => setTimeout(resolve, 5));
-}
-
-const PLAN = {
-  mode: "local",
-  title: "Read aloud plugin",
-  baseRef: "origin/main",
-  introduction: "Before this branch there was no speech.",
-  parts: [
-    { title: "Keeping speech requests small", summary: "Bounds", locations: [{ path: "tts.ts", startLine: 1, endLine: 40 }] },
-    { title: "Choosing whose key pays", summary: "Keys" },
-    { title: "The player", summary: "UI" },
-  ],
-};
-
-const PART = {
-  part: 1,
-  blocks: [
-    { kind: "prose", text: "Before, nothing. Now [the cap](line:3) bounds it." },
-    { kind: "code", caption: "The cap, in tts.ts", path: "tts.ts", startLine: 1, endLine: 10, notes: [{ line: 3, text: "Truncates." }] },
-  ],
-  suggestions: ["Why 4,000?"],
-};
+import { PART, PLAN, setup, settle, THREAD, WORKER } from "./helpers.ts";
 
 describe("walkthrough code routing", () => {
   const patch = "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new\n";
@@ -264,9 +177,7 @@ describe("walkthrough orchestration", () => {
     await settle();
     await rpc("addNote", { walkthroughId, kind: "todo", text: "Name the cap", groupIndex: 0, location: { path: "tts.ts", startLine: 3 } });
     await settle();
-    expect(writes.at(-1)?.path).toBe(`/work/repo/.agent/review-notes/${walkthroughId}.md`);
-    expect(writes.find((write) => write.path.endsWith(".gitignore"))).toMatchObject({ path: "/work/repo/.agent/review-notes/.gitignore", content: "*\n" });
-    expect(writes.at(-1)?.content).toContain("[Keeping speech requests small · tts.ts:3] Name the cap (n1)");
+    expect(writes).toEqual([]);
 
     await rpc("wrapUp", { walkthroughId });
     await idle("stopped writing");

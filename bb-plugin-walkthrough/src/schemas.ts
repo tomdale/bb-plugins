@@ -46,20 +46,62 @@ export const marginNoteSchema = z
   .object({ line: lineNumber.optional(), text: z.string().trim().min(1).max(1000) })
   .strict();
 
-/** A short excerpt of the change, rendered as change / after / before. */
+/** How a code block reads: `code` explains how the code works, `diff` shows the change. */
+export const codeViewSchema = z.enum(["diff", "code"]);
+export type CodeView = z.infer<typeof codeViewSchema>;
+
+/**
+ * The excerpt text saved with a code block when its part is written, so the
+ * pane never depends on live git. Each side is a context-only or single-file
+ * patch; a side that does not exist (an added file has no "before") is null.
+ */
+export const codeSnapshotSchema = z
+  .object({
+    change: z.string().nullable(),
+    after: z.string().nullable(),
+    before: z.string().nullable(),
+    baseSha: z.string().max(80).nullable(),
+    headSha: z.string().max(80).nullable(),
+    capturedAt: z.number(),
+  })
+  .strict();
+export type CodeSnapshot = z.infer<typeof codeSnapshotSchema>;
+
+const codeBlockFields = {
+  kind: z.literal("code"),
+  caption: z.string().trim().min(1).max(200),
+  path: z.string().trim().min(1).max(1024),
+  startLine: lineNumber,
+  endLine: lineNumber,
+  notes: z.array(marginNoteSchema).max(8).default([]),
+};
+
+/** A code block as the worker writes it: no snapshot, which the plugin captures. */
+export const codeBlockInputSchema = z
+  .object({ ...codeBlockFields, view: codeViewSchema.optional().describe("code to explain how this code works; diff (the default) when what changed is the point.") })
+  .strict();
+
+/**
+ * A short excerpt of the change. Stored blocks tolerate older and damaged
+ * rows: a bad `view` or `snapshot` falls back instead of failing the record,
+ * and the store backfills the optional fields so readers always see them.
+ */
 export const codeBlockSchema = z
   .object({
-    kind: z.literal("code"),
-    caption: z.string().trim().min(1).max(200),
-    path: z.string().trim().min(1).max(1024),
-    startLine: lineNumber,
-    endLine: lineNumber,
-    notes: z.array(marginNoteSchema).max(8).default([]),
+    ...codeBlockFields,
+    /** Absent in walkthroughs written before views existed; read as "diff". */
+    view: codeViewSchema.optional().catch(undefined),
+    /** Excerpt text captured when the part was written; null when capture failed, absent before snapshots existed. */
+    snapshot: codeSnapshotSchema.nullable().optional().catch(null),
+    /** A short, reader-safe reason the snapshot is null; never raw git output. */
+    snapshotError: z.string().max(300).nullable().optional().catch(null),
   })
   .strict();
 
 export const blockSchema = z.discriminatedUnion("kind", [proseBlockSchema, codeBlockSchema]);
+export const blockInputSchema = z.discriminatedUnion("kind", [proseBlockSchema, codeBlockInputSchema]);
 export type Block = z.infer<typeof blockSchema>;
+export type BlockInput = z.infer<typeof blockInputSchema>;
 export type CodeBlock = z.infer<typeof codeBlockSchema>;
 
 export const exchangeSchema = z
@@ -69,6 +111,8 @@ export const exchangeSchema = z
     answer: z.string(),
     status: z.enum(["queued", "answering", "done", "failed"]),
     askedAt: z.number(),
+    /** Follow-up questions the worker offered with this answer; they replace the part's suggestions while this is the latest answer. */
+    suggestions: z.array(z.string()).optional().catch(undefined),
   })
   .strict();
 export type Exchange = z.infer<typeof exchangeSchema>;
@@ -111,6 +155,10 @@ export const reviewCommentSchema = z
   .strict();
 export type ReviewComment = z.infer<typeof reviewCommentSchema>;
 
+/** An inline comment in a derived draft; `noteId` names the note it came from. */
+export const derivedReviewCommentSchema = reviewCommentSchema.extend({ noteId: z.string().optional() }).strict();
+export type DerivedReviewComment = z.infer<typeof derivedReviewCommentSchema>;
+
 export const reviewDraftSchema = z
   .object({
     body: z.string().max(60_000),
@@ -149,6 +197,15 @@ export const requestSchema = z.discriminatedUnion("kind", [
 ]);
 export type WorkerRequest = z.infer<typeof requestSchema>;
 
+/** Why the reader is here; drives the wrap-up. */
+export const intentSchema = z.enum(["review", "own-change", "understand"]);
+export type Intent = z.infer<typeof intentSchema>;
+
+/** The intent a walkthrough has when its planner did not choose one. */
+export function defaultIntent(mode: Mode): Intent {
+  return mode === "pr" ? "review" : "own-change";
+}
+
 export const walkthroughStatusSchema = z.enum(["planning", "reading", "wrapping-up", "done", "failed"]);
 export type WalkthroughStatus = z.infer<typeof walkthroughStatusSchema>;
 
@@ -165,6 +222,8 @@ export const walkthroughSchema = z
     message: z.string().nullable(),
     title: z.string(),
     mode: modeSchema,
+    /** Absent in walkthroughs written before intents existed; the store backfills it from `mode`. */
+    intent: intentSchema.optional().catch(undefined),
     baseRef: z.string(),
     includeUncommitted: z.boolean(),
     pr: z
@@ -180,9 +239,12 @@ export const walkthroughSchema = z
     environmentId: z.string().nullable(),
     hostId: z.string().nullable(),
     workspacePath: z.string().nullable(),
+    /** Retired: the `.agent/review-notes` mirror no longer exists. Old rows still carry it; new ones omit it. */
     notesFile: z
       .object({ enabled: z.boolean(), path: z.string().nullable(), written: z.boolean(), error: z.string().nullable() })
-      .strict(),
+      .strict()
+      .optional()
+      .catch(undefined),
     review: reviewDraftSchema.nullable(),
     queue: z.array(requestSchema),
     inFlight: z
@@ -227,6 +289,8 @@ export const noteSchema = z
     author: z.enum(["user", "agent"]),
     /** When the note was handed to the user's own thread; cleared when the note changes. */
     sentAt: z.number().nullable().optional(),
+    /** Whether a comment note becomes an inline comment in the review draft; the store backfills comments as true, other kinds as false. */
+    includeInReview: z.boolean().optional().catch(undefined),
     createdAt: z.number(),
     updatedAt: z.number(),
   })
@@ -240,6 +304,15 @@ export const walkthroughViewSchema = z
   .object({
     walkthrough: walkthroughSchema,
     notes: z.array(noteSchema),
+    /**
+     * The review as the pane shows it in PR mode: the worker's draft merged with
+     * the included comment notes. Null outside PR mode or when nothing is drafted.
+     */
+    reviewDraft: reviewDraftSchema
+      .extend({ comments: z.array(derivedReviewCommentSchema).max(400) })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 export type WalkthroughView = z.infer<typeof walkthroughViewSchema>;

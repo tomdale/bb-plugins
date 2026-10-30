@@ -5,20 +5,28 @@
 // time (plan, write a part, answer a question, wrap up) and learns the
 // outcome from the worker's tool calls plus its final message when the turn
 // ends. SQLite is the source of truth; the pane re-reads it on every change
-// signal, and `.agent/review-notes/<walkthrough id>.md` mirrors the notes once
-// one exists.
+// signal.
+//
+// A part is committed in one authoritative step (commitPart), after the code
+// blocks' snapshots are captured; a streaming layer can show partial text
+// before that, but only the commit makes a part ready.
 import { createHash, randomUUID } from "node:crypto";
 import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
-import { describeNoteForAgent, renderNotesMarkdown } from "./model.ts";
+import { describeNoteForAgent, mergedReviewDraft } from "./model.ts";
 import { filterPatchToRange } from "./patch.ts";
 import type { DiffResult, ExcerptResult } from "./rpc.ts";
 import {
   CHANGED_CHANNEL,
+  defaultIntent,
   WORKER_ROLE,
   type Block,
+  type BlockInput,
+  type CodeBlock,
+  type CodeSnapshot as BlockSnapshot,
+  type Intent,
   type Location,
   type Mode,
   type Note,
@@ -37,6 +45,7 @@ export class WalkthroughError extends Error {}
 
 export interface PlanInput {
   mode: Mode;
+  intent?: Intent | undefined;
   title: string;
   baseRef: string;
   includeUncommitted?: boolean | undefined;
@@ -51,9 +60,12 @@ export interface NoteInput {
   groupIndex?: number | null | undefined;
   location?: Location | null | undefined;
   quote?: string | null | undefined;
+  /** Defaults to true for comments and false for other kinds. */
+  includeInReview?: boolean | undefined;
 }
 
 export interface NotePatch {
+  includeInReview?: boolean | undefined;
   kind?: NoteKind | undefined;
   text?: string | undefined;
   status?: NoteStatus | undefined;
@@ -64,6 +76,8 @@ const MAX_FULL_FILE_BYTES = 1_000_000;
 const MERGE_BASE_TTL_MS = 60_000;
 /** Parts written ahead of the one on screen. */
 const WRITE_AHEAD = 1;
+/** Longest the snapshots of one part may take; a block still unread then is saved without code. */
+const SNAPSHOT_BUDGET_MS = 25_000;
 const INTERRUPTED = "The helper was stopped before it finished.";
 const HELPER_GONE = "The helper for this walkthrough is no longer running, so it can't write or answer any more.";
 
@@ -84,7 +98,6 @@ function errorText(cause: unknown): string {
 }
 
 export class WalkthroughService {
-  private readonly fileWrites = new Map<string, Promise<void>>();
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
@@ -126,7 +139,8 @@ export class WalkthroughService {
 
   view(id: string) {
     const walkthrough = this.get(id);
-    return { walkthrough, notes: this.store.notes(id) };
+    const notes = this.store.notes(id);
+    return { walkthrough, notes, reviewDraft: mergedReviewDraft(walkthrough, notes) };
   }
 
   save(walkthrough: Walkthrough, reason: "started" | "changed" = "changed"): Walkthrough {
@@ -180,12 +194,6 @@ export class WalkthroughService {
       environmentId: workspace.environmentId,
       hostId: workspace.hostId,
       workspacePath: workspace.path,
-      notesFile: {
-        enabled: true,
-        path: workspace.path ? `${workspace.path}/.agent/review-notes/${id}.md` : null,
-        written: false,
-        error: null,
-      },
       review: null,
       queue: [{ kind: "plan" }],
       inFlight: null,
@@ -442,6 +450,11 @@ export class WalkthroughService {
     switch (request.kind) {
       case "plan":
       case "reply":
+        if (request.kind === "plan") {
+          // The plan turn may also have written part 1; one it began but did not
+          // finish goes back to the queue as an ordinary write request.
+          next = this.scheduleWrites({ ...next, parts: next.parts.map((part) => (part.status === "writing" ? { ...part, status: "pending" as const } : part)) });
+        }
         if (next.status === "planning") {
           next = { ...next, message: message ?? "The walkthrough could not be planned.", ...(failed && request.kind === "plan" ? { status: "failed" as const } : {}) };
         }
@@ -552,10 +565,13 @@ export class WalkthroughService {
     return { ...walkthrough, queue };
   }
 
-  /** Queues the part on screen first, then the ones after it. */
-  private scheduleWrites(walkthrough: Walkthrough): Walkthrough {
+  /**
+   * Queues the part the reader is on, then one ahead of it, and nothing more:
+   * the next part is written when the reader opens it or asks about it.
+   */
+  private scheduleWrites(walkthrough: Walkthrough, at: number | null = walkthrough.currentPart): Walkthrough {
     if (walkthrough.status !== "reading") return walkthrough;
-    const start = walkthrough.currentPart ?? 0;
+    const start = at ?? 0;
     let next = walkthrough;
     for (let index = start; index <= Math.min(start + WRITE_AHEAD, next.parts.length - 1); index += 1) {
       if (next.parts[index]!.status === "pending") {
@@ -584,7 +600,9 @@ export class WalkthroughService {
       const exchangeId = `e${walkthrough.nextExchangeNumber}`;
       const exchange = { id: exchangeId, question: question.trim(), answer: "", status: "queued" as const, askedAt: this.now() };
       const withExchange = this.appendExchange({ ...walkthrough, nextExchangeNumber: walkthrough.nextExchangeNumber + 1 }, place, exchange);
-      return this.enqueue(withExchange, { kind: "ask", place, exchangeId }, "after-asks");
+      const asked = this.enqueue(withExchange, { kind: "ask", place, exchangeId }, "after-asks");
+      // A reader asking about a part is reading it, so the one after it is owed.
+      return typeof place === "number" ? this.scheduleWrites(asked, Math.max(place, asked.currentPart ?? 0)) : asked;
     });
     await this.pump(id);
   }
@@ -636,14 +654,13 @@ export class WalkthroughService {
     if (open.length === 0) return false;
     const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
     const subject = walkthrough.pr ? `PR #${walkthrough.pr.number}${walkthrough.pr.url ? ` (${walkthrough.pr.url})` : ""}` : walkthrough.title;
-    const file = walkthrough.notesFile.written && walkthrough.notesFile.path ? `\n\nAll notes: ${walkthrough.notesFile.path}` : "";
     await this.bb.sdk.threads.send({
       threadId: walkthrough.threadId,
       mode: "auto",
       input: [
         {
           type: "text",
-          text: `From my walkthrough of ${subject}. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n${lines.join("\n")}${file}`,
+          text: `From my walkthrough of ${subject}. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n${lines.join("\n")}`,
           mentions: [],
         },
       ],
@@ -655,7 +672,7 @@ export class WalkthroughService {
 
   async requestReviewPost(id: string, event: ReviewDraft["event"]): Promise<void> {
     const walkthrough = this.get(id);
-    if (!walkthrough.pr || !walkthrough.review) throw new WalkthroughError("There is no draft review to post.");
+    if (!walkthrough.pr || mergedReviewDraft(walkthrough, this.store.notes(id)) === null) throw new WalkthroughError("There is no draft review to post.");
     const exchangeId = `e${walkthrough.nextExchangeNumber}`;
     const place: Place = walkthrough.wrapUp ? "wrap-up" : (walkthrough.currentPart ?? 0);
     this.update(id, (current) =>
@@ -688,6 +705,7 @@ export class WalkthroughService {
     let next: Walkthrough = {
       ...walkthrough,
       mode: input.mode,
+      intent: input.intent ?? defaultIntent(input.mode),
       title: input.title,
       baseRef: input.baseRef,
       includeUncommitted: input.includeUncommitted ?? input.mode === "local",
@@ -700,13 +718,34 @@ export class WalkthroughService {
       status: "reading",
       message: null,
     };
+    // The plan request asks the worker to write part 1 in the same turn, so the
+    // first part shows as being written; if it only plans, completing the
+    // request puts part 1 back in the queue.
+    if (walkthrough.inFlight?.request.kind === "plan") {
+      next = { ...next, parts: next.parts.map((part, index) => (index === 0 ? { ...part, status: "writing" as const } : part)) };
+    }
     next = this.scheduleWrites(next);
     const saved = this.save(next);
     if (saved.inFlight === null) void this.pump(saved.id);
     return saved;
   }
 
-  writePart(workerThreadId: string, index: number, blocks: Block[], suggestions: string[]): Walkthrough {
+  /**
+   * Saves a part the worker wrote. Each code block's text is captured first,
+   * so the pane never needs live git to show it, and then the part is committed
+   * in one step. Capture never fails the write: a block it cannot read is
+   * stored without a snapshot and with a short reason.
+   */
+  async writePart(workerThreadId: string, index: number, blocks: BlockInput[], suggestions: string[]): Promise<{ walkthrough: Walkthrough; unreadable: CodeBlock[] }> {
+    const before = this.requireForWorker(workerThreadId);
+    if (index < 0 || index >= before.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
+    const captured = await this.captureBlocks(before, blocks);
+    const walkthrough = this.commitPart(workerThreadId, index, captured, suggestions);
+    return { walkthrough, unreadable: captured.filter((block): block is CodeBlock => block.kind === "code" && block.snapshot === null) };
+  }
+
+  /** The authoritative step that makes a part ready; blocks arrive complete, with snapshots. */
+  commitPart(workerThreadId: string, index: number, blocks: Block[], suggestions: string[]): Walkthrough {
     const walkthrough = this.requireForWorker(workerThreadId);
     if (index < 0 || index >= walkthrough.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
     const parts = walkthrough.parts.map((part, candidate) =>
@@ -715,7 +754,62 @@ export class WalkthroughService {
     return this.save({ ...walkthrough, parts });
   }
 
-  writeWrapUp(workerThreadId: string, blocks: Block[], followUps: string[]): Walkthrough {
+  /** Refreshes the follow-up questions offered with the answer being written. */
+  suggest(workerThreadId: string, suggestions: string[]): Walkthrough {
+    const walkthrough = this.requireForWorker(workerThreadId);
+    const request = walkthrough.inFlight?.request;
+    if (request?.kind !== "ask") throw new WalkthroughError("Follow-up questions can be set only while answering a question.");
+    return this.save(this.withExchange(walkthrough, request.place, request.exchangeId, (exchange) => ({ ...exchange, suggestions })));
+  }
+
+  private async captureBlocks(walkthrough: Walkthrough, blocks: BlockInput[]): Promise<Block[]> {
+    if (!blocks.some((block) => block.kind === "code")) return blocks as Block[];
+    const files = new Map<string, Promise<CodeSnapshot>>();
+    const shas = this.captureShas(walkthrough);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"late">((resolve) => {
+      timer = setTimeout(() => resolve("late"), SNAPSHOT_BUDGET_MS);
+    });
+    return Promise.all(
+      blocks.map(async (block): Promise<Block> => {
+        if (block.kind !== "code") return block;
+        const view = block.view ?? "diff";
+        const base = { ...block, view, snapshot: null, snapshotError: null };
+        try {
+          const read = this.readExcerpt(walkthrough, block.path, block.startLine, block.endLine, files);
+          const result = await Promise.race([read, deadline]);
+          if (result === "late") return { ...base, snapshotError: snapshotReason(new Error("timed out")) };
+          const { baseSha, headSha } = await shas;
+          const snapshot: BlockSnapshot = { change: result.change || null, after: result.after, before: result.before, baseSha, headSha, capturedAt: this.now() };
+          return { ...base, snapshot };
+        } catch (cause) {
+          this.bb.log.debug(`snapshot skipped for ${block.path}: ${errorText(cause)}`);
+          return { ...base, snapshotError: snapshotReason(cause) };
+        }
+      }),
+    ).finally(() => clearTimeout(timer));
+  }
+
+  /** The commits a snapshot was read between, when they can be named. */
+  private async captureShas(walkthrough: Walkthrough): Promise<{ baseSha: string | null; headSha: string | null }> {
+    const isSha = (value: string) => /^[0-9a-f]{7,40}$/iu.test(value.trim());
+    let baseSha = isSha(walkthrough.baseRef) ? walkthrough.baseRef.trim() : null;
+    let headSha = walkthrough.pr?.headRef ?? null;
+    if (walkthrough.environmentId === null) return { baseSha, headSha };
+    try {
+      if (baseSha === null) baseSha = await this.mergeBase(walkthrough);
+      if (headSha === null) {
+        const status = await this.bb.sdk.environments.status({ environmentId: walkthrough.environmentId });
+        if (status.outcome === "available") headSha = "headSha" in status.workspace.checkout ? status.workspace.checkout.headSha : null;
+      }
+    } catch {
+      // The shas label a snapshot; missing ones do not make it unusable.
+    }
+    return { baseSha, headSha };
+  }
+
+  async writeWrapUp(workerThreadId: string, input: BlockInput[], followUps: string[]): Promise<Walkthrough> {
+    const blocks = await this.captureBlocks(this.requireForWorker(workerThreadId), input);
     const walkthrough = this.requireForWorker(workerThreadId);
     const wrapUp = { ...(walkthrough.wrapUp ?? emptyPart("Wrapping up", "", [])), blocks, suggestions: followUps, status: "ready" as const, message: null };
     return this.save({ ...walkthrough, wrapUp });
@@ -777,12 +871,12 @@ export class WalkthroughService {
       status: "open",
       resolution: null,
       author,
+      includeInReview: input.includeInReview ?? input.kind === "comment",
       createdAt: now,
       updatedAt: now,
     };
     this.store.saveNote(note, author === "agent");
     this.save({ ...walkthrough, nextNoteNumber: walkthrough.nextNoteNumber + 1 });
-    void this.syncNotesFile(walkthroughId);
     return note;
   }
 
@@ -795,13 +889,13 @@ export class WalkthroughService {
       text: patch.text?.trim() || note.text,
       status: patch.status ?? note.status,
       resolution: patch.resolution === undefined ? note.resolution : patch.resolution?.trim() || null,
+      includeInReview: patch.includeInReview ?? (patch.kind !== undefined && patch.kind !== note.kind ? patch.kind === "comment" : (note.includeInReview ?? note.kind === "comment")),
       // A note that changed is news to the thread again.
       sentAt: patch.text !== undefined || patch.kind !== undefined || (patch.status === "open" && note.status !== "open") ? null : note.sentAt ?? null,
       updatedAt: this.now(),
     };
     this.store.saveNote(next, author === "agent");
     this.save(this.get(walkthroughId));
-    void this.syncNotesFile(walkthroughId);
     return next;
   }
 
@@ -809,56 +903,8 @@ export class WalkthroughService {
     const deleted = this.store.deleteNote(walkthroughId, noteId);
     if (deleted) {
       this.save(this.get(walkthroughId));
-      void this.syncNotesFile(walkthroughId);
     }
     return deleted;
-  }
-
-  setNotesFileEnabled(walkthroughId: string, enabled: boolean): void {
-    const walkthrough = this.update(walkthroughId, (current) => ({ ...current, notesFile: { ...current.notesFile, enabled } }));
-    if (enabled) void this.syncNotesFile(walkthrough.id);
-  }
-
-  /** Queues a rewrite of the notes mirror; the file appears after the first note. */
-  syncNotesFile(walkthroughId: string): Promise<void> {
-    const previous = this.fileWrites.get(walkthroughId) ?? Promise.resolve();
-    const settled = previous.then(() => this.writeNotesFile(walkthroughId)).catch(() => {});
-    this.fileWrites.set(walkthroughId, settled);
-    void settled.then(() => {
-      if (this.fileWrites.get(walkthroughId) === settled) this.fileWrites.delete(walkthroughId);
-    });
-    return settled;
-  }
-
-  private async writeNotesFile(walkthroughId: string): Promise<void> {
-    const walkthrough = this.store.get(walkthroughId);
-    if (walkthrough === null || !walkthrough.notesFile.enabled || walkthrough.notesFile.path === null) return;
-    const notes = this.store.notes(walkthroughId);
-    if (notes.length === 0 && !walkthrough.notesFile.written) return;
-    let error: string | null = null;
-    try {
-      const host = walkthrough.hostId ? { hostId: walkthrough.hostId } : {};
-      if (!walkthrough.notesFile.written) {
-        // The directory ignores itself, so notes never show up as untracked work.
-        const directory = walkthrough.notesFile.path.slice(0, walkthrough.notesFile.path.lastIndexOf("/"));
-        await this.bb.sdk.files.write({ ...host, path: `${directory}/.gitignore`, content: "*\n", createParents: true });
-      }
-      await this.bb.sdk.files.write({
-        ...host,
-        path: walkthrough.notesFile.path,
-        content: renderNotesMarkdown(walkthrough, notes),
-        createParents: true,
-      });
-    } catch (cause) {
-      error = errorText(cause);
-      this.bb.log.warn(`notes file write failed for ${walkthroughId}: ${error}`);
-    }
-    const latest = this.store.get(walkthroughId);
-    if (latest === null) return;
-    const written = latest.notesFile.written || error === null;
-    if (latest.notesFile.written !== written || latest.notesFile.error !== error) {
-      this.save({ ...latest, notesFile: { ...latest.notesFile, written, error } });
-    }
   }
 
   takeUnreported(walkthroughId: string): Note[] {
@@ -938,19 +984,35 @@ export class WalkthroughService {
   async excerpt(walkthroughId: string, path: string, startLine: number, endLine: number): Promise<ExcerptResult> {
     try {
       const walkthrough = this.get(walkthroughId);
-      const file = await this.loadCode(walkthrough, path, true);
-      const sides = file.sides;
-      const change = file.patch ? filterPatchToRange(file.patch, startLine, endLine).patch : null;
-      const low = Math.min(startLine, endLine);
-      const high = Math.max(startLine, endLine);
-      const after = sides ? contextPatch(file.path, sides.new.content, low, high) : null;
-      const beforeRange = change ? oldRange(change) : { start: low, end: high };
-      const before = sides && beforeRange ? contextPatch(file.path, sides.old.content, beforeRange.start, beforeRange.end) : null;
-      if (change === null && after === null) return { outcome: "unavailable", message: "No code to show." };
-      return { outcome: "available", path: file.path, change, after, before };
+      return { outcome: "available", ...(await this.readExcerpt(walkthrough, path, startLine, endLine)) };
     } catch (cause) {
-      return { outcome: "unavailable", message: errorText(cause) };
+      return { outcome: "unavailable", message: snapshotReason(cause) };
     }
+  }
+
+  /** Reads one excerpt's three views; `files` shares a file's read between excerpts of one request. */
+  private async readExcerpt(
+    walkthrough: Walkthrough,
+    path: string,
+    startLine: number,
+    endLine: number,
+    files: Map<string, Promise<CodeSnapshot>> = new Map(),
+  ): Promise<{ path: string; change: string | null; after: string | null; before: string | null }> {
+    let loading = files.get(path);
+    if (loading === undefined) {
+      loading = this.loadCode(walkthrough, path, true);
+      files.set(path, loading);
+    }
+    const file = await loading;
+    const sides = file.sides;
+    const change = file.patch ? filterPatchToRange(file.patch, startLine, endLine).patch : null;
+    const low = Math.min(startLine, endLine);
+    const high = Math.max(startLine, endLine);
+    const after = sides ? contextPatch(file.path, sides.new.content, low, high) : null;
+    const beforeRange = change ? oldRange(change) : { start: low, end: high };
+    const before = sides && beforeRange ? contextPatch(file.path, sides.old.content, beforeRange.start, beforeRange.end) : null;
+    if (change === null && after === null) throw new WalkthroughError("There is no code in that range.");
+    return { path: file.path, change, after, before };
   }
 
   private async mergeBase(walkthrough: Walkthrough): Promise<string | null> {
@@ -1094,6 +1156,20 @@ export class WalkthroughService {
       return { environmentId: null, hostId: null, path: null };
     }
   }
+}
+
+/**
+ * A short reason a code excerpt could not be read, for the reader and the
+ * worker. Raw git or host errors (paths, stderr) never leave the server.
+ */
+export function snapshotReason(cause: unknown): string {
+  if (cause instanceof WalkthroughError) return cause.message.slice(0, 200);
+  const text = errorText(cause);
+  if (/binary/iu.test(text)) return "Binary files can't be shown as code.";
+  if (/exceeds|too large|1 MB/iu.test(text)) return "This file is too large to show.";
+  if (/timed? ?out|abort/iu.test(text)) return "Reading this code took too long.";
+  if (/no file at|ENOENT|does not exist|unknown revision|bad revision|not a valid object|exists on disk, but not in/iu.test(text)) return "This code isn't in the reviewed revisions.";
+  return "This code couldn't be read.";
 }
 
 /** A context-only patch showing lines [start, end] of `content`. */

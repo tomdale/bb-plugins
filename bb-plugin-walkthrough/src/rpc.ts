@@ -117,6 +117,7 @@ export const rpcContract = defineRpcContract({
         groupIndex: z.number().int().nonnegative().nullable().optional(),
         location: locationSchema.nullable().optional(),
         quote: z.string().max(8000).nullable().optional(),
+        includeInReview: z.boolean().optional(),
       })
       .strict(),
     output: noteSchema,
@@ -130,6 +131,7 @@ export const rpcContract = defineRpcContract({
         text: noteTextSchema.optional(),
         status: noteStatusSchema.optional(),
         resolution: z.string().max(8000).nullable().optional(),
+        includeInReview: z.boolean().optional(),
       })
       .strict(),
     output: noteSchema,
@@ -137,10 +139,6 @@ export const rpcContract = defineRpcContract({
   deleteNote: {
     input: z.object({ ...target, noteId: noteIdSchema }).strict(),
     output: z.object({ deleted: z.boolean() }).strict(),
-  },
-  setNotesFileEnabled: {
-    input: z.object({ ...target, enabled: z.boolean() }).strict(),
-    output: ok,
   },
   diff: {
     input: z

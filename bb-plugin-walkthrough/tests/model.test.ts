@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blankTarget, comparedWith, linesText, locationChoices, noteButtonPosition, noteLocation, targetFromDraft, defaultExcerptView, excerptCode, formatStarted, hasChangedLines, parseCommand, renderNotesMarkdown, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
+import { blankTarget, comparedWith, linesText, locationChoices, noteButtonPosition, noteLocation, targetFromDraft, defaultExcerptView, excerptCode, formatStarted, hasChangedLines, parseCommand, deriveReviewComments, mergedReviewDraft, shortRef, statusLabel, summaryDetail } from "../src/model.ts";
 import { filterPatchToRange } from "../src/patch.ts";
 import type { Note, Walkthrough } from "../src/schemas.ts";
 
@@ -24,7 +24,6 @@ function walkthrough(overrides: Partial<Walkthrough> = {}): Walkthrough {
     environmentId: "env_1",
     hostId: "host_1",
     workspacePath: "/w",
-    notesFile: { enabled: true, path: "/w/.agent/review-notes.md", written: false, error: null },
     review: null,
     queue: [],
     inFlight: null,
@@ -63,18 +62,40 @@ describe("parseCommand", () => {
   });
 });
 
-describe("renderNotesMarkdown", () => {
-  it("renders nonempty sections with loci and a resolved section", () => {
-    const markdown = renderNotesMarkdown(walkthrough(), [
-      note({ id: "n1", location: { path: "src/a.ts", startLine: 3, endLine: 9 } }),
-      note({ id: "n2", kind: "todo", text: "Rename", groupIndex: null }),
-      note({ id: "n3", status: "resolved", resolution: "Because." }),
+describe("review draft derivation", () => {
+  const prWalkthrough = (overrides: Partial<Walkthrough> = {}) => walkthrough({ mode: "pr", pr: { number: 7, url: null, title: null }, ...overrides });
+  const comment = (overrides: Partial<Note>) => note({ kind: "comment", includeInReview: true, location: { path: "src/a.ts", startLine: 3, endLine: 9 }, ...overrides });
+
+  it("derives inline comments from included, open comment notes with a location", () => {
+    const derived = deriveReviewComments([
+      comment({ id: "n1", text: "Guard this" }),
+      comment({ id: "n2", includeInReview: false }),
+      comment({ id: "n3", status: "resolved" }),
+      comment({ id: "n4", location: null }),
+      comment({ id: "n5", location: { path: "src/b.ts" } }),
+      note({ id: "n6", kind: "todo", includeInReview: true, location: { path: "src/a.ts", startLine: 1 } }),
+      comment({ id: "n7", location: { path: "src/c.ts", startLine: 4 } }),
     ]);
-    expect(markdown).toContain("# Review Notes");
-    expect(markdown).toContain("## Questions\n\n- [Schema · src/a.ts:3-9] Why? (n1)");
-    expect(markdown).toContain("## Todos\n\n- Rename (n2)");
-    expect(markdown).not.toContain("## Comments");
-    expect(markdown).toContain("## Resolved / Answered\n\n- [Question · Schema] Why? (n3)\n  Answer: Because.");
+    expect(derived).toEqual([
+      { path: "src/a.ts", startLine: 3, line: 9, side: "RIGHT", body: "Guard this", noteId: "n1" },
+      { path: "src/c.ts", line: 4, side: "RIGHT", body: "Why?", noteId: "n7" },
+    ]);
+  });
+
+  it("merges worker comments with derived ones without duplicates, only in PR mode", () => {
+    const review = { body: "Looks fine", event: "COMMENT" as const, comments: [{ path: "src/a.ts", line: 9, startLine: 3, side: "RIGHT" as const, body: "Guard this" }], status: "draft" as const, url: null, updatedAt: 5 };
+    const notes = [comment({ id: "n1", text: "Guard this" }), comment({ id: "n2", text: "Rename", location: { path: "src/z.ts", startLine: 2 } })];
+    const merged = mergedReviewDraft(prWalkthrough({ review }), notes);
+    expect(merged?.body).toBe("Looks fine");
+    expect(merged?.comments.map((entry) => entry.body)).toEqual(["Guard this", "Rename"]);
+    expect(mergedReviewDraft(walkthrough({ review }), notes)).toBeNull();
+  });
+
+  it("builds a draft from notes alone, and leaves a posted review as posted", () => {
+    expect(mergedReviewDraft(prWalkthrough(), [])).toBeNull();
+    expect(mergedReviewDraft(prWalkthrough(), [comment({ id: "n1" })])).toMatchObject({ body: "", event: "COMMENT", status: "draft", comments: [{ noteId: "n1" }] });
+    const posted = { body: "Done", event: "COMMENT" as const, comments: [], status: "posted" as const, url: "https://x", updatedAt: 1 };
+    expect(mergedReviewDraft(prWalkthrough({ review: posted }), [comment({ id: "n1" })])).toEqual(posted);
   });
 });
 
