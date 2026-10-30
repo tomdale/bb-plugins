@@ -166,3 +166,18 @@ describe("parseStreamMarkup", () => {
     expect(parseStreamMarkup(`${open}\n\`\`\``).complete).toBe(true);
   });
 });
+
+describe("the worker's instructions", () => {
+  it("contain an example that the parser reads as intended, in both tools that carry it", async () => {
+    const { PLAN_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } = await import("../src/worker.ts");
+    for (const instructions of [PLAN_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS]) {
+      expect(instructions.length).toBeLessThan(4096);
+      const example = instructions.slice(instructions.indexOf("Example:\n\n") + "Example:\n\n".length);
+      const { blocks, complete } = parseStreamMarkup(example);
+      expect(complete).toBe(true);
+      expect(blocks.map((block) => block.kind)).toEqual(["prose", "figure", "suggestions"]);
+      expect(blocks[1]).toMatchObject({ path: "src/upload.ts", startLine: 38, endLine: 52, view: "diff", notes: [{ line: 42, text: "The old loop never stopped." }] });
+      expect((blocks[2] as { items: string[] }).items).toHaveLength(2);
+    }
+  });
+});
