@@ -367,14 +367,13 @@ describe("wrap-up", () => {
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "requestReviewPost")).toEqual([]);
   });
 
-  it("understand: Save notes copies them, and the thread can be asked to apply them", async () => {
-    const writeText = vi.fn(() => Promise.resolve());
-    vi.stubGlobal("navigator", { clipboard: { writeText } });
-    const slot = await mountPage("wt_1", { ...viewOf(wrapped({ intent: "understand" }), notes), handOff: () => ({ sent: true }) });
+  it("understand: Save notes writes a file and says where, and the thread can be asked to apply them", async () => {
+    const saved = { threadId: "thr_1", path: "walkthrough-notes/branch-feature-1.md", absolutePath: "/s/thr_1/walkthrough-notes/branch-feature-1.md", notes: 1 };
+    const slot = await mountPage("wt_1", { ...viewOf(wrapped({ intent: "understand" }), notes), saveNotes: () => saved, handOff: () => ({ sent: true }) });
     await slot.findByText("That is the change.");
     fireEvent.click(slot.getByRole("button", { name: "Save notes" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect((writeText.mock.calls[0] as unknown as [string])[0]).toContain("Check this");
+    await slot.findByText("walkthrough-notes/branch-feature-1.md");
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "saveNotes")).toHaveLength(1);
     fireEvent.click(slot.getByRole("button", { name: "Ask the thread to apply it" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
   });

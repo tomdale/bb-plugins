@@ -5,6 +5,7 @@ import { detectTarget } from "./src/detect-target.ts";
 import { deliverView } from "./src/deliver.ts";
 import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
 import type { Walkthrough } from "./src/schemas.ts";
+import { saveNotes } from "./src/save-notes.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
 import { isWorker, registerTools, USER_TOOLS, WORKER_TOOLS } from "./src/tools.ts";
@@ -117,6 +118,7 @@ export default function plugin(bb: BbPluginApi) {
       handle(() => service.addNote(walkthroughId, { kind, text, groupIndex, location, quote, includeInReview }, "user")),
     updateNote: ({ walkthroughId, noteId, ...patch }) => handle(() => service.updateNote(walkthroughId, noteId, patch, "user")),
     deleteNote: ({ walkthroughId, noteId }) => handle(() => ({ deleted: service.deleteNote(walkthroughId, noteId) })),
+    saveNotes: ({ walkthroughId }) => handle(() => saveNotes(bb.sdk, service.get(walkthroughId), service.notes(walkthroughId))),
     diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>
       service.diff(walkthroughId, path, { startLine, endLine }, withFullFile ?? false),
     excerpt: ({ walkthroughId, path, startLine, endLine }) => service.excerpt(walkthroughId, path, startLine, endLine),

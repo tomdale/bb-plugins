@@ -1,9 +1,10 @@
 // The pages of the reader: the introduction, one part, the wrap-up, and the
 // skeleton shown before anything is written.
 import { useState } from "react";
+import { experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatLocation, NOTE_KIND_LABEL } from "../model.ts";
+import type { SavedNotes } from "../save-notes.ts";
 import type { DeliveredCodeBlock, DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 import { Figure, type FlagTarget } from "./Figure.tsx";
 import { openConcerns, PostReviewControl, type ReviewDraftView } from "./Concerns.tsx";
@@ -180,16 +181,6 @@ function ExchangeView({ walkthrough, exchange }: { walkthrough: Walkthrough; exc
   );
 }
 
-function notesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
-  const lines = [`# ${walkthrough.title}`, ""];
-  for (const note of notes.filter((candidate) => candidate.status === "open")) {
-    const where = [note.groupIndex === null ? null : (walkthrough.parts[note.groupIndex]?.title ?? null), formatLocation(note.location)].filter(Boolean).join(" · ");
-    lines.push(`- **${NOTE_KIND_LABEL[note.kind]}**${where ? ` (${where})` : ""}: ${note.text.replace(/\n+/gu, " ")}`);
-    if (note.quote) lines.push(`  > ${note.quote.replace(/\n+/gu, " ").slice(0, 300)}`);
-  }
-  return `${lines.join("\n")}\n`;
-}
-
 /** The ledger of what the reading left open, and the one thing to do about it. */
 export function WrapUpPage({
   walkthrough,
@@ -230,11 +221,16 @@ export function WrapUpPage({
       setSending(false);
     }
   };
-  const copyNotes = () =>
-    void navigator.clipboard.writeText(notesMarkdown(walkthrough, notes)).then(
-      () => toast.success("Copied your notes"),
-      () => toast.error("Could not copy"),
-    );
+  const [saved, setSaved] = useState<SavedNotes | null>(null);
+  const saveNotes = async () => {
+    try {
+      const result = await rpc.call("saveNotes", { walkthroughId: walkthrough.id });
+      setSaved(result);
+      toast.success("Saved your notes");
+    } catch (cause) {
+      toast.error(errorMessage(cause));
+    }
+  };
   const openSummary = [
     count("todo") ? `${count("todo")} to do` : null,
     count("question") ? `${count("question")} ${count("question") === 1 ? "question" : "questions"}` : null,
@@ -300,7 +296,7 @@ export function WrapUpPage({
           </button>
         ) : (
           <>
-            <button type="button" className="wt-btn wt-btn-primary" onClick={copyNotes}>
+            <button type="button" className="wt-btn wt-btn-primary" onClick={() => void saveNotes()}>
               Save notes
             </button>
             <button type="button" className="wt-btn wt-btn-quiet" disabled={sending || sendable === 0} onClick={() => void handOff()}>
@@ -309,6 +305,14 @@ export function WrapUpPage({
           </>
         )}
       </div>
+      {saved ? (
+        <p className="wt-muted" role="status">
+          Saved to{" "}
+          <FileLink target={{ kind: "thread-storage", threadId: saved.threadId, path: saved.path }} className="wt-loc">
+            {saved.path}
+          </FileLink>
+        </p>
+      ) : null}
     </article>
   );
 }

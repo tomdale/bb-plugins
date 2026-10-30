@@ -2,6 +2,7 @@
 // runtime helper never reaches the browser bundle.
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { savedNotesSchema } from "./save-notes.ts";
 import { detectedTargetSchema } from "./detect-target.ts";
 import {
   locationSchema,
@@ -147,6 +148,8 @@ export const rpcContract = defineRpcContract({
     input: z.object({ ...target, noteId: noteIdSchema }).strict(),
     output: z.object({ deleted: z.boolean() }).strict(),
   },
+  /** Writes the open notes as Markdown into the walkthrough thread's storage. */
+  saveNotes: { input: z.object(target).strict(), output: savedNotesSchema },
   diff: {
     input: z
       .object({

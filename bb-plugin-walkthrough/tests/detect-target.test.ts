@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectTarget } from "../src/detect-target.ts";
-import { setup, THREAD } from "./helpers.ts";
+import { PLAN, setup, settle, THREAD } from "./helpers.ts";
 
 const file = (path: string) => ({ path, insertions: 1, deletions: 1 });
 function status(overrides: { working?: object; merge?: object | null } = {}) {
@@ -60,5 +60,27 @@ describe("detectTarget RPC", () => {
       throw new Error("boom");
     });
     expect(await rpc("detectTarget", { threadId: THREAD })).toEqual({ target: null });
+  });
+});
+
+describe("saveNotes RPC", () => {
+  it("writes the open notes into the thread's storage, outside the workspace", async () => {
+    const { rpc, tool, harness } = await setup();
+    harness.inspection.sdk.stub("threads.storageLocation", async () => ({ hostId: "host_1", storageRootPath: "/data/threads/thr_user/" }));
+    const writes: Array<{ path: string; content: string; hostId?: string }> = [];
+    harness.inspection.sdk.stub("files.write", async (args: { path: string; content: string; hostId?: string }) => {
+      writes.push(args);
+      return { outcome: "written", sha256: "x", sizeBytes: 1 };
+    });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await rpc("addNote", { walkthroughId, kind: "todo", text: "Check the retry\nloop", groupIndex: 0 });
+    const saved = await rpc("saveNotes", { walkthroughId });
+    expect(saved).toMatchObject({ threadId: THREAD, notes: 1, path: expect.stringMatching(/^walkthrough-notes\/.+\.md$/u) });
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ hostId: "host_1", path: `/data/threads/thr_user/${saved.path}` });
+    expect(writes[0]!.content).toContain("- **Todo**");
+    expect(writes[0]!.content).toContain("Check the retry loop");
   });
 });
