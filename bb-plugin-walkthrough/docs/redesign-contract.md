@@ -54,5 +54,64 @@ Implemented by Backend. Everything below is optional on the wire for old data; t
 - `addNote` and `updateNote` should accept `includeInReview?: boolean`. The UI sends it only from the Include in review checkbox (`updateNote`), and relies on the contract default for comments (`true`) and everything else (`false`). Until the schema accepts it, the checkbox's write fails with the strict-schema error toast.
 - `requestReviewPost` should work from included comments when there is no worker-drafted review (`walkthrough.review === null`). The wrap-up's Post review and the Review draft tab enable the button from included comments alone and show them in the confirmation dialog.
 - Understand intent has no real "Save notes" action yet: the UI copies the open notes as Markdown to the clipboard. A `saveNotes` RPC (or a documented place the notes persist) would let the button do more than copy.
-- A part streamed with `status: "writing"` may carry `blocks` as they arrive: the UI renders those blocks and a skeleton for the rest, and an exchange's `answer` that grows while `status: "answering"` renders incrementally. Without partial blocks the UI shows a layout skeleton until the part is `ready`.
+- A part saved with `status: "writing"` may carry `blocks`, and an exchange's `answer` may grow while `status: "answering"`; the UI renders both. Live text arrives through the stream (see Streaming API); the saved fields stay authoritative.
 - Starter detection uses only the SDK's `experimental_useSidebarThreadPullRequest` (PR number, title, state). A `detectTarget` RPC returning the branch name, base, changed-file count and whether the tree is dirty would let the starter say "12 files on tomdale/x, compared with main" instead of the generic "Changes on this branch".
+
+## Streaming API
+
+While a plan, part write, or answer is in flight, the plugin follows the worker's message text and publishes it so the pane can show it as it is written. The text is a hidden preview; the committed walkthrough (`get`) is authoritative, and a part that is `ready` never reads from the stream.
+
+### Channel and payload
+Realtime channel `walkthrough-stream` (`STREAM_CHANNEL`). Payload (`StreamPayload`, `streamPayloadSchema` in `src/schemas.ts`):
+
+```ts
+{
+  walkthroughId: string,
+  requestKind: "plan" | "write" | "ask",
+  place: number | "wrap-up",   // part index; 0 for the plan turn (introduction + part 1)
+  seq: number,                 // highest worker event consumed; never decreases per walkthrough
+  text: string,                // the whole message so far (at most 200,000 characters), not a delta
+  state: "streaming" | "done" | "failed" | "cancelled"
+}
+```
+- `state` carries what a `final` flag would: `streaming` is a live payload; `done`, `failed` and `cancelled` are the one terminal publish, which follows the last live one. A terminal payload may repeat the last live `seq`.
+- A client keeps the latest payload per `(requestKind, place)` and replaces it when `seq` is higher, or when it equals the held `seq` and the new state is terminal. Duplicates and older payloads are ignored. Realtime signals are not replayed, so a client refetches `streamSnapshot` after a reconnect.
+- Cadence: the tail polls about every 120 ms (up to 300 ms while the worker is quiet) and publishes at most every 60 ms per walkthrough, so a delta reaches the channel within about 150 ms. It stops when nothing is in flight. `ask` streams the latest message (the answer); `plan` and `write` stream the message that holds ` ```walkthrough ` fences. A request that ends without text publishes nothing.
+- `failed` and `cancelled` payloads are never previewed; the pane shows the committed failure instead.
+
+### RPC `streamSnapshot({ walkthroughId })`
+Returns `{ snapshot: StreamPayload | null }`: the in-flight request's text so far, read from the stored events, with `state: "streaming"`. `null` when nothing streamable is in flight (including wrap-up). The pane calls it on opening, when a new request starts, and after a realtime reconnect.
+
+### Markup
+Parsed by `parseStreamMarkup` in `src/stream-markup.ts` (pure, total, incremental: every block of a prefix's parse is a prefix of the same-index block of the longer text's parse). Prose is Markdown. Figures and markers are fences whose language is `walkthrough`; the first key decides the kind.
+
+````
+The cap bounds the key before it is looked up.
+
+```walkthrough
+path: src/server.ts
+lines: 40-52
+view: diff
+caption: Looking up the key, in server.ts
+note 42: Truncates here.
+```
+
+```walkthrough
+suggestions:
+- What if the cap truncates mid-word?
+- Who calls the helper?
+```
+````
+- Figure keys: `path`, `lines` (`40-52` or `40`), `view` (`diff` or `code`), `caption`, `note <line>: text` (up to 8). `path`, `lines` and `view` count once their line ends with a newline; `caption` and note text show as they stream. A figure is shown when `path` and `lines` are known.
+- A ` ```walkthrough ` fence with `part: <n>` (and optional `title:`) marks where part `n` begins in the plan turn: text before it is the introduction, text after it is part 1.
+- A final fence with `suggestions:` lists one question per line. Suggestions show when their fence closes; the message is `complete` then.
+- Other fenced code, including code that mentions `walkthrough`, is prose. A partial fence opener at the end of the text is withheld rather than shown as prose.
+- The markup is identical to what `experimental_codeFenceRenderer` would receive in a newer SDK.
+
+### What the pane does
+`useStreams` (`src/ui/hooks.ts`) follows the channel and `streamSnapshot`; `src/ui/stream.ts` folds payloads, picks the ones that may be previewed, and turns markup into the same block shapes committed parts use.
+- A payload is previewed only for the request in flight and only when its `seq` is above that request's `afterSeq`; a retry never shows its predecessor's text. Once a request ends normally, its `done` payload stays until the committed result arrives.
+- The plan turn's introduction shows on the introduction page while the walkthrough is planning; part 1's markup shows on part 1.
+- Prose appears as it arrives. The open prose block and an open figure carry a subtle pulsing dot (`wt-streaming`, `data-streaming`), which reduced motion removes. A figure appears when its header is complete and renders from the `excerpt` RPC until the saved snapshot exists. Suggestions appear above the pager, disabled, when their block closes.
+- An answer streams into its exchange in the margin thread; the exchange's `status` and saved `answer` take over when it settles.
+- Streamed and committed content render through the same components with the same keys, so when `get` returns the ready part the elements stay in place and only their content settles.
