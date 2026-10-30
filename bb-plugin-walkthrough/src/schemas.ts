@@ -13,6 +13,11 @@ export const PANEL_ACTION_ID = "walkthrough";
  */
 export const PAGE_PATH = "walkthroughs";
 export const CHANGED_CHANNEL = "walkthrough-changed";
+/**
+ * Realtime channel carrying the worker's message text while a plan, part
+ * write, or answer is in flight (see StreamPayload and src/stream-tail.ts).
+ */
+export const STREAM_CHANNEL = "walkthrough-stream";
 /** pluginMetadata marker on the hidden thread that writes a walkthrough. */
 export const WORKER_ROLE = "walkthrough-worker";
 
@@ -316,3 +321,34 @@ export const walkthroughViewSchema = z
   })
   .strict();
 export type WalkthroughView = z.infer<typeof walkthroughViewSchema>;
+
+// ---------------------------------------------------------------------------
+// Streaming
+// ---------------------------------------------------------------------------
+
+/** What a stream payload belongs to. `place` is the part index (0 for the plan turn, which streams the introduction and part 1) or the wrap-up. */
+export const streamRequestKindSchema = z.enum(["plan", "write", "ask"]);
+export type StreamRequestKind = z.infer<typeof streamRequestKindSchema>;
+
+/** streaming: more text may follow; done: the request settled normally; failed: it failed; cancelled: it was stopped or the helper went away. */
+export const streamStateSchema = z.enum(["streaming", "done", "failed", "cancelled"]);
+export type StreamState = z.infer<typeof streamStateSchema>;
+
+/**
+ * The full text of the worker's current message so far, on STREAM_CHANNEL and
+ * from the `streamSnapshot` RPC. Stateless on purpose: a client replaces what
+ * it holds for (walkthroughId, requestKind, place) whenever `seq` is higher,
+ * or the state is terminal.
+ */
+export const streamPayloadSchema = z
+  .object({
+    walkthroughId: z.string(),
+    requestKind: streamRequestKindSchema,
+    place: placeSchema,
+    /** Highest worker event consumed; non-decreasing per walkthrough. */
+    seq: z.number().int().nonnegative(),
+    text: z.string(),
+    state: streamStateSchema,
+  })
+  .strict();
+export type StreamPayload = z.infer<typeof streamPayloadSchema>;

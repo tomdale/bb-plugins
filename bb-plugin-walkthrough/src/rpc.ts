@@ -10,6 +10,7 @@ import {
   noteTextSchema,
   placeSchema,
   reviewEventSchema,
+  streamPayloadSchema,
   walkthroughStatusSchema,
   walkthroughViewSchema,
 } from "./schemas.ts";
@@ -155,6 +156,11 @@ export const rpcContract = defineRpcContract({
   excerpt: {
     input: z.object({ ...target, path: z.string().min(1).max(1024), startLine: lineNumber, endLine: lineNumber }).strict(),
     output: excerptResultSchema,
+  },
+  /** The in-flight request's message text so far, for a client that joined mid-stream; null when nothing is streaming. */
+  streamSnapshot: {
+    input: z.object(target).strict(),
+    output: z.object({ snapshot: streamPayloadSchema.nullable() }).strict(),
   },
   requestReviewPost: {
     input: z.object({ ...target, event: reviewEventSchema }).strict(),

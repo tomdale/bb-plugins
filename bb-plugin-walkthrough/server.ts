@@ -64,12 +64,19 @@ export default function plugin(bb: BbPluginApi) {
     service.onWorkerFailed(thread.id, error);
   });
   bb.events.on("experimental_thread.events", ({ thread }) => {
-    void service.onWorkerEvents(thread.id);
+    service.onWorkerEvents(thread.id);
   });
   bb.background.service("resume", {
     async start(signal) {
       await service.resume().catch((cause) => bb.log.warn(`resume failed: ${cause instanceof Error ? cause.message : String(cause)}`));
       await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+    },
+  });
+  // The tail's timers live as long as this service: a reload or shutdown aborts it.
+  bb.background.service("stream-tail", {
+    async start(signal) {
+      await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+      service.tail.dispose();
     },
   });
 
@@ -103,6 +110,7 @@ export default function plugin(bb: BbPluginApi) {
     diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>
       service.diff(walkthroughId, path, { startLine, endLine }, withFullFile ?? false),
     excerpt: ({ walkthroughId, path, startLine, endLine }) => service.excerpt(walkthroughId, path, startLine, endLine),
+    streamSnapshot: ({ walkthroughId }) => handle(async () => ({ snapshot: await service.streamSnapshot(walkthroughId) })),
     requestReviewPost: ({ walkthroughId, event }) => handle(async () => (await service.requestReviewPost(walkthroughId, event), ok)),
   });
 }

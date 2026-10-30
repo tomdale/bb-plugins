@@ -21,6 +21,9 @@ import type { DiffResult, ExcerptResult } from "./rpc.ts";
 import {
   CHANGED_CHANNEL,
   defaultIntent,
+  STREAM_CHANNEL,
+  type StreamPayload,
+  type StreamState,
   WORKER_ROLE,
   type Block,
   type BlockInput,
@@ -38,6 +41,7 @@ import {
   type Walkthrough,
   type WorkerRequest,
 } from "./schemas.ts";
+import { streamTarget, StreamTail, type DeltaRow, type TailTarget } from "./stream-tail.ts";
 import type { WalkthroughStore } from "./store.ts";
 import { askMessage, planMessage, postReviewMessage, replyMessage, wrapUpMessage, writeMessage } from "./worker.ts";
 
@@ -101,7 +105,8 @@ export class WalkthroughService {
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
-  private readonly streaming = new Set<string>();
+  /** Follows the worker's message text while a plan, part, or answer is in flight. */
+  readonly tail: StreamTail;
 
   private readonly codeHost: ExperimentalHostClient<typeof codeHostContract>;
 
@@ -111,6 +116,15 @@ export class WalkthroughService {
     private readonly now: () => number = Date.now,
   ) {
     this.codeHost = bb.hosts.experimental_client({ contract: codeHostContract });
+    this.tail = new StreamTail(
+      {
+        readDeltas: (threadId, afterSeq) => this.readDeltas(threadId, afterSeq),
+        publish: (payload) => bb.realtime.publish(STREAM_CHANNEL, payload),
+        persist: (target, text) => this.persistAnswer(target, text),
+        log: (message) => bb.log.debug(message),
+      },
+      now,
+    );
   }
 
   // -- lookup ---------------------------------------------------------------
@@ -147,7 +161,56 @@ export class WalkthroughService {
     const next = { ...walkthrough, updatedAt: this.now() };
     this.store.save(next);
     this.bb.realtime.publish(CHANGED_CHANNEL, { threadId: next.threadId, walkthroughId: next.id, reason });
+    this.syncTail(next);
     return next;
+  }
+
+  /** Follows the worker while a streamed request is in flight; whatever ends the request without saying why ends it as cancelled. */
+  private syncTail(walkthrough: Walkthrough): void {
+    const inFlight = walkthrough.inFlight;
+    if (inFlight === null || walkthrough.workerThreadId === null) {
+      void this.tail.finish(walkthrough.id, "cancelled");
+      return;
+    }
+    this.tail.track(this.tailTarget(walkthrough)!);
+  }
+
+  private tailTarget(walkthrough: Walkthrough): TailTarget | null {
+    const { inFlight, workerThreadId } = walkthrough;
+    if (inFlight === null || workerThreadId === null) return null;
+    return { walkthroughId: walkthrough.id, workerThreadId, request: inFlight.request, afterSeq: inFlight.afterSeq, sentAt: inFlight.sentAt };
+  }
+
+  /** One page of the worker's message deltas, oldest first. */
+  private async readDeltas(threadId: string, afterSeq: number): Promise<DeltaRow[]> {
+    const rows = (await this.bb.sdk.threads.events.list({
+      threadId,
+      afterSeq: String(afterSeq),
+      limit: "100",
+      types: ["item/agentMessage/delta"],
+    })) as unknown as Array<{ seq: number; data: { itemId?: string; delta?: string } }>;
+    return rows.map((row) => ({ seq: row.seq, itemId: row.data.itemId ?? null, delta: typeof row.data.delta === "string" ? row.data.delta : "" }));
+  }
+
+  /** Saves an answer in progress so a reload shows it; the commit at the end of the request stays authoritative. */
+  private persistAnswer(target: TailTarget, text: string): void {
+    const request = target.request;
+    if (request.kind !== "ask") return;
+    try {
+      const current = this.get(target.walkthroughId);
+      const inFlight = current.inFlight;
+      if (inFlight?.request.kind !== "ask" || inFlight.request.exchangeId !== request.exchangeId || inFlight.sentAt !== target.sentAt) return;
+      this.save(this.withExchange(current, request.place, request.exchangeId, (exchange) => ({ ...exchange, answer: text })));
+    } catch (cause) {
+      this.bb.log.debug(`answer streaming skipped: ${errorText(cause)}`);
+    }
+  }
+
+  /** The in-flight request's text so far, for a client that joined mid-stream. */
+  async streamSnapshot(id: string): Promise<StreamPayload | null> {
+    const target = this.tailTarget(this.get(id));
+    if (target === null || streamTarget(target.request) === null) return null;
+    return this.tail.snapshot(target).catch(() => null);
   }
 
   private update(id: string, change: (walkthrough: Walkthrough) => Walkthrough): Walkthrough {
@@ -445,6 +508,7 @@ export class WalkthroughService {
     const inFlight = walkthrough.inFlight;
     if (inFlight === null) return;
     const message = text?.trim() || null;
+    void this.tail.finish(id, failed ? (message === INTERRUPTED || message === HELPER_GONE ? "cancelled" : "failed") : "done");
     let next: Walkthrough = { ...walkthrough, inFlight: null };
     const request = inFlight.request;
     switch (request.kind) {
@@ -512,24 +576,12 @@ export class WalkthroughService {
     return [...texts.values()].at(-1) ?? null;
   }
 
-  /** Streams the in-flight answer while the worker writes it. */
-  async onWorkerEvents(workerThreadId: string): Promise<void> {
+  /** The server saw new worker events (at most one per second): the tail polls now instead of at its next tick. */
+  onWorkerEvents(workerThreadId: string): void {
     const walkthrough = this.store.byWorker(workerThreadId);
-    const inFlight = walkthrough?.inFlight;
-    if (!walkthrough || !inFlight || inFlight.request.kind !== "ask" || this.streaming.has(walkthrough.id)) return;
-    const request = inFlight.request;
-    this.streaming.add(walkthrough.id);
-    try {
-      const latest = await this.latestAgentText(workerThreadId, inFlight.afterSeq);
-      if (!latest) return;
-      const current = this.get(walkthrough.id);
-      if (current.inFlight?.request.kind !== "ask" || current.inFlight.request.exchangeId !== request.exchangeId) return;
-      this.save(this.withExchange(current, request.place, request.exchangeId, (exchange) => ({ ...exchange, answer: latest })));
-    } catch (cause) {
-      this.bb.log.debug(`answer streaming skipped: ${errorText(cause)}`);
-    } finally {
-      this.streaming.delete(walkthrough.id);
-    }
+    if (!walkthrough?.inFlight) return;
+    this.syncTail(walkthrough);
+    this.tail.poke(walkthrough.id);
   }
 
   /** Resumes requests interrupted by a reload or restart. */
@@ -537,6 +589,7 @@ export class WalkthroughService {
     for (const walkthrough of this.store.unfinished()) {
       if (!walkthrough.workerThreadId) continue;
       if (walkthrough.inFlight) {
+        this.syncTail(walkthrough);
         const thread = await this.bb.sdk.threads.get({ threadId: walkthrough.workerThreadId }).catch(() => null);
         if (thread === null || thread.archivedAt || thread.status === "error") {
           this.helperGone(walkthrough.id);
