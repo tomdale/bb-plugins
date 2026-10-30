@@ -1,0 +1,91 @@
+<!doctype html><meta charset=utf-8>
+<style>
+:root{--ink:#222;--page:#fffef9;--desk:#d9d6cd;--mute:rgba(0,0,0,.5);--hair:rgba(0,0,0,.14);--glass:rgba(255,255,255,.7);--fill:rgba(0,0,0,.05);--code:transparent;--add:rgba(52,199,89,.16);--del:rgba(255,59,48,.12);--rule:rgba(255,59,48,.32);--y:#ffcc00;--yt:#3a2e00;--btn:#222;--btnt:#fff;--sh:rgba(0,0,0,.12)}
+.dark{--ink:#ebe6d8;--page:#1b1a17;--desk:#000;--mute:rgba(255,255,255,.5);--hair:rgba(255,255,255,.16);--glass:rgba(44,44,42,.62);--fill:rgba(255,255,255,.08);--add:rgba(48,209,88,.16);--del:rgba(255,69,58,.15);--rule:rgba(255,159,10,.4);--btn:#ffcc00;--btnt:#2a2100;--sh:rgba(0,0,0,.6)}
+*{box-sizing:border-box}body{margin:0;background:#101012;font:13px/1.45 -apple-system,system-ui,sans-serif;color:#ccc;padding:14px}
+.tools{display:flex;gap:8px;margin-bottom:12px}.tools button{background:#2a2a2e;color:#ddd;border:0;border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer}.tools button.on{background:#ffcc00;color:#2a2100}
+.stage{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+.w{position:relative;height:620px;border-radius:14px;overflow:hidden;background:var(--desk);color:var(--ink)}
+.w.p{width:480px}.w.f{flex:1;min-width:640px}
+.S{font-family:"Newsreader","Source Serif 4","New York",ui-serif,Georgia,serif}
+.top{position:absolute;top:10px;left:10px;right:10px;height:36px;border-radius:18px;display:flex;align-items:center;padding:0 6px 0 14px;gap:8px;font-weight:600;font-size:12px;backdrop-filter:blur(20px) saturate(1.6);background:var(--glass);box-shadow:inset 0 0 0 .5px var(--hair);z-index:5}
+.sp{flex:1}.chip{height:24px;padding:0 10px;border-radius:12px;display:flex;align-items:center;font-weight:500;background:var(--fill);border:0;color:inherit;font-size:12px;cursor:pointer}
+.chip.sel{background:var(--y);color:var(--yt)}
+.scroll{position:absolute;inset:56px 14px 100px;border-radius:8px;overflow:auto;background:var(--page);box-shadow:0 10px 30px var(--sh);scroll-behavior:smooth}
+.page{position:relative;margin:0 auto;padding:30px 28px 40px 62px;max-width:760px;background-image:linear-gradient(90deg,transparent 46px,var(--rule) 46px,var(--rule) 47px,transparent 47px);min-height:100%}
+.f .page{max-width:none;padding-right:260px}
+.pn{position:absolute;left:6px;width:40px;top:34px;text-align:center;font:600 10px system-ui;color:var(--mute);letter-spacing:.04em}.pn b{display:block;font:500 20px "Newsreader","New York",serif;color:var(--ink);letter-spacing:0}
+h2{font:500 28px/1.12 "Newsreader","New York",ui-serif,serif;margin:0 0 12px;letter-spacing:-.012em}
+.lbl{font:600 11px system-ui;color:var(--mute);letter-spacing:.02em;margin-bottom:4px}
+p{font:17px/1.6 "Newsreader","New York",ui-serif,serif;margin:0 0 12px;max-width:34em}
+mark{background:linear-gradient(transparent 55%,rgba(255,204,0,.5) 55%);color:inherit}
+.fig{position:relative;font:11.5px/1.7 "SF Mono",ui-monospace,Menlo,monospace;margin:16px -14px 16px -14px;border-top:.5px solid var(--hair);border-bottom:.5px solid var(--hair);padding:6px 0}
+.fh{display:flex;gap:10px;padding:2px 14px 6px;color:var(--mute);font-size:11px}
+.seg{display:flex;background:var(--fill);border-radius:7px;padding:2px;font:500 11px system-ui}.seg span{padding:1px 8px;border-radius:5px;cursor:pointer}.seg .on{background:var(--page);box-shadow:0 1px 2px var(--sh)}
+.l{display:flex;gap:10px;padding:0 14px;position:relative}.l b{width:22px;text-align:right;font-weight:400;color:var(--mute)}.l.add{background:var(--add)}.l.del{background:var(--del)}
+.m{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:8px;font:600 9.5px system-ui;background:var(--y);color:var(--yt);cursor:pointer;vertical-align:middle}
+.mn{font:italic 14.5px/1.4 "Newsreader","New York",serif;color:var(--ink);opacity:.8;transition:.2s}
+.f .mn{position:absolute;right:-232px;width:210px}
+.p .mn{margin:4px 0 14px 0}
+.mn.hot,.l.hot{background:rgba(255,204,0,.2);opacity:1}
+.pager{position:absolute;left:12px;right:12px;bottom:12px;border-radius:22px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;backdrop-filter:blur(24px) saturate(1.7);background:var(--glass);box-shadow:inset 0 0 0 .5px var(--hair);z-index:5}
+.q{display:flex;gap:6px;overflow:hidden}.q span{font:italic 12.5px "Newsreader","New York",serif;padding:2px 10px;border-radius:12px;background:var(--fill);white-space:nowrap;cursor:pointer}
+.r{display:flex;gap:8px;align-items:center}.in{flex:1;height:30px;border-radius:15px;padding:0 14px;display:flex;align-items:center;font-size:12.5px;color:var(--mute);background:var(--fill)}.btn{height:30px;padding:0 14px;border-radius:15px;display:flex;align-items:center;font-weight:600;font-size:12.5px;border:0;cursor:pointer;font-family:inherit}
+.btn.p2{background:var(--btn);color:var(--btnt)}.btn.g{background:var(--fill);color:inherit}
+.sheet{position:absolute;top:0;right:0;bottom:0;width:min(340px,100%);backdrop-filter:blur(30px) saturate(1.8);background:var(--glass);box-shadow:-1px 0 0 var(--hair),-20px 0 40px var(--sh);padding:56px 16px 16px;transform:translateX(105%);transition:transform .38s cubic-bezier(.2,.9,.25,1.02);z-index:4;display:flex;flex-direction:column;gap:10px;font-size:13px}
+.sheet.open{transform:none}
+.tabs{display:flex;gap:16px;border-bottom:.5px solid var(--hair);padding-bottom:6px}.tabs span{color:var(--mute)}.tabs .on{color:var(--ink);font-weight:600}
+.it{border-radius:10px;background:var(--fill);padding:9px 11px}.it small{display:block;color:var(--mute);font-size:11.5px}.it q{display:block;font:15px/1.35 "Newsreader","New York",serif;quotes:none;margin-top:2px}
+.kind{font:600 10.5px system-ui;color:var(--mute);margin-right:6px}
+.dots{display:flex;gap:4px;align-items:center}.dots i{width:6px;height:6px;border-radius:3px;background:var(--hair)}.dots i.on{background:var(--y);width:16px}.dots i.d{background:var(--mute)}
+.part{display:none}.part.on{display:block;animation:in .35s ease}
+@keyframes in{from{opacity:0;transform:translateY(6px)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<div class=tools><button id=th>Dark</button><button id=sh>Concerns sheet</button><span style="padding:6px">Click Prev / Next, a marker, or a suggestion.</span></div>
+<div class=stage id=stage></div>
+<template id=t>
+<div class="w S">
+ <div class=top><span>PR #1 · Workstreams</span><span class=sp></span><span class=dots></span><span class=sp></span><button class="chip pk">3 of 5</button><button class="chip cc">Concerns · 2</button><button class=chip>···</button></div>
+ <div class=scroll><div class=page>
+  <div class=pn>PART<b class=num>3</b></div>
+  <div class=part data-i=0><div class=lbl>INTRODUCTION</div><h2>A thread overview, and what to check</h2><p>This merged PR adds a <mark>manual interpretation layer</mark> over live BB threads: product groups, titles, stopping-point recaps and attention flags. It does not change the conversations themselves.</p><p>Five parts follow. The last one lists what is still open.</p></div>
+  <div class=part data-i=2><div class=lbl>BOUNDED CLASSIFICATION</div><h2>Making classification a bounded operation</h2>
+   <p>The prompt says what the model should infer. The parser decides what the code will accept. <mark>A plausible but false recap still passes.</mark></p>
+   <div class=fig><div class=fh><span>model.ts · 68–93</span><span class=sp></span><div class=seg><span class=on>Diff</span><span>After</span><span>Before</span></div></div>
+   <div class=l><b>76</b><span>if (!result.title) fail()</span></div>
+   <div class="l add" data-m=1><b><span class=m data-m=1>1</span></b><span>ids.size === expected.size</span></div>
+   <div class="l del"><b>86</b><span>ids.length === expected.length</span></div>
+   <div class="mn" data-m=1 style="top:84px"><span class=m style="margin-right:6px">1</span>Count, uniqueness and membership checks reject missing or invented IDs.</div></div></div>
+  <div class=part data-i=1><div class=lbl>INPUTS</div><h2>Choosing what the model gets to see</h2><p>Evidence is assembled before classification; only the fields listed here leave the machine.</p></div>
+  <div class=part data-i=3><div class=lbl>FAILURE</div><h2>Keeping a failed run from losing your place</h2><p>A failed analysis keeps the earlier result and says so.</p></div>
+  <div class=part data-i=4><div class=lbl>WRAP-UP</div><h2>What is left</h2><p>Two open items and one comment for the review.</p><div class=it><span class=kind>COMMENT</span>model.ts:85<q>A false recap still passes validation.</q></div><p style="margin-top:14px"><button class="btn p2">Post review…</button></p></div>
+ </div></div>
+ <div class=sheet><div class=tabs><span class=on>Open items · 3</span><span>Review draft · 1</span><span class=sp></span><span class=x style="cursor:pointer">✕</span></div>
+  <div class=it><span class=kind>COMMENT</span>Part 3 · model.ts:85<q>A false recap still passes validation; add a check or say so.</q></div>
+  <div class=it><span class=kind>TODO</span>Part 2 · prompt.ts:40<q>Confirm redaction runs before save.</q></div>
+  <div class=it><span class=kind>ASK</span>Part 1 · model.ts:29<q>Why is the timestamp the analysis time?</q></div><span class=sp></span><button class="btn g">Send open items to thread</button></div>
+ <div class=pager><div class=q><span>What does a false recap look like?</span><span>Is this tested?</span></div><div class=r><button class="btn g prev">‹</button><div class=in>Ask about this part</div><button class="btn p2 next">Next ›</button></div></div>
+</div></template>
+<script>
+const titles=["A thread overview","Choosing what the model sees","Bounded classification","A failed run","What is left"];
+const order=[0,1,2,3,4];let cur=2;const wins=[];
+function mk(cls){const w=document.getElementById('t').content.firstElementChild.cloneNode(true);w.classList.add(cls);document.getElementById('stage').append(w);
+ const render=()=>{w.querySelectorAll('.part').forEach(p=>p.classList.toggle('on',+p.dataset.i===cur));
+  w.querySelector('.num').textContent=cur===0?'·':cur;w.querySelector('.pk').textContent=(cur+1)+' of 5';
+  w.querySelector('.dots').innerHTML=order.map(i=>`<i class="${i===cur?'on':i<cur?'d':''}"></i>`).join('');
+  const nx=w.querySelector('.next');nx.textContent=cur<4?'Next: '+titles[cur+1]+' ›':'Done';nx.style.maxWidth='60%';nx.style.overflow='hidden';
+  w.querySelector('.scroll').scrollTop=0};
+ w.querySelector('.next').onclick=()=>{cur=Math.min(4,cur+1);wins.forEach(f=>f())};
+ w.querySelector('.prev').onclick=()=>{cur=Math.max(0,cur-1);wins.forEach(f=>f())};
+ w.querySelectorAll('.m').forEach(m=>m.onclick=()=>w.querySelectorAll('[data-m]').forEach(e=>e.classList.toggle('hot')));
+ w.querySelector('.cc').onclick=()=>w.querySelector('.sheet').classList.toggle('open');w.querySelector('.x').onclick=()=>w.querySelector('.sheet').classList.remove('open');
+ w.querySelectorAll('.q span').forEach(s=>s.onclick=()=>w.querySelector('.in').textContent=s.textContent);
+ w.querySelector('.seg').addEventListener('click',e=>{if(e.target.tagName==='SPAN'){w.querySelectorAll('.seg span').forEach(x=>x.classList.toggle('on',x===e.target))}});
+ wins.push(render);render();return w}
+mk('p');mk('f');
+document.getElementById('th').onclick=e=>{document.body.classList.toggle('dark');document.querySelectorAll('.w').forEach(w=>w.classList.toggle('dark'));e.target.textContent=document.body.classList.contains('dark')?'Light':'Dark'};
+document.getElementById('sh').onclick=()=>document.querySelectorAll('.sheet').forEach(s=>s.classList.toggle('open'));
+// .dark vars apply to :root-level class; mirror on windows
+const o=new MutationObserver(()=>{});document.getElementById('th').addEventListener('click',()=>{document.documentElement.classList.toggle('dark')});
+</script>
