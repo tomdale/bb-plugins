@@ -1,7 +1,7 @@
 // A small Markdown renderer for walkthrough prose. It exists so line
 // references (`[phrase](line:40-52)`) and workspace file links render as
 // first-class links; BB's Markdown component does not expose link hooks.
-import { Fragment, type ReactNode } from "react";
+import { Fragment, memo, type ReactNode } from "react";
 import { experimental_FileLink as FileLink, UrlLink } from "@get-bb/plugin-sdk/app";
 import { cn } from "@/lib/utils";
 import { fileTarget, type FileContext } from "../files.ts";
@@ -24,7 +24,7 @@ function lineRange(value: string): { start: number; end: number } | null {
 }
 
 function link(label: ReactNode, href: string, context: ProseContext, key: string): ReactNode {
-  const refClass = "cursor-pointer border-b border-dotted border-muted-foreground/70 hover:bg-secondary";
+  const refClass = "wt-ref";
   if (href.startsWith("line:")) {
     const range = lineRange(href.slice(5));
     const target = context.codePath ? fileTarget(context.files, context.codePath) : null;
@@ -42,14 +42,14 @@ function link(label: ReactNode, href: string, context: ProseContext, key: string
       );
     }
     return (
-      <span key={key} className="border-b border-dotted border-muted-foreground/50">
+      <span key={key} className="wt-ref">
         {label}
       </span>
     );
   }
   if (/^https?:\/\//u.test(href)) {
     return (
-      <UrlLink key={key} href={href} className="underline underline-offset-2">
+      <UrlLink key={key} href={href} className="wt-link">
         {label}
       </UrlLink>
     );
@@ -84,13 +84,13 @@ function inline(text: string, context: ProseContext, keyPrefix: string): ReactNo
     const key = `${keyPrefix}-${index++}`;
     if (match[1]) {
       out.push(
-        <code key={key} className="rounded bg-secondary px-1 py-px font-mono text-[0.85em]">
+        <code key={key} className="wt-inline-code">
           {token.slice(1, -1)}
         </code>,
       );
     } else if (match[2]) {
       out.push(
-        <strong key={key} className="font-medium">
+        <strong key={key}>
           {inline(token.slice(2, -2), context, key)}
         </strong>,
       );
@@ -106,30 +106,30 @@ function inline(text: string, context: ProseContext, keyPrefix: string): ReactNo
   return out;
 }
 
-/** Paragraphs, headings, bullet and numbered lists, fenced code, and inline code, emphasis, and links. */
-export function Prose({ text, context, className }: { text: string; context: ProseContext; className?: string }) {
+/** Memoized so a streaming answer re-parses only when its text changes. Paragraphs, headings, bullet and numbered lists, fenced code, and inline code, emphasis, and links. */
+function ProseImpl({ text, context, className }: { text: string; context: ProseContext; className?: string }) {
   const blocks = parseMarkdownBlocks(text);
   return (
-    <div className={cn("space-y-3 font-serif text-[15px] leading-[1.65]", className)}>
+    <div className={cn("wt-prose", className)}>
       {blocks.map((block, index) => {
         switch (block.kind) {
           case "code":
             return (
               <pre
                 key={index}
-                className="overflow-x-auto rounded-md border border-border bg-secondary/60 px-3 py-2 font-mono text-[12.5px] leading-[1.55]"
+                className="wt-pre"
               >
                 <code>{block.text}</code>
               </pre>
             );
           case "table":
             return (
-              <div key={index} className="overflow-x-auto">
-                <table className="w-full border-collapse font-sans text-[13px] leading-snug">
+              <div key={index} className="wt-table-wrap">
+                <table className="wt-table">
                   <thead>
                     <tr>
                       {block.header.map((cell, cellIndex) => (
-                        <th key={cellIndex} className="border-b-2 border-border bg-secondary/50 px-2 py-1 text-left font-semibold">
+                        <th key={cellIndex} className="wt-th">
                           {inline(cell, context, `${index}-h${cellIndex}`)}
                         </th>
                       ))}
@@ -139,7 +139,7 @@ export function Prose({ text, context, className }: { text: string; context: Pro
                     {block.rows.map((row, rowIndex) => (
                       <tr key={rowIndex}>
                         {row.map((cell, cellIndex) => (
-                          <td key={cellIndex} className="border-b border-border/60 px-2 py-1 align-top">
+                          <td key={cellIndex} className="wt-td">
                             {inline(cell, context, `${index}-${rowIndex}-${cellIndex}`)}
                           </td>
                         ))}
@@ -152,7 +152,7 @@ export function Prose({ text, context, className }: { text: string; context: Pro
           case "list": {
             const Tag = block.ordered ? "ol" : "ul";
             return (
-              <Tag key={index} {...(block.ordered ? { start: block.start } : {})} className={cn("space-y-1 pl-5", block.ordered ? "list-decimal" : "list-disc")}>
+              <Tag key={index} {...(block.ordered ? { start: block.start } : {})} className={block.ordered ? "wt-ol" : "wt-ul"}>
                 {block.items.map((item, itemIndex) => (
                   <li key={itemIndex}>{inline(item, context, `${index}-${itemIndex}`)}</li>
                 ))}
@@ -161,7 +161,7 @@ export function Prose({ text, context, className }: { text: string; context: Pro
           }
           case "heading":
             return (
-              <p key={index} className="font-medium">
+              <p key={index} className="wt-subhead">
                 {inline(block.text, context, `${index}`)}
               </p>
             );
@@ -172,3 +172,5 @@ export function Prose({ text, context, className }: { text: string; context: Pro
     </div>
   );
 }
+
+export const Prose = memo(ProseImpl, (a, b) => a.text === b.text && a.className === b.className && a.context.codePath === b.context.codePath && a.context.files === b.context.files);

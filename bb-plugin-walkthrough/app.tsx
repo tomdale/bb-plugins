@@ -1,6 +1,7 @@
 // Walkthrough plugin frontend. React and the SDK come from the BB host at
 // runtime; components/ui/ is vendored source this plugin owns.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
+import "./app.css";
 import { PAGE_PATH, PANEL_ACTION_ID } from "./src/schemas.ts";
 import { WalkthroughPane } from "./src/ui/Pane.tsx";
 import { WalkthroughAutoOpener } from "./src/ui/Starter.tsx";

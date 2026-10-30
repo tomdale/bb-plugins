@@ -1,28 +1,42 @@
-// Walkthrough creation form and the thread's automatic pane opener.
+// Starting a walkthrough from an empty pane, and the thread's automatic pane opener.
 import { useState } from "react";
-import { experimental_usePluginId as usePluginId, useBbNavigate, useSettings, type PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_usePluginId as usePluginId,
+  experimental_useSidebarThreadPullRequest,
+  useBbNavigate,
+  useSettings,
+  type PluginThreadHeaderActionProps,
+} from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Icon } from "@/components/ui/icon";
 import { PANEL_ACTION_ID } from "../schemas.ts";
 import { errorMessage, useThreadWalkthroughs } from "./hooks.ts";
-
-const STARTERS = ["The changes on this branch", "This PR, for review", "The code we've been talking about", "The changes you just made"];
+import { SummaryRow } from "./parts.tsx";
 
 export function openPane(navigate: ReturnType<typeof useBbNavigate>, walkthroughId: string, title: string): boolean {
   return navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title, params: { walkthroughId } });
 }
 
-/** Chips plus a request box in an empty pane. */
-export function StartForm({ threadId, onStarted, autoFocus }: { threadId: string; onStarted?: () => void; autoFocus?: boolean }) {
+/** The thread's pull request when the host can say; older hosts have no such lookup. */
+function useDetectedPullRequest(threadId: string) {
+  const lookup = typeof experimental_useSidebarThreadPullRequest === "function" ? experimental_useSidebarThreadPullRequest : null;
+  // The lookup is fixed for the life of the host, so the hook order never changes.
+  return lookup ? lookup(threadId).pullRequest : null;
+}
+
+/** What the starter found, one button, an optional focus line, and earlier walkthroughs. */
+export function Starter({ threadId }: { threadId: string }) {
   const navigate = useBbNavigate();
   const pluginId = usePluginId();
-  const { rpc } = useThreadWalkthroughs(threadId);
-  const [request, setRequest] = useState("");
+  const { walkthroughs, rpc } = useThreadWalkthroughs(threadId);
+  const pullRequest = useDetectedPullRequest(threadId);
+  const [focus, setFocus] = useState("");
   const [starting, setStarting] = useState(false);
+  const reviewable = pullRequest !== null && pullRequest.state !== "draft";
   const start = async () => {
     setStarting(true);
     try {
+      const request = focus.trim() || (pullRequest ? "This PR, for review" : "");
       const { walkthroughId } = await rpc.call("start", { threadId, request });
       try {
         sessionStorage.setItem(`${pluginId}:opened:${walkthroughId}`, "1");
@@ -30,8 +44,7 @@ export function StartForm({ threadId, onStarted, autoFocus }: { threadId: string
         // Ignore unavailable storage.
       }
       openPane(navigate, walkthroughId, "Walkthrough");
-      setRequest("");
-      onStarted?.();
+      setFocus("");
     } catch (cause) {
       toast.error(errorMessage(cause));
     } finally {
@@ -39,30 +52,49 @@ export function StartForm({ threadId, onStarted, autoFocus }: { threadId: string
     }
   };
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
-        {STARTERS.map((starter) => (
-          <button key={starter} type="button" onClick={() => setRequest(starter)} className="rounded-full border border-border px-3 py-1 text-xs hover:bg-secondary">
-            {starter}
-          </button>
-        ))}
-      </div>
-      <textarea
-        value={request}
-        autoFocus={autoFocus}
-        onChange={(event) => setRequest(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void start();
-        }}
-        rows={3}
-        aria-label="What should the walkthrough cover?"
-        placeholder="What should it walk you through? Leave empty for the changes on this branch."
-        className="w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground"
-      />
-      <div className="flex justify-end">
-        <Button type="button" disabled={starting} onClick={() => void start()}>
-          {starting ? "Starting…" : "Start"}
-        </Button>
+    <div className="wt wt-starter">
+      <div className="wt-scroll">
+        <div className="wt-page wt-start-page">
+          <div className="wt-pn" aria-hidden>
+            PART<b>·</b>
+          </div>
+          <header className="wt-head">
+            <h2>Start a walkthrough</h2>
+          </header>
+          <section className="wt-detected" aria-label="What was found">
+            <Icon name={pullRequest ? "GitPullRequest" : "Explore"} className="size-4" aria-hidden />
+            <div>
+              <p className="wt-detected-t">{pullRequest ? `#${pullRequest.number} ${pullRequest.title}` : "Changes on this branch"}</p>
+              <p className="wt-muted">{pullRequest ? (reviewable ? "A pull request on this branch" : "A draft pull request on this branch") : "Compared with where the branch started"}</p>
+            </div>
+          </section>
+          <form
+            className="wt-start-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void start();
+            }}
+          >
+            <label className="wt-input wt-input-box">
+              <input value={focus} onChange={(event) => setFocus(event.target.value)} aria-label="Focus" placeholder="Focus on… (optional)" />
+            </label>
+            <button type="submit" className="wt-btn wt-btn-primary" disabled={starting}>
+              {starting ? "Starting…" : pullRequest ? "Walk me through this PR" : "Walk me through it"}
+            </button>
+          </form>
+          {walkthroughs.length > 0 ? (
+            <section className="wt-earlier" aria-label="Earlier walkthroughs">
+              <h3 className="wt-lbl">Earlier walkthroughs</h3>
+              <ul>
+                {walkthroughs.map((walkthrough) => (
+                  <li key={walkthrough.id}>
+                    <SummaryRow summary={walkthrough} onOpen={() => openPane(navigate, walkthrough.id, walkthrough.title)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
       </div>
     </div>
   );
