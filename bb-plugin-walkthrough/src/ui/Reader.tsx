@@ -60,6 +60,15 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   const navigate = useBbNavigate();
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const wide = width >= WIDE_FROM;
+  // The concerns sheet stops above the pager so its footer actions stay reachable.
+  useEffect(() => {
+    const root = rootRef.current;
+    const pager = root?.querySelector<HTMLElement>(".wt-pager");
+    if (!root || !pager || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => root.style.setProperty("--wt-pager-h", `${pager.offsetHeight + 12}px`));
+    observer.observe(pager);
+    return () => observer.disconnect();
+  }, [rootRef]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [tab, setTab] = useState<ConcernsTab>("open");
   const [finishing, setFinishing] = useState(false);

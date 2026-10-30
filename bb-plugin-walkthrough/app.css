@@ -63,9 +63,16 @@
 }
 .wt:focus { outline: none; }
 .wt *, .wt *::before, .wt *::after { box-sizing: border-box; }
-/* Zero specificity, so each component class below can set its own colors. */
-:where(.wt) button { font: inherit; color: inherit; cursor: pointer; }
-:where(.wt) button:disabled { cursor: default; opacity: 0.45; }
+/*
+ * Button reset. It sits in the base layer because Tailwind utilities (the
+ * vendored checkbox's text-background, for one) live in a layer, and unlayered
+ * rules beat every layered rule whatever their specificity. Zero specificity,
+ * so each component class below can set its own colors.
+ */
+@layer base {
+  :where(.wt) button { font: inherit; color: inherit; cursor: pointer; }
+  :where(.wt) button:disabled { cursor: default; opacity: 0.45; }
+}
 .wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-focus); outline-offset: 2px; border-radius: 4px; }
 .wt-sp { flex: 1; }
 .wt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -260,13 +267,16 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 
 /* Concerns sheet */
 .wt-sheet {
-  position: absolute; z-index: 4; top: 0; right: 0; bottom: 0; width: min(340px, 100%);
+  position: absolute; z-index: 4; top: 0; right: 0; bottom: var(--wt-pager-h, 0px); width: min(340px, 100%);
+  background: color-mix(in srgb, var(--wt-glass-solid) 90%, transparent);
   display: flex; flex-direction: column; gap: 10px; padding: 56px 16px 16px;
   box-shadow: -1px 0 0 var(--wt-hair), -20px 0 40px var(--wt-shadow);
   -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
   transform: translateX(105%); visibility: hidden;
   transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02), visibility 0s 0.38s;
 }
+/* In the narrow panel the sheet covers the page edge to edge. */
+.wt:not([data-wide]) .wt-sheet { width: 100%; }
 .wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02); }
 @media (prefers-reduced-transparency: reduce) { .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .wt-tabs { display: flex; align-items: center; gap: 16px; padding-bottom: 6px; border-bottom: 0.5px solid var(--wt-hair); }
@@ -317,6 +327,8 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-picker ol { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
 .wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .wt-picker button:hover:not(:disabled), .wt-picker button[aria-current="step"] { background: var(--wt-fill); }
+/* An inset ring: the list scrolls, so an outer outline would be clipped. */
+.wt-picker button:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--wt-focus); }
 .wt-picker button:disabled { opacity: 0.45; cursor: default; }
 .wt-picker-n { width: 16px; flex: none; text-align: right; font: 500 15px var(--wt-serif); color: var(--wt-mute); }
 .wt-picker-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
