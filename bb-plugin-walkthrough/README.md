@@ -90,8 +90,9 @@ its tools (`walkthrough_plan`, `walkthrough_write_part`, `walkthrough_suggest`,
 `item/agentMessage/delta` events in a background service every 100-200ms and
 publishes the message so far on the `walkthrough-stream` realtime channel;
 `streamSnapshot` serves a client that joins mid-stream. `src/stream-markup.ts`
-parses the fences incrementally, so a part can reach the page before the worker
-commits it. See `docs/redesign-spec.md` for the markup and the timing budget.
+parses the fences incrementally. The pane does not subscribe to the channel yet:
+it renders the blocks a part carries as they are saved, and a skeleton for the
+rest. See `docs/redesign-spec.md` for the markup and the timing budget.
 
 **What the pane receives.** `get` returns a view whose fields are all populated:
 `src/deliver.ts` fills `intent`, each code block's `view`, `snapshot` and

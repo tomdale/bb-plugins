@@ -25,6 +25,5 @@ code excerpts, margin notes, and room to ask anything.
 
 A helper agent forked from your thread writes the walkthrough, so it knows what
 you were discussing; your thread keeps working meanwhile. It writes one part
-ahead of you and streams each part as text, so the page fills in while it
-writes. Nothing is posted to GitHub unless you confirm it, and nothing is
+ahead of you. Nothing is posted to GitHub unless you confirm it, and nothing is
 written to your repository.
