@@ -98,6 +98,7 @@ export function Figure({
   notes,
   wide,
   onFlag,
+  streaming = false,
 }: {
   walkthrough: Walkthrough;
   block: CodeBlock;
@@ -105,6 +106,8 @@ export function Figure({
   notes: Note[];
   wide: boolean;
   onFlag: (target: FlagTarget, anchor: DOMRect) => void;
+  /** The figure is still being written; its code comes from the working tree until the part is saved. */
+  streaming?: boolean;
 }) {
   const { data, loading } = useSnapshot(walkthrough, block);
   const isCode = block.view === "code";
@@ -152,7 +155,7 @@ export function Figure({
   );
 
   return (
-    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined}>
+    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-streaming={streaming || undefined}>
       <figcaption className="wt-cap">{block.caption}</figcaption>
       <div className="wt-fig" style={minHeight ? { minHeight } : undefined}>
         <div className="wt-fh">

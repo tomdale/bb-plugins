@@ -1,16 +1,17 @@
 // The pages of the reader: the introduction, one part, the wrap-up, and the
 // skeleton shown before anything is written.
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { SavedNotes } from "../save-notes.ts";
-import type { DeliveredCodeBlock, DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
+import type { Place, DeliveredCodeBlock, DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 import { Figure, type FlagTarget } from "./Figure.tsx";
 import { openConcerns, PostReviewControl, type ReviewDraftView } from "./Concerns.tsx";
 import { partState } from "./fields.ts";
 import { errorMessage, type WalkthroughRpc } from "./hooks.ts";
 import { Prose, type ProseContext } from "./prose.tsx";
+import { previewFor, partPreview, StreamContext, useStreamedView, type StreamedBlock } from "./stream.ts";
 
 export function Skeleton({ label }: { label?: string }) {
   return (
@@ -49,7 +50,7 @@ export function Blocks({
   onFlag,
 }: {
   walkthrough: Walkthrough;
-  blocks: Part["blocks"];
+  blocks: StreamedBlock[];
   notes: Note[];
   partIndex: number | null;
   wide: boolean;
@@ -58,10 +59,10 @@ export function Blocks({
   return (
     <>
       {blocks.map((block, index) => {
-        if (block.kind === "code") return <Figure key={index} walkthrough={walkthrough} block={block} notes={notesInBlock(notes, partIndex, block)} wide={wide} onFlag={onFlag} />;
+        if (block.kind === "code") return <Figure key={index} walkthrough={walkthrough} block={block} notes={notesInBlock(notes, partIndex, block)} wide={wide} onFlag={onFlag} streaming={block.streaming === true} />;
         const nearest = blocks.slice(index + 1).find((candidate) => candidate.kind === "code") ?? blocks.slice(0, index).reverse().find((candidate) => candidate.kind === "code");
         const context: ProseContext = { files: walkthrough, codePath: nearest?.kind === "code" ? nearest.path : null };
-        return <Prose key={index} text={block.text} context={context} />;
+        return <Prose key={index} text={block.text} context={context} className={block.streaming ? "wt-streaming" : undefined} />;
       })}
     </>
   );
@@ -76,11 +77,11 @@ function Heading({ label, title }: { label?: string | undefined; title: string }
   );
 }
 
-export function Introduction({ walkthrough, onOpen }: { walkthrough: Walkthrough; onOpen: (index: number) => void }) {
+export function Introduction({ walkthrough, onOpen, streaming = false }: { walkthrough: Walkthrough; onOpen: (index: number) => void; streaming?: boolean }) {
   return (
     <article>
       <Heading label="Introduction" title={walkthrough.title} />
-      <Prose text={walkthrough.introduction} context={{ files: walkthrough, codePath: null }} />
+      <Prose text={walkthrough.introduction} context={{ files: walkthrough, codePath: null }} className={streaming ? "wt-streaming" : undefined} />
       {walkthrough.parts.length > 0 ? (
         <ol className="wt-toc" aria-label="Parts">
           {walkthrough.parts.map((part, index) => (
@@ -119,6 +120,10 @@ export function PartPage({
   const closed = walkthrough.status === "done";
   const retry = () => void rpc.call("retry", { walkthroughId: walkthrough.id, place: index }).catch((cause: unknown) => toast.error(errorMessage(cause)));
   const state = partState(walkthrough, part);
+  // What the worker has written so far stands in until the part is saved; the saved blocks take over in the same elements.
+  const streams = useContext(StreamContext);
+  const streamed = useStreamedView(partPreview(streams, walkthrough, index));
+  const blocks: StreamedBlock[] = part.blocks.length > 0 ? part.blocks : (streamed?.blocks ?? []);
   return (
     <article aria-busy={part.status === "writing" || undefined}>
       <Heading title={part.title} />
@@ -130,10 +135,10 @@ export function PartPage({
           </button>
         </div>
       ) : null}
-      {part.status === "ready" || (part.status === "writing" && part.blocks.length > 0) ? (
+      {part.status === "ready" || (part.status !== "failed" && blocks.length > 0) ? (
         <>
-          <Blocks walkthrough={walkthrough} blocks={part.blocks} notes={notes} partIndex={index} wide={wide} onFlag={onFlag} />
-          {part.status === "writing" ? <Skeleton label="Writing this part…" /> : null}
+          <Blocks walkthrough={walkthrough} blocks={blocks} notes={notes} partIndex={index} wide={wide} onFlag={onFlag} />
+          {part.status !== "ready" ? <Skeleton label="Writing this part…" /> : null}
         </>
       ) : part.status === "failed" ? (
         <div className="wt-failed">
@@ -157,25 +162,29 @@ export function PartPage({
 }
 
 /** The answers to questions asked on a page, as a thread hanging under it. */
-export function Thread({ walkthrough, part }: { walkthrough: Walkthrough; part: Part }) {
+export function Thread({ walkthrough, part, place }: { walkthrough: Walkthrough; part: Part; place: Place }) {
   if (part.discussion.length === 0) return null;
   return (
     <section className="wt-thread" aria-label="Questions about this part">
       {part.discussion.map((exchange) => (
-        <ExchangeView key={exchange.id} walkthrough={walkthrough} exchange={exchange} />
+        <ExchangeView key={exchange.id} walkthrough={walkthrough} exchange={exchange} place={place} />
       ))}
     </section>
   );
 }
 
-function ExchangeView({ walkthrough, exchange }: { walkthrough: Walkthrough; exchange: Exchange }) {
-  const streaming = exchange.status === "answering" && exchange.answer !== "";
+function ExchangeView({ walkthrough, exchange, place }: { walkthrough: Walkthrough; exchange: Exchange; place: Place }) {
+  // The answer streams in through the same channel as parts; the saved answer takes over when the exchange settles.
+  const streams = useContext(StreamContext);
+  const live = exchange.status === "answering" ? previewFor(streams, walkthrough, "ask", place, exchange.id) : null;
+  const answer = live && live.text.length > exchange.answer.length ? live.text : exchange.answer;
+  const streaming = exchange.status === "answering" && answer !== "";
   return (
     <div className="wt-ex" data-status={exchange.status}>
       <p className="wt-q">{exchange.question}</p>
-      {exchange.answer ? <Prose text={exchange.answer} context={{ files: walkthrough, codePath: null }} className={cn("wt-a", streaming && "wt-streaming")} /> : null}
+      {answer ? <Prose text={answer} context={{ files: walkthrough, codePath: null }} className={cn("wt-a", streaming && "wt-streaming")} /> : null}
       {exchange.status === "queued" ? <p className="wt-muted">Waiting for the current step to finish…</p> : null}
-      {exchange.status === "answering" && !exchange.answer ? <p className="wt-muted wt-pulse">Thinking…</p> : null}
+      {exchange.status === "answering" && !answer ? <p className="wt-muted wt-pulse">Thinking…</p> : null}
       {exchange.status === "failed" ? <p className="wt-muted">No answer came back. Ask again?</p> : null}
     </div>
   );

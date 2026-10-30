@@ -15,6 +15,8 @@ export interface PagerProps {
   /** Null hides the question input (the introduction, a finished walkthrough). */
   placeholder: string | null;
   suggestions: string[];
+  /** Suggestions are shown but cannot be asked yet: the part is still being written. */
+  suggestionsLocked?: boolean;
   /** Text from the selection the next question is about. */
   scope: string | null;
   onClearScope: () => void;
@@ -23,7 +25,7 @@ export interface PagerProps {
 }
 
 export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
-  { canPrev, nextLabel, onPrev, onNext, placeholder, suggestions, scope, onClearScope, busy, onSubmit },
+  { canPrev, nextLabel, onPrev, onNext, placeholder, suggestions, suggestionsLocked = false, scope, onClearScope, busy, onSubmit },
   inputRef,
 ) {
   const [text, setText] = useState("");
@@ -47,10 +49,10 @@ export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
   };
   return (
     <div className="wt-pager wt-glass">
-      {placeholder !== null && suggestions.length > 0 ? (
+      {(placeholder !== null || suggestionsLocked) && suggestions.length > 0 ? (
         <div className="wt-suggest" role="group" aria-label="Suggested questions">
           {suggestions.map((suggestion) => (
-            <button key={suggestion} type="button" disabled={busy || sending} onClick={() => void send(suggestion)}>
+            <button key={suggestion} type="button" disabled={busy || sending || suggestionsLocked} onClick={() => void send(suggestion)}>
               {suggestion}
             </button>
           ))}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtime, useRealtimeConnectionState, useRpc, type PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, WalkthroughSummary } from "../rpc.ts";
-import { CHANGED_CHANNEL, type WalkthroughView } from "../schemas.ts";
+import { CHANGED_CHANNEL, STREAM_CHANNEL, type WalkthroughView } from "../schemas.ts";
+import { applyPayload, readPayload, type StreamState } from "./stream.ts";
 
 export type WalkthroughRpc = PluginRpcClient<typeof rpcContract>;
 
@@ -114,4 +115,44 @@ export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, n
     return () => observer.disconnect();
   }, []);
   return [ref, width];
+}
+
+const NO_STREAMS: StreamState = Object.freeze({});
+
+/**
+ * The worker's message text for one walkthrough, as it is written. Follows the
+ * stream channel, and asks for a snapshot when the pane opens mid-stream, when a
+ * new request starts, and after a realtime reconnect (payloads are not
+ * replayed). Payloads that arrive late, twice, or out of order are folded by
+ * their seq; payloads after unmount are dropped.
+ */
+export function useStreams(walkthroughId: string, requestKey: string | null, rpc: WalkthroughRpc): StreamState {
+  const [state, setState] = useState<StreamState>(NO_STREAMS);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // Another walkthrough starts from nothing.
+  useEffect(() => setState(NO_STREAMS), [walkthroughId]);
+  const take = useCallback(
+    (value: unknown) => {
+      const payload = readPayload(value);
+      if (payload === null || payload.walkthroughId !== walkthroughId || !mounted.current) return;
+      setState((current) => applyPayload(current, payload));
+    },
+    [walkthroughId],
+  );
+  useRealtime(STREAM_CHANNEL, take);
+  const connection = useRealtimeConnectionState();
+  useEffect(() => {
+    if (requestKey === null || connection === "reconnecting") return;
+    rpc.call("streamSnapshot", { walkthroughId }).then(
+      (result) => take(result.snapshot),
+      () => undefined,
+    );
+  }, [rpc, walkthroughId, requestKey, connection, take]);
+  return state;
 }

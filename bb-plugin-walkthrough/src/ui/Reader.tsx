@@ -18,10 +18,11 @@ import { figureSelection, type FlagTarget } from "./Figure.tsx";
 import { FlagPopover } from "./Flag.tsx";
 import { PART_STATE_LABEL, pageAt, pagePosition, partState, suggestionsFor, type PageId, type PartState } from "./fields.ts";
 import { Hint } from "./Hint.tsx";
-import { errorMessage, useWidth, type WalkthroughRpc } from "./hooks.ts";
+import { errorMessage, useStreams, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { Introduction, PartPage, Skeleton, Thread, WrapUpPage } from "./Pages.tsx";
 import { Pager } from "./Pager.tsx";
 import { Prose } from "./prose.tsx";
+import { partPreview, previewFor, StreamContext, useStreamedView } from "./stream.ts";
 
 /** The width from which notes hang in the right margin instead of stacking under the figure. */
 const WIDE_FROM = 900;
@@ -84,6 +85,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   const inputRef = useRef<HTMLInputElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
 
+  const streams = useStreams(walkthrough.id, walkthrough.inFlight ? String(walkthrough.inFlight.sentAt) : null, rpc);
   const partCount = walkthrough.parts.length;
   const wrapUpShown = showsWrapUp(walkthrough, leftWrapUp);
   const preparing = walkthrough.status === "planning" || (walkthrough.status === "failed" && partCount === 0);
@@ -196,7 +198,11 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
     setScope(null);
   };
   const busy = (activePart?.discussion ?? []).some((exchange) => exchange.status === "queued" || exchange.status === "answering");
-  const suggestions = askable && activePart ? suggestionsFor(activePart) : [];
+  // While a part is being written its follow-up questions show as soon as their block closes, and can be asked once it is saved.
+  const pagePreview = useStreamedView(page.kind === "part" ? partPreview(streams, walkthrough, page.index) : null);
+  const suggestionsLocked = !askable && !preparing && !closed && (pagePreview?.suggestions?.length ?? 0) > 0;
+  const suggestions = askable && activePart ? suggestionsFor(activePart) : suggestionsLocked ? (pagePreview?.suggestions?.slice(0, 3) ?? []) : [];
+  const introPreview = useStreamedView(preparing ? previewFor(streams, walkthrough, "plan", 0) : null);
 
   // Flagging: a selection in prose or code, or a code line's number.
   const flagKinds: NoteKind[] = useMemo(() => (hasReview(walkthrough) ? ["note", "todo", "comment", "question"] : ["note", "todo", "question"]), [walkthrough]);
@@ -266,6 +272,9 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const body = (() => {
+    if (preparing && introPreview && introPreview.intro !== "") {
+      return <Introduction walkthrough={{ ...walkthrough, introduction: introPreview.intro }} onOpen={openPart} streaming={introPreview.introOpen} />;
+    }
     if (preparing) return <Preparing walkthrough={walkthrough} />;
     if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
     if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} />;
@@ -276,175 +285,176 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
 
   return (
     <TooltipProvider delayDuration={400}>
-      <div
-        ref={rootRef}
-        tabIndex={-1}
-        onKeyDown={onKeyDown}
-        className={cn("wt", surface === "page" ? "wt-surface-page flex-1" : "wt-surface-panel")}
-        data-wide={wide || undefined}
-        data-surface={surface}
-      >
-        <header className="wt-top wt-glass">
-          <h1 className="wt-title">{walkthrough.title === "Walkthrough" && walkthrough.request ? walkthrough.request : walkthrough.title}</h1>
-          <span className="wt-sp" />
-          <span className="wt-dots" aria-hidden>
-            {partItems.map((item) => (
-              <i key={item.key} className={cn(item.go === position ? "wt-on" : item.go < position ? "wt-past" : "")} />
-            ))}
-          </span>
-          <span className="wt-sp" />
-          <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-            <PopoverTrigger asChild>
-              <button type="button" className="wt-chip" aria-label={`Parts: ${progressLabel}`} disabled={preparing}>
-                {walkthrough.inFlight ? <span className="wt-live" aria-hidden /> : null}
-                {progressLabel}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="wt-portal wt-picker" mobileTitle="Parts">
-              <ol aria-label="Parts">
-                {partItems.map((item) => (
-                  <li key={item.key}>
-                    <button
-                      type="button"
-                      aria-current={item.go === position ? "step" : undefined}
-                      disabled={item.key === "wrap" && !canWrapUp}
-                      onClick={() => {
-                        setPickerOpen(false);
-                        goTo(item.go);
-                      }}
-                    >
-                      <span className="wt-picker-n">{item.key === "intro" || item.key === "wrap" ? "·" : item.go}</span>
-                      <span className="wt-picker-t">{item.label}</span>
-                      <span className={cn("wt-status", `wt-status-${item.state}`)}>{PART_STATE_LABEL[item.state]}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            </PopoverContent>
-          </Popover>
-          <button
-            ref={toggleRef}
-            type="button"
-            className="wt-chip"
-            data-selected={sheetOpen || undefined}
-            aria-expanded={sheetOpen}
-            aria-controls="walkthrough-concerns"
-            onClick={() => (sheetOpen ? closeSheet() : openSheet())}
-          >
-            {openCount === 0 ? "Concerns" : `Concerns · ${openCount}`}
-          </button>
-          <DropdownMenu>
-            <Hint label="More">
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="wt-chip wt-chip-icon" aria-label="More">
-                  <Icon name="MoreHorizontal" className="size-4" aria-hidden />
+      <StreamContext.Provider value={streams}>
+        <div
+          ref={rootRef}
+          tabIndex={-1}
+          onKeyDown={onKeyDown}
+          className={cn("wt", surface === "page" ? "wt-surface-page flex-1" : "wt-surface-panel")}
+          data-wide={wide || undefined}
+          data-surface={surface}
+        >
+          <header className="wt-top wt-glass">
+            <h1 className="wt-title">{walkthrough.title === "Walkthrough" && walkthrough.request ? walkthrough.request : walkthrough.title}</h1>
+            <span className="wt-sp" />
+            <span className="wt-dots" aria-hidden>
+              {partItems.map((item) => (
+                <i key={item.key} className={cn(item.go === position ? "wt-on" : item.go < position ? "wt-past" : "")} />
+              ))}
+            </span>
+            <span className="wt-sp" />
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <button type="button" className="wt-chip" aria-label={`Parts: ${progressLabel}`} disabled={preparing}>
+                  {walkthrough.inFlight ? <span className="wt-live" aria-hidden /> : null}
+                  {progressLabel}
                 </button>
-              </DropdownMenuTrigger>
-            </Hint>
-            <DropdownMenuContent align="end">
-              {surface === "panel" ? (
-                <DropdownMenuItem onSelect={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}>Open as full page</DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onSelect={() => navigate.toThread(walkthrough.threadId)}>Back to thread</DropdownMenuItem>
-              )}
-              {!closed ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem>
-                </>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="wt-portal wt-picker" mobileTitle="Parts">
+                <ol aria-label="Parts">
+                  {partItems.map((item) => (
+                    <li key={item.key}>
+                      <button
+                        type="button"
+                        aria-current={item.go === position ? "step" : undefined}
+                        disabled={item.key === "wrap" && !canWrapUp}
+                        onClick={() => {
+                          setPickerOpen(false);
+                          goTo(item.go);
+                        }}
+                      >
+                        <span className="wt-picker-n">{item.key === "intro" || item.key === "wrap" ? "·" : item.go}</span>
+                        <span className="wt-picker-t">{item.label}</span>
+                        <span className={cn("wt-status", `wt-status-${item.state}`)}>{PART_STATE_LABEL[item.state]}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </PopoverContent>
+            </Popover>
+            <button
+              ref={toggleRef}
+              type="button"
+              className="wt-chip"
+              data-selected={sheetOpen || undefined}
+              aria-expanded={sheetOpen}
+              aria-controls="walkthrough-concerns"
+              onClick={() => (sheetOpen ? closeSheet() : openSheet())}
+            >
+              {openCount === 0 ? "Concerns" : `Concerns · ${openCount}`}
+            </button>
+            <DropdownMenu>
+              <Hint label="More">
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="wt-chip wt-chip-icon" aria-label="More">
+                    <Icon name="MoreHorizontal" className="size-4" aria-hidden />
+                  </button>
+                </DropdownMenuTrigger>
+              </Hint>
+              <DropdownMenuContent align="end">
+                {surface === "panel" ? (
+                  <DropdownMenuItem onSelect={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}>Open as full page</DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onSelect={() => navigate.toThread(walkthrough.threadId)}>Back to thread</DropdownMenuItem>
+                )}
+                {!closed ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </header>
+
+          <div ref={scrollRef} className="wt-scroll">
+            <div ref={pageRef} className="wt-page" onMouseUp={onMouseUp}>
+              <div className="wt-pn" aria-hidden>
+                PART<b>{preparing ? "·" : marginNumber}</b>
+              </div>
+              {page.kind === "intro" && (!preparing || introPreview !== null) ? (
+                <p className="wt-subject">{preparing ? "\u00a0" : <Subject walkthrough={walkthrough} />}</p>
               ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </header>
-
-        <div ref={scrollRef} className="wt-scroll">
-          <div ref={pageRef} className="wt-page" onMouseUp={onMouseUp}>
-            <div className="wt-pn" aria-hidden>
-              PART<b>{preparing ? "·" : marginNumber}</b>
+              {body}
+              {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
+              <div ref={threadEndRef} />
+              {flag ? (
+                <FlagPopover
+                  target={flag.target}
+                  position={flag}
+                  kinds={flagKinds}
+                  onSave={saveFlag}
+                  onAsk={() => {
+                    setScope(flag.target);
+                    setFlag(null);
+                    window.getSelection()?.removeAllRanges();
+                    inputRef.current?.focus();
+                  }}
+                  onDismiss={() => setFlag(null)}
+                />
+              ) : null}
             </div>
-            {page.kind === "intro" && !preparing ? (
-              <p className="wt-subject">
-                <Subject walkthrough={walkthrough} />
-              </p>
-            ) : null}
-            {body}
-            {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} /> : null}
-            <div ref={threadEndRef} />
-            {flag ? (
-              <FlagPopover
-                target={flag.target}
-                position={flag}
-                kinds={flagKinds}
-                onSave={saveFlag}
-                onAsk={() => {
-                  setScope(flag.target);
-                  setFlag(null);
-                  window.getSelection()?.removeAllRanges();
-                  inputRef.current?.focus();
-                }}
-                onDismiss={() => setFlag(null)}
-              />
-            ) : null}
           </div>
+
+          <Pager
+            ref={inputRef}
+            canPrev={!preparing && position > 0}
+            nextLabel={nextTitle}
+            onPrev={() => goTo(position - 1)}
+            onNext={() => goTo(position + 1)}
+            placeholder={placeholder}
+            suggestions={suggestions}
+            suggestionsLocked={suggestionsLocked}
+            scope={scope?.quote ?? null}
+            onClearScope={() => setScope(null)}
+            busy={busy}
+            onSubmit={submit}
+          />
+
+          <ConcernsSheet
+            view={view}
+            rpc={rpc}
+            open={sheetOpen}
+            tab={tab}
+            onTab={setTab}
+            onClose={closeSheet}
+            onJump={(index) => {
+              closeSheet();
+              goTo(index + 1);
+            }}
+            sheetRef={sheetRef}
+          />
+
+          <Dialog open={finishing} onOpenChange={setFinishing}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Finish this walkthrough?</DialogTitle>
+                <DialogDescription>
+                  This stops the helper agent, so no more parts are written and you can’t ask it more questions. You can still read what is already written.
+                  {(() => {
+                    const unwritten = walkthrough.parts.filter((part) => part.status !== "ready").length;
+                    return unwritten > 0 ? ` ${unwritten === 1 ? "One part has" : `${unwritten} parts have`} not been written yet.` : "";
+                  })()}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={() => setFinishing(false)}>
+                  Keep reading
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setFinishing(false);
+                    rpc.call("close", { walkthroughId: walkthrough.id }).catch(fail);
+                  }}
+                >
+                  Finish walkthrough
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
-
-        <Pager
-          ref={inputRef}
-          canPrev={!preparing && position > 0}
-          nextLabel={nextTitle}
-          onPrev={() => goTo(position - 1)}
-          onNext={() => goTo(position + 1)}
-          placeholder={placeholder}
-          suggestions={suggestions}
-          scope={scope?.quote ?? null}
-          onClearScope={() => setScope(null)}
-          busy={busy}
-          onSubmit={submit}
-        />
-
-        <ConcernsSheet
-          view={view}
-          rpc={rpc}
-          open={sheetOpen}
-          tab={tab}
-          onTab={setTab}
-          onClose={closeSheet}
-          onJump={(index) => {
-            closeSheet();
-            goTo(index + 1);
-          }}
-          sheetRef={sheetRef}
-        />
-
-        <Dialog open={finishing} onOpenChange={setFinishing}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Finish this walkthrough?</DialogTitle>
-              <DialogDescription>
-                This stops the helper agent, so no more parts are written and you can’t ask it more questions. You can still read what is already written.
-                {(() => {
-                  const unwritten = walkthrough.parts.filter((part) => part.status !== "ready").length;
-                  return unwritten > 0 ? ` ${unwritten === 1 ? "One part has" : `${unwritten} parts have`} not been written yet.` : "";
-                })()}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setFinishing(false)}>
-                Keep reading
-              </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  setFinishing(false);
-                  rpc.call("close", { walkthroughId: walkthrough.id }).catch(fail);
-                }}
-              >
-                Finish walkthrough
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </div>
+      </StreamContext.Provider>
     </TooltipProvider>
   );
 }

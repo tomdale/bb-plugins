@@ -355,3 +355,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
 .wt:not([data-wide]) .wt-figure { margin-inline: -8px; }
+
+/* A figure being written: it fades in once and carries a small pulsing dot until the part is saved. */
+.wt-figure[data-streaming] { animation: wt-in 0.25s ease-out; }
+.wt-figure[data-streaming] .wt-cap::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse 1s ease-in-out infinite; }
