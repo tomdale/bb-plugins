@@ -706,3 +706,29 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Workaround:** each row is a `<button>` that calls `toPluginPanel` or `openThreadPanel`.
 - **Possible API:** `useBbNavigate().hrefForPluginPanel(path, { subPath })`, or a
   `PluginLink` component that renders an anchor and handles modified clicks.
+
+## Stream tool-call arguments, and deliver thread events faster than once a second
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0, Plugin SDK 0.5.29 (Walkthrough redesign)
+- **Use case:** Walkthrough shows a part on the page word by word while the
+  worker writes it, so the first words appear in well under a second and a
+  figure appears as soon as its header is complete
+- **Limit and evidence:** (1) a tool call's arguments are not exposed until the
+  call is complete: the only incremental data are `item/agentMessage/delta`
+  events, so the worker must write the part twice, once as chat text and once as
+  the `walkthrough_write_part` call. (2) `experimental_thread.events` is
+  debounced to about one event per second per thread, too slow to drive text
+  that should move every 100-200 ms. (3) `experimental_codeFenceRenderer`, which
+  would render the same fenced markup inside a thread, exists only in SDKs newer
+  than the pinned 0.5.29
+- **Workaround:** the worker writes ```` ```walkthrough ```` fences as a hidden
+  chat message before the tool call. A background service uses the debounced
+  event only as a wake-up and polls `threads.events.list({ types:
+  ["item/agentMessage/delta"] })` every 120 ms (backing off while quiet),
+  publishing the text so far on a realtime channel at most every 60 ms. The
+  markup stays identical to what the fence renderer would receive
+- **Possible API:** partial tool-call argument events (`item/toolCall/delta`
+  with the JSON text so far) in `threads.events`; an undebounced or
+  configurable-interval subscription to selected event types for a plugin; and
+  the code-fence renderer slot backported with feature detection

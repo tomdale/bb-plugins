@@ -90,9 +90,9 @@ its tools (`walkthrough_plan`, `walkthrough_write_part`, `walkthrough_suggest`,
 `item/agentMessage/delta` events in a background service every 100-200ms and
 publishes the message so far on the `walkthrough-stream` realtime channel;
 `streamSnapshot` serves a client that joins mid-stream. `src/stream-markup.ts`
-parses the fences incrementally. The pane does not subscribe to the channel yet:
-it renders the blocks a part carries as they are saved, and a skeleton for the
-rest. See `docs/redesign-spec.md` for the markup and the timing budget.
+parses the fences incrementally. The pane subscribes to the channel, parses with the same parser, and shows
+prose, figures, suggestions and streamed answers as they arrive; the committed
+part from `get` stays authoritative. See `docs/redesign-spec.md` for the markup and the timing budget.
 
 **What the pane receives.** `get` returns a view whose fields are all populated:
 `src/deliver.ts` fills `intent`, each code block's `view`, `snapshot` and
@@ -128,6 +128,12 @@ npm run typecheck
 npm run build     # bb plugin build
 bb plugin install .   # path install; then `bb plugin dev` for live reload
 ```
+
+`node --experimental-transform-types --no-warnings scripts/measure-stream.ts --synthetic --read-latency 15`
+replays a recorded (or synthetic) delta sequence through the real tail and
+parser and prints time to first block, delta-to-publish delay and publish
+cadence; pass a JSON-lines recording instead of `--synthetic` (see the script
+header).
 
 `scripts/bb-plugin-smoke .` (from the repository root) activates the built
 plugin in a throwaway BB. To look at the real pane, boot a throwaway server with
