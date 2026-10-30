@@ -293,6 +293,12 @@ describe("skeleton", () => {
     expect(slot.container.querySelector(".wt-pn")).not.toBeNull();
   });
 
+  it("renders the blocks of a part that is partly written, with a skeleton for the rest", async () => {
+    const slot = await mountPage("wt_1", viewOf(walkthrough({ parts: [part("Schema", { status: "writing", blocks: [{ kind: "prose", text: "The first paragraph." }] })] })));
+    await slot.findByText("The first paragraph.");
+    expect(slot.getByRole("status", { name: "Writing this part…" })).toBeTruthy();
+  });
+
   it("skeletons a part that is still being written", async () => {
     const slot = await mountPage("wt_1", viewOf(walkthrough({ parts: [part("Schema", { status: "writing", blocks: [] })] })));
     expect(await slot.findByRole("status", { name: "Writing this part…" })).toBeTruthy();

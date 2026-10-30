@@ -49,3 +49,10 @@ Implemented by Backend. Everything below is optional on the wire for old data; t
 - `walkthrough_write_part` blocks accept optional `view` on code blocks; `snapshot` is rejected (the plugin captures it). The result names code blocks it could not read.
 - New `walkthrough_suggest { suggestions: string[] }`: refreshes `exchange.suggestions` for the answer in flight; errors outside an answer.
 - Instructions are split per tool (`WORKER_GUIDE` plus each tool's `instructions`); `tests/redesign.test.ts` checks every one is under 4,096 characters.
+
+### From UI (open)
+- `addNote` and `updateNote` should accept `includeInReview?: boolean`. The UI sends it only from the Include in review checkbox (`updateNote`), and relies on the contract default for comments (`true`) and everything else (`false`). Until the schema accepts it, the checkbox's write fails with the strict-schema error toast.
+- `requestReviewPost` should work from included comments when there is no worker-drafted review (`walkthrough.review === null`). The wrap-up's Post review and the Review draft tab enable the button from included comments alone and show them in the confirmation dialog.
+- Understand intent has no real "Save notes" action yet: the UI copies the open notes as Markdown to the clipboard. A `saveNotes` RPC (or a documented place the notes persist) would let the button do more than copy.
+- A part streamed with `status: "writing"` may carry `blocks` as they arrive: the UI renders those blocks and a skeleton for the rest, and an exchange's `answer` that grows while `status: "answering"` renders incrementally. Without partial blocks the UI shows a layout skeleton until the part is `ready`.
+- Starter detection uses only the SDK's `experimental_useSidebarThreadPullRequest` (PR number, title, state). A `detectTarget` RPC returning the branch name, base, changed-file count and whether the tree is dirty would let the starter say "12 files on tomdale/x, compared with main" instead of the generic "Changes on this branch".

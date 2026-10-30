@@ -129,8 +129,11 @@ export function PartPage({
           </button>
         </div>
       ) : null}
-      {part.status === "ready" ? (
-        <Blocks walkthrough={walkthrough} blocks={part.blocks} notes={notes} partIndex={index} wide={wide} onFlag={onFlag} />
+      {part.status === "ready" || (part.status === "writing" && part.blocks.length > 0) ? (
+        <>
+          <Blocks walkthrough={walkthrough} blocks={part.blocks} notes={notes} partIndex={index} wide={wide} onFlag={onFlag} />
+          {part.status === "writing" ? <Skeleton label="Writing this part…" /> : null}
+        </>
       ) : part.status === "failed" ? (
         <div className="wt-failed">
           {part.message ? <Prose text={part.message} context={{ files: walkthrough, codePath: null }} /> : <p className="wt-muted">This part could not be written.</p>}

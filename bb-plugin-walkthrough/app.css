@@ -63,8 +63,9 @@
 }
 .wt:focus { outline: none; }
 .wt *, .wt *::before, .wt *::after { box-sizing: border-box; }
-.wt button { font: inherit; color: inherit; cursor: pointer; }
-.wt button:disabled { cursor: default; opacity: 0.45; }
+/* Zero specificity, so each component class below can set its own colors. */
+:where(.wt) button { font: inherit; color: inherit; cursor: pointer; }
+:where(.wt) button:disabled { cursor: default; opacity: 0.45; }
 .wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-focus); outline-offset: 2px; border-radius: 4px; }
 .wt-sp { flex: 1; }
 .wt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -254,7 +255,7 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 .wt-input input { flex: 1; min-width: 0; border: 0; background: none; outline: none; height: 100%; padding: 0; }
 .wt-input:focus-within { box-shadow: 0 0 0 2px var(--wt-focus); }
 .wt-send { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 11px; background: var(--wt-btn); color: var(--wt-btnt); }
-.wt-next { min-width: 0; max-width: 60%; }
+.wt-next { min-width: 0; max-width: 48%; }
 .wt-next-label { overflow: hidden; text-overflow: ellipsis; }
 
 /* Concerns sheet */
