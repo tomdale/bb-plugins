@@ -391,8 +391,9 @@ describe("wrap-up", () => {
 
 describe("starter", () => {
   it("offers one button for the changes on this branch, with an optional focus", async () => {
-    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [] }), start: () => ({ walkthroughId: "wt_9" }) });
-    await slot.findByText("Changes on this branch");
+    const target = { kind: "uncommitted", files: 4, additions: 120, deletions: 30 };
+    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [] }), detectTarget: () => ({ target }), start: () => ({ walkthroughId: "wt_9" }) });
+    await slot.findByText("Uncommitted changes · 4 files, +120 \u221230");
     fireEvent.change(slot.getByRole("textbox", { name: "Focus" }), { target: { value: "the retry logic" } });
     fireEvent.click(slot.getByRole("button", { name: "Walk me through it" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "start")?.input).toEqual({ threadId: "thr_1", request: "the retry logic" }));
@@ -400,10 +401,12 @@ describe("starter", () => {
 
   it("recognizes the thread's pull request and lists earlier walkthroughs", async () => {
     const earlier = { id: "wt_1", title: "Earlier one", request: "r", status: "done", partCount: 3, currentPart: 2, openNotes: 0, createdAt: 1 };
-    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [earlier] }), start: () => ({ walkthroughId: "wt_9" }) }, {
-      sidebarPullRequests: { thr_1: { number: 12, title: "Add the thing", url: "https://github.com/o/r/pull/12", state: "open", attention: "none" } },
+    const slot = await mountPanel({}, {
+      list: () => ({ walkthroughs: [earlier] }),
+      detectTarget: () => ({ target: { kind: "pr", number: 12, title: "Add the thing", url: "https://github.com/o/r/pull/12", draft: false } }),
+      start: () => ({ walkthroughId: "wt_9" }),
     });
-    await slot.findByText("#12 Add the thing");
+    await slot.findByText("PR #12 \u00b7 Add the thing");
     fireEvent.click(slot.getByRole("button", { name: "Walk me through this PR" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "start")?.input).toEqual({ threadId: "thr_1", request: "This PR, for review" }));
     fireEvent.click(await slot.findByRole("button", { name: /Earlier one/u }));

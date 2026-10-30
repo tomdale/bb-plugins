@@ -1,6 +1,7 @@
 // Walkthrough plugin backend: the pane's RPC, the worker orchestration, and
 // the agent tools. See src/service.ts for how a walkthrough is written.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { detectTarget } from "./src/detect-target.ts";
 import { deliverView } from "./src/deliver.ts";
 import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
 import type { Walkthrough } from "./src/schemas.ts";
@@ -89,6 +90,14 @@ export default function plugin(bb: BbPluginApi) {
         return { view: deliverView(service.view(walkthroughId)) };
       } catch {
         return { view: null };
+      }
+    },
+    detectTarget: async ({ threadId }) => {
+      try {
+        return { target: await detectTarget(bb.sdk, threadId) };
+      } catch (cause) {
+        bb.log.debug(`target detection failed for ${threadId}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        return { target: null };
       }
     },
     start: ({ threadId, request }) =>

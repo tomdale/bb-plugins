@@ -2,6 +2,7 @@
 // runtime helper never reaches the browser bundle.
 import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { detectedTargetSchema } from "./detect-target.ts";
 import {
   locationSchema,
   noteKindSchema,
@@ -85,6 +86,11 @@ export const rpcContract = defineRpcContract({
   get: {
     input: z.object(target).strict(),
     output: z.object({ view: walkthroughViewSchema.nullable() }).strict(),
+  },
+  /** What a manual start would cover in the thread's workspace; null when there is nothing to walk through. */
+  detectTarget: {
+    input: z.object({ threadId: threadIdSchema }).strict(),
+    output: z.object({ target: detectedTargetSchema }).strict(),
   },
   start: {
     input: z.object({ threadId: threadIdSchema, request: z.string().trim().max(4000) }).strict(),

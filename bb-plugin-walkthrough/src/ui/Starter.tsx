@@ -1,14 +1,14 @@
 // Starting a walkthrough from an empty pane, and the thread's automatic pane opener.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   experimental_usePluginId as usePluginId,
-  experimental_useSidebarThreadPullRequest,
   useBbNavigate,
   useSettings,
   type PluginThreadHeaderActionProps,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { Icon } from "@/components/ui/icon";
+import type { DetectedTarget } from "../detect-target.ts";
 import { PANEL_ACTION_ID } from "../schemas.ts";
 import { errorMessage, useThreadWalkthroughs } from "./hooks.ts";
 import { SummaryRow } from "./parts.tsx";
@@ -17,11 +17,33 @@ export function openPane(navigate: ReturnType<typeof useBbNavigate>, walkthrough
   return navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title, params: { walkthroughId } });
 }
 
-/** The thread's pull request when the host can say; older hosts have no such lookup. */
-function useDetectedPullRequest(threadId: string) {
-  const lookup = typeof experimental_useSidebarThreadPullRequest === "function" ? experimental_useSidebarThreadPullRequest : null;
-  // The lookup is fixed for the life of the host, so the hook order never changes.
-  return lookup ? lookup(threadId).pullRequest : null;
+/** undefined while looking; null when there is nothing to walk through. */
+function useDetectedTarget(threadId: string, rpc: ReturnType<typeof useThreadWalkthroughs>["rpc"]): DetectedTarget | undefined {
+  const [target, setTarget] = useState<DetectedTarget | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    setTarget(undefined);
+    rpc.call("detectTarget", { threadId }).then(
+      (result) => live && setTarget(result.target),
+      () => live && setTarget(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [rpc, threadId]);
+  return target;
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const counts = (target: { files: number; additions: number; deletions: number }) => `${plural(target.files, "file")}, +${target.additions} \u2212${target.deletions}`;
+
+/** The starter's headline and a quieter line under it for what was found. */
+export function describeTarget(target: DetectedTarget | undefined): { icon: string; title: string; note: string } {
+  if (target === undefined) return { icon: "Explore", title: "Looking for changes\u2026", note: "" };
+  if (target === null) return { icon: "Explore", title: "No changes found", note: "Say what to walk through, or start and the agent will look." };
+  if (target.kind === "pr") return { icon: "GitPullRequest", title: `PR #${target.number} \u00b7 ${target.title}`, note: target.draft ? "A draft pull request on this branch" : "A pull request on this branch" };
+  if (target.kind === "uncommitted") return { icon: "Explore", title: `Uncommitted changes \u00b7 ${counts(target)}`, note: "Changes in the working tree" };
+  return { icon: "Explore", title: `Branch changes \u00b7 ${counts(target)}`, note: target.branch && target.base ? `${target.branch} compared with ${target.base}` : "Compared with where the branch started" };
 }
 
 /** What the starter found, one button, an optional focus line, and earlier walkthroughs. */
@@ -29,10 +51,11 @@ export function Starter({ threadId }: { threadId: string }) {
   const navigate = useBbNavigate();
   const pluginId = usePluginId();
   const { walkthroughs, rpc } = useThreadWalkthroughs(threadId);
-  const pullRequest = useDetectedPullRequest(threadId);
+  const target = useDetectedTarget(threadId, rpc);
+  const found = describeTarget(target);
   const [focus, setFocus] = useState("");
   const [starting, setStarting] = useState(false);
-  const reviewable = pullRequest !== null && pullRequest.state !== "draft";
+  const pullRequest = target?.kind === "pr" ? target : null;
   const start = async () => {
     setStarting(true);
     try {
@@ -62,10 +85,10 @@ export function Starter({ threadId }: { threadId: string }) {
             <h2>Start a walkthrough</h2>
           </header>
           <section className="wt-detected" aria-label="What was found">
-            <Icon name={pullRequest ? "GitPullRequest" : "Explore"} className="size-4" aria-hidden />
+            <Icon name={found.icon} className="size-4" aria-hidden />
             <div>
-              <p className="wt-detected-t">{pullRequest ? `#${pullRequest.number} ${pullRequest.title}` : "Changes on this branch"}</p>
-              <p className="wt-muted">{pullRequest ? (reviewable ? "A pull request on this branch" : "A draft pull request on this branch") : "Compared with where the branch started"}</p>
+              <p className="wt-detected-t">{found.title}</p>
+              {found.note ? <p className="wt-muted">{found.note}</p> : null}
             </div>
           </section>
           <form
@@ -78,7 +101,7 @@ export function Starter({ threadId }: { threadId: string }) {
             <label className="wt-input wt-input-box">
               <input value={focus} onChange={(event) => setFocus(event.target.value)} aria-label="Focus" placeholder="Focus on… (optional)" />
             </label>
-            <button type="submit" className="wt-btn wt-btn-primary" disabled={starting}>
+            <button type="submit" className="wt-btn wt-btn-primary" disabled={starting || target === undefined}>
               {starting ? "Starting…" : pullRequest ? "Walk me through this PR" : "Walk me through it"}
             </button>
           </form>
