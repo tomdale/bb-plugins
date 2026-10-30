@@ -31,8 +31,13 @@ you read.
 - **Note:** select any text or code and choose **Leave a note**, or use the
   Notes drawer (**Esc** closes it). A note from a selection in a code excerpt
   points at that excerpt's file and lines; the File menu offers the current
-  part's excerpts first. Notes can point at a file and line range, and are mirrored to
-  `.agent/review-notes/<walkthrough id>.md` in the workspace (the folder ignores itself in Git).
+  part's excerpts first. Notes can point at a file and line range. In a PR
+  walkthrough, comment notes you include in the review become inline comments
+  in the review draft.
+- **Pacing:** the helper writes the part you are on and one more, then waits;
+  opening the next part (or asking about it) brings the one after. Each code
+  excerpt is saved when its part is written, so it still shows if the code later
+  moves on.
 - **Wrap up:** the helper answers recorded questions, reports what is still
   open, and offers follow-ups. In PR reviews it drafts a review on request;
   the Review drawer previews it and **Post…** asks the helper to submit it,

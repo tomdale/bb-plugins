@@ -21,3 +21,31 @@ Per `docs/redesign-spec.md`. UI states: skeleton before part 1; part picker stat
 
 ## Requests
 (append below)
+
+## Backend API
+Implemented by Backend. Everything below is optional on the wire for old data; the store backfills it, so the pane always receives populated values.
+
+### Data (`src/schemas.ts`)
+- `codeBlock.view`: `"diff" | "code"`, always present on delivered blocks (default `"diff"`). The worker sets it per block in `walkthrough_write_part`.
+- `codeBlock.snapshot`: `{ change, after, before, baseSha, headSha, capturedAt } | null`, captured when the part is committed. `null` for walkthroughs that predate snapshots, or when capture failed.
+- `codeBlock.snapshotError`: `string | null`. A short, reader-safe reason `snapshot` is null (for example "This code isn't in the reviewed revisions."). Never raw git output. Absent/null when there is no failure (or for old rows: show "This code is no longer on disk" after the `excerpt` RPC also fails).
+- `walkthrough.intent`: `"review" | "own-change" | "understand"`, always present on delivered walkthroughs; set by the planner, default `pr` -> `review`, `local` -> `own-change`. Before planning (state `planning`) it is the mode default.
+- `walkthrough.notesFile`: retired; delivered only for old rows. Do not read it.
+- `note.includeInReview`: `boolean`, always present on delivered notes (comments default `true`, other kinds `false`).
+- `exchange.suggestions?: string[]`: follow-ups the worker set while answering. Show the latest exchange's suggestions when present, else `part.suggestions`.
+- `part.status`: while part 1 is being written in the plan turn it is `writing`; parts after the reader's next one stay `pending` until the reader opens or asks.
+
+### RPC
+- `get` -> `view` now also carries `reviewDraft`: `{ body, event, comments, status, url, updatedAt } | null`. In PR mode it is the worker's draft merged with open comment notes that have `includeInReview` and a location; each such comment carries `noteId`. `null` outside PR mode or when there is neither a draft nor an included comment. Prefer it over `walkthrough.review` for the Review drawer. Worker-drafted comments have no `noteId`.
+- `addNote` accepts optional `includeInReview` (defaults per kind).
+- `updateNote` accepts optional `includeInReview`. Changing `kind` away from or to `comment` resets the default for the new kind unless `includeInReview` is also sent.
+- `excerpt` is unchanged except that its `unavailable.message` is now a short reader-safe string.
+- `requestReviewPost` now works when the merged draft exists, even if the worker has not saved a draft of its own.
+- Removed: `setNotesFileEnabled`, and the `.agent/review-notes` file writing.
+- Unchanged: `list`, `recent`, `start`, `openPart`, `ask`, `reply`, `retry`, `wrapUp`, `close`, `handOff`, `deleteNote`, `diff`.
+
+### Agent tools (for reference)
+- `walkthrough_plan` accepts optional `intent`; its instructions ask the worker to call `walkthrough_write_part` for part 1 in the same turn.
+- `walkthrough_write_part` blocks accept optional `view` on code blocks; `snapshot` is rejected (the plugin captures it). The result names code blocks it could not read.
+- New `walkthrough_suggest { suggestions: string[] }`: refreshes `exchange.suggestions` for the answer in flight; errors outside an answer.
+- Instructions are split per tool (`WORKER_GUIDE` plus each tool's `instructions`); `tests/redesign.test.ts` checks every one is under 4,096 characters.
