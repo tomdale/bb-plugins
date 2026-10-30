@@ -4,10 +4,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatLocation, NOTE_KIND_LABEL } from "../model.ts";
-import type { Block, Exchange, Note, Part, Walkthrough } from "../schemas.ts";
+import type { DeliveredCodeBlock, DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 import { Figure, type FlagTarget } from "./Figure.tsx";
-import { openConcerns, PostReviewControl } from "./Concerns.tsx";
-import { intentOf, partState } from "./fields.ts";
+import { openConcerns, PostReviewControl, type ReviewDraftView } from "./Concerns.tsx";
+import { partState } from "./fields.ts";
 import { errorMessage, type WalkthroughRpc } from "./hooks.ts";
 import { Prose, type ProseContext } from "./prose.tsx";
 
@@ -31,7 +31,7 @@ export function Skeleton({ label }: { label?: string }) {
 }
 
 /** Open notes the reader anchored inside one code block of the part on screen. */
-function notesInBlock(notes: Note[], partIndex: number | null, block: Extract<Block, { kind: "code" }>): Note[] {
+function notesInBlock(notes: Note[], partIndex: number | null, block: DeliveredCodeBlock): Note[] {
   return notes.filter((note) => {
     const location = note.location;
     if (note.status !== "open" || note.groupIndex !== partIndex || !location || location.path !== block.path || location.startLine === undefined) return false;
@@ -48,7 +48,7 @@ export function Blocks({
   onFlag,
 }: {
   walkthrough: Walkthrough;
-  blocks: Block[];
+  blocks: Part["blocks"];
   notes: Note[];
   partIndex: number | null;
   wide: boolean;
@@ -194,6 +194,7 @@ function notesMarkdown(walkthrough: Walkthrough, notes: Note[]): string {
 export function WrapUpPage({
   walkthrough,
   notes,
+  draft,
   rpc,
   wide,
   onFlag,
@@ -202,6 +203,7 @@ export function WrapUpPage({
 }: {
   walkthrough: Walkthrough;
   notes: Note[];
+  draft: ReviewDraftView | null;
   rpc: WalkthroughRpc;
   wide: boolean;
   onFlag: (target: FlagTarget, anchor: DOMRect) => void;
@@ -210,7 +212,7 @@ export function WrapUpPage({
 }) {
   const wrap = walkthrough.wrapUp;
   const closed = walkthrough.status === "done";
-  const intent = intentOf(walkthrough);
+  const intent = walkthrough.intent;
   const [sending, setSending] = useState(false);
   const open = openConcerns(notes);
   const count = (kind: Note["kind"]) => open.filter((note) => note.kind === kind).length;
@@ -291,7 +293,7 @@ export function WrapUpPage({
       </dl>
       <div className="wt-actions">
         {intent === "review" ? (
-          <PostReviewControl walkthrough={walkthrough} notes={notes} rpc={rpc} />
+          <PostReviewControl walkthrough={walkthrough} draft={draft} rpc={rpc} />
         ) : intent === "own-change" ? (
           <button type="button" className="wt-btn wt-btn-primary" disabled={sending} onClick={() => void handOff()}>
             Send open items to thread

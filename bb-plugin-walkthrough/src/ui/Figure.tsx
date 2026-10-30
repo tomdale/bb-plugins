@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { defaultExcerptView, excerptCode, NOTE_KIND_LABEL, type ExcerptView } from "../model.ts";
-import type { CodeBlock, Location, Note, Walkthrough } from "../schemas.ts";
-import { codeViewOf, snapshotOf, type Snapshot } from "./fields.ts";
+import type { DeliveredCodeBlock as CodeBlock, DeliveredNote as Note, DeliveredWalkthrough as Walkthrough, Location } from "../schemas.ts";
+import { savedExcerpt, type Snapshot } from "./fields.ts";
 import { Hint } from "./Hint.tsx";
 import { useWalkthroughRpc } from "./hooks.ts";
 import { LocationLink } from "./parts.tsx";
@@ -55,7 +55,7 @@ export function figureSelection(range: Range): FlagTarget | null {
 
 function useSnapshot(walkthrough: Walkthrough, block: CodeBlock): { data: Snapshot | null; loading: boolean } {
   const rpc = useWalkthroughRpc();
-  const saved = useMemo(() => snapshotOf(block), [block]);
+  const saved = useMemo(() => savedExcerpt(block), [block]);
   const [fetched, setFetched] = useState<Snapshot | "missing" | null>(null);
   useEffect(() => {
     if (saved) return;
@@ -107,7 +107,7 @@ export function Figure({
   onFlag: (target: FlagTarget, anchor: DOMRect) => void;
 }) {
   const { data, loading } = useSnapshot(walkthrough, block);
-  const isCode = codeViewOf(block) === "code";
+  const isCode = block.view === "code";
   const [chosen, setChosen] = useState<ExcerptView | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);

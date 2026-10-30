@@ -10,8 +10,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatLocation, NOTE_KIND_LABEL, noteKindsFor } from "../model.ts";
-import type { Note, NoteKind, ReviewEvent, Walkthrough, WalkthroughView } from "../schemas.ts";
-import { baseName, includedInReview, intentOf } from "./fields.ts";
+import type { DeliveredNote as Note, DeliveredWalkthrough as Walkthrough, NoteKind, ReviewEvent, WalkthroughView } from "../schemas.ts";
+import { baseName } from "./fields.ts";
 import { Hint } from "./Hint.tsx";
 import { errorMessage, type WalkthroughRpc } from "./hooks.ts";
 import { LocationLink } from "./parts.tsx";
@@ -22,7 +22,7 @@ export const KIND_WORD: Record<NoteKind, string> = { question: "Ask", todo: "Tod
 
 /** Whether this walkthrough has a review to draft. */
 export function hasReview(walkthrough: Walkthrough): boolean {
-  return walkthrough.mode === "pr" || intentOf(walkthrough) === "review";
+  return walkthrough.mode === "pr" || walkthrough.intent === "review";
 }
 
 /** Open notes in reading order: whole-walkthrough notes first, then by part, then oldest first. */
@@ -32,31 +32,9 @@ export function openConcerns(notes: Note[]): Note[] {
     .sort((a, b) => (a.groupIndex ?? -1) - (b.groupIndex ?? -1) || a.createdAt - b.createdAt);
 }
 
-interface DraftComment {
-  path: string;
-  line: number;
-  startLine?: number | undefined;
-  body: string;
-  side?: "RIGHT" | "LEFT";
-}
-
-/** The review's inline comments: what the worker drafted, plus included comments it has not folded in yet. */
-export function draftComments(walkthrough: Walkthrough, notes: Note[]): DraftComment[] {
-  const review = walkthrough.review;
-  const drafted: DraftComment[] = review ? review.comments.map((comment) => ({ ...comment })) : [];
-  if (review?.status === "posted") return drafted;
-  const key = (comment: DraftComment) => `${comment.path}\0${comment.line}\0${comment.body.trim()}`;
-  const seen = new Set(drafted.map(key));
-  for (const note of notes) {
-    const location = note.location;
-    if (note.status !== "open" || !includedInReview(note) || !location) continue;
-    const line = location.endLine ?? location.startLine;
-    if (line === undefined) continue;
-    const comment: DraftComment = { path: location.path, line, startLine: location.startLine !== undefined && location.startLine < line ? location.startLine : undefined, body: note.text };
-    if (!seen.has(key(comment))) drafted.push(comment);
-  }
-  return drafted;
-}
+/** The review as the pane shows it: the worker's draft merged with the comments the reader included (see `reviewDraft` on the view). */
+export type ReviewDraftView = NonNullable<WalkthroughView["reviewDraft"]>;
+type DraftComment = ReviewDraftView["comments"][number];
 
 const EVENT_LABEL: Record<ReviewEvent, string> = { COMMENT: "Comment", REQUEST_CHANGES: "Request changes", APPROVE: "Approve" };
 
@@ -90,7 +68,7 @@ export function ConcernsSheet({
   const openItems = useMemo(() => openConcerns(notes), [notes]);
   const resolved = notes.filter((note) => note.status === "resolved");
   const [showResolved, setShowResolved] = useState(false);
-  const comments = useMemo(() => draftComments(walkthrough, notes), [walkthrough, notes]);
+  const comments = view.reviewDraft?.comments ?? [];
   const [sending, setSending] = useState(false);
   const activeTab = reviewable ? tab : "open";
   const handOff = async () => {
@@ -162,7 +140,7 @@ export function ConcernsSheet({
           </div>
         </>
       ) : (
-        <ReviewDraft walkthrough={walkthrough} notes={notes} comments={comments} rpc={rpc} />
+        <ReviewDraft walkthrough={walkthrough} draft={view.reviewDraft} rpc={rpc} />
       )}
     </aside>
   );
@@ -179,7 +157,7 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
   const part = note.groupIndex === null ? null : walkthrough.parts[note.groupIndex];
   const where = [part ? `Part ${(note.groupIndex ?? 0) + 1}` : null, note.location ? formatLocation({ ...note.location, path: baseName(note.location.path) }) : null].filter(Boolean).join(" · ");
   const reviewable = hasReview(walkthrough) && note.status === "open" && (note.kind === "comment" || note.kind === "note" || note.kind === "todo");
-  const included = includedInReview(note);
+  const included = note.includeInReview;
   return (
     <li className={cn("wt-it", note.status === "resolved" && "wt-it-done")} data-note-id={note.id}>
       {editing ? (
@@ -262,12 +240,11 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
 }
 
 /** The "Post review" button with its confirmation dialog; nothing is sent until the reader confirms there. */
-export function PostReviewControl({ walkthrough, notes, rpc, disabled }: { walkthrough: Walkthrough; notes: Note[]; rpc: WalkthroughRpc; disabled?: boolean }) {
-  const review = walkthrough.review;
+export function PostReviewControl({ walkthrough, draft, rpc, disabled }: { walkthrough: Walkthrough; draft: ReviewDraftView | null; rpc: WalkthroughRpc; disabled?: boolean }) {
   const settled = walkthrough.pr?.state === "merged" || walkthrough.pr?.state === "closed";
-  const comments = useMemo(() => draftComments(walkthrough, notes), [walkthrough, notes]);
+  const comments = draft?.comments ?? [];
   const [confirming, setConfirming] = useState(false);
-  const [event, setEvent] = useState<ReviewEvent>(settled ? "COMMENT" : (review?.event ?? "COMMENT"));
+  const [event, setEvent] = useState<ReviewEvent>(settled ? "COMMENT" : (draft?.event ?? "COMMENT"));
   const [sending, setSending] = useState(false);
   const post = async () => {
     setSending(true);
@@ -281,7 +258,7 @@ export function PostReviewControl({ walkthrough, notes, rpc, disabled }: { walkt
       setSending(false);
     }
   };
-  const body = review?.body ?? "";
+  const body = draft?.body ?? "";
   return (
     <>
       <button type="button" className="wt-btn wt-btn-primary" disabled={disabled ?? (comments.length === 0 && body.trim() === "")} onClick={() => setConfirming(true)}>
@@ -303,8 +280,9 @@ export function PostReviewControl({ walkthrough, notes, rpc, disabled }: { walkt
   );
 }
 
-function ReviewDraft({ walkthrough, notes, comments, rpc }: { walkthrough: Walkthrough; notes: Note[]; comments: DraftComment[]; rpc: WalkthroughRpc }) {
-  const review = walkthrough.review;
+function ReviewDraft({ walkthrough, draft, rpc }: { walkthrough: Walkthrough; draft: ReviewDraftView | null; rpc: WalkthroughRpc }) {
+  const review = draft;
+  const comments = draft?.comments ?? [];
   const posted = review?.status === "posted";
   const body = review?.body ?? "";
   const empty = comments.length === 0 && body.trim() === "";
@@ -344,7 +322,7 @@ function ReviewDraft({ walkthrough, notes, comments, rpc }: { walkthrough: Walkt
       </div>
       {!posted ? (
         <div className="wt-sheet-foot">
-          <PostReviewControl walkthrough={walkthrough} notes={notes} rpc={rpc} />
+          <PostReviewControl walkthrough={walkthrough} draft={draft} rpc={rpc} />
         </div>
       ) : null}
     </>

@@ -1,6 +1,7 @@
 // Walkthrough plugin backend: the pane's RPC, the worker orchestration, and
 // the agent tools. See src/service.ts for how a walkthrough is written.
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import { deliverView } from "./src/deliver.ts";
 import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
 import type { Walkthrough } from "./src/schemas.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
@@ -85,7 +86,7 @@ export default function plugin(bb: BbPluginApi) {
     recent: () => ({ walkthroughs: service.recent().map(summarize) }),
     get: ({ walkthroughId }) => {
       try {
-        return { view: service.view(walkthroughId) };
+        return { view: deliverView(service.view(walkthroughId)) };
       } catch {
         return { view: null };
       }

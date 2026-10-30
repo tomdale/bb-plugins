@@ -304,11 +304,34 @@ export type Note = z.infer<typeof noteSchema>;
 
 export const noteTextSchema = z.string().trim().min(1).max(8000);
 
+/**
+ * What the pane receives. The store backfills every field the stored schemas
+ * leave optional for old rows, so a delivered block, part, walkthrough and note
+ * always carries them; these shapes say so and the pane reads the fields
+ * directly.
+ */
+const deliveredCodeBlockSchema = codeBlockSchema.extend({
+  view: codeViewSchema,
+  snapshot: codeSnapshotSchema.nullable(),
+  snapshotError: z.string().nullable(),
+});
+const deliveredPartSchema = partSchema.extend({ blocks: z.array(z.discriminatedUnion("kind", [proseBlockSchema, deliveredCodeBlockSchema])) });
+const deliveredWalkthroughSchema = walkthroughSchema.extend({
+  intent: intentSchema,
+  parts: z.array(deliveredPartSchema),
+  wrapUp: deliveredPartSchema.nullable(),
+});
+const deliveredNoteSchema = noteSchema.extend({ includeInReview: z.boolean() });
+export type DeliveredCodeBlock = z.infer<typeof deliveredCodeBlockSchema>;
+export type DeliveredPart = z.infer<typeof deliveredPartSchema>;
+export type DeliveredWalkthrough = z.infer<typeof deliveredWalkthroughSchema>;
+export type DeliveredNote = z.infer<typeof deliveredNoteSchema>;
+
 /** Everything the pane renders for one walkthrough. */
 export const walkthroughViewSchema = z
   .object({
-    walkthrough: walkthroughSchema,
-    notes: z.array(noteSchema),
+    walkthrough: deliveredWalkthroughSchema,
+    notes: z.array(deliveredNoteSchema),
     /**
      * The review as the pane shows it in PR mode: the worker's draft merged with
      * the included comment notes. Null outside PR mode or when nothing is drafted.
@@ -316,8 +339,7 @@ export const walkthroughViewSchema = z
     reviewDraft: reviewDraftSchema
       .extend({ comments: z.array(derivedReviewCommentSchema).max(400) })
       .strict()
-      .nullable()
-      .optional(),
+      .nullable(),
   })
   .strict();
 export type WalkthroughView = z.infer<typeof walkthroughViewSchema>;

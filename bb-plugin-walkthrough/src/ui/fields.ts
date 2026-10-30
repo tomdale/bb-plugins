@@ -1,11 +1,9 @@
-// Reads of the fields the redesign added to the wire schema. Each is optional
-// on rows and builds that predate it, so the pane reads them here, with the
-// contract's defaults, instead of trusting the type to have them.
+// Small derivations over the delivered walkthrough: which pages exist, how a
+// part reads, which questions to suggest. The wire types guarantee the fields
+// the redesign added, so nothing here guards for their absence.
 import { isOutdated } from "../staleness.ts";
-import type { CodeBlock, Exchange, Note, Part, Walkthrough } from "../schemas.ts";
+import type { DeliveredCodeBlock, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 
-export type Intent = "review" | "own-change" | "understand";
-export type CodeView = "diff" | "code";
 export type PartState = "ready" | "writing" | "pending" | "failed" | "stale";
 
 export interface Snapshot {
@@ -14,37 +12,21 @@ export interface Snapshot {
   before: string | null;
 }
 
-export function intentOf(walkthrough: Walkthrough): Intent {
-  const intent = (walkthrough as { intent?: unknown }).intent;
-  if (intent === "review" || intent === "own-change" || intent === "understand") return intent;
-  return walkthrough.mode === "pr" ? "review" : "own-change";
-}
-
-export function codeViewOf(block: CodeBlock): CodeView {
-  return (block as { view?: unknown }).view === "code" ? "code" : "diff";
-}
-
-/** The excerpt text saved with the block, or null for blocks that predate snapshots or failed to capture one. */
-export function snapshotOf(block: CodeBlock): Snapshot | null {
-  const snapshot = (block as { snapshot?: Partial<Snapshot> | null }).snapshot;
-  if (!snapshot || typeof snapshot !== "object") return null;
-  const side = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
+/** The excerpt text saved with the block, or null when none was captured (or every side is empty). */
+export function savedExcerpt(block: DeliveredCodeBlock): Snapshot | null {
+  const { snapshot } = block;
+  if (!snapshot) return null;
+  const side = (value: string | null) => (value === "" ? null : value);
   const result = { change: side(snapshot.change), after: side(snapshot.after), before: side(snapshot.before) };
   return result.change || result.after || result.before ? result : null;
-}
-
-/** Whether a note is part of the review draft: comments are by default; anything else only when marked. */
-export function includedInReview(note: Note): boolean {
-  const flag = (note as { includeInReview?: unknown }).includeInReview;
-  return typeof flag === "boolean" ? flag : note.kind === "comment";
 }
 
 /** Questions shown above the pager: the latest finished answer's follow-ups when it has some, else the part's own. */
 export function suggestionsFor(part: Part): string[] {
   const asked = new Set(part.discussion.map((exchange) => exchange.question));
   const latest: Exchange | undefined = part.discussion[part.discussion.length - 1];
-  const fromAnswer = latest?.status === "done" ? ((latest as { suggestions?: unknown }).suggestions as string[] | undefined) : undefined;
-  const source = Array.isArray(fromAnswer) && fromAnswer.length > 0 ? fromAnswer : part.suggestions;
+  const fromAnswer = latest?.status === "done" ? latest.suggestions : undefined;
+  const source = fromAnswer && fromAnswer.length > 0 ? fromAnswer : part.suggestions;
   return source.filter((question) => typeof question === "string" && question.trim() !== "" && !asked.has(question)).slice(0, 3);
 }
 

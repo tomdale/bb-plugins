@@ -12,7 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { comparedWith, parseCommand } from "../model.ts";
-import { PAGE_PATH, PANEL_ACTION_ID, type NoteKind, type Walkthrough, type WalkthroughView } from "../schemas.ts";
+import { PAGE_PATH, PANEL_ACTION_ID, type DeliveredWalkthrough as Walkthrough, type NoteKind, type WalkthroughView } from "../schemas.ts";
 import { ConcernsSheet, hasReview, openConcerns, type ConcernsTab } from "./Concerns.tsx";
 import { figureSelection, type FlagTarget } from "./Figure.tsx";
 import { FlagPopover } from "./Flag.tsx";
@@ -258,7 +258,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
 
   const body = (() => {
     if (preparing) return <Preparing walkthrough={walkthrough} />;
-    if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
+    if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
     if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} />;
     return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} />;
   })();

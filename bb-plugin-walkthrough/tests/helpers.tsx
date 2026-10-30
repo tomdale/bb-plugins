@@ -2,7 +2,9 @@
 import { act, fireEvent } from "@testing-library/react";
 import { vi } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import type { Note, Part, Walkthrough } from "../src/schemas.ts";
+import { mergedReviewDraft } from "../src/model.ts";
+import { deliverNote, deliverWalkthrough } from "../src/deliver.ts";
+import type { DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough } from "../src/schemas.ts";
 
 export const PLUGIN_ID = "walkthrough";
 
@@ -20,8 +22,9 @@ export function part(title: string, overrides: Record<string, unknown> = {}): Pa
   } as Part;
 }
 
+/** A walkthrough as the pane receives it: older-shaped fixtures get the same backfill the server applies. */
 export function walkthrough(overrides: Record<string, unknown> = {}): Walkthrough {
-  return {
+  return deliverWalkthrough({
     id: "wt_1",
     threadId: "thr_1",
     workerThreadId: "thr_w",
@@ -40,7 +43,6 @@ export function walkthrough(overrides: Record<string, unknown> = {}): Walkthroug
     environmentId: "env_1",
     hostId: "host_1",
     workspacePath: "/w",
-    notesFile: { enabled: false, path: null, written: false, error: null },
     review: null,
     queue: [],
     inFlight: null,
@@ -49,11 +51,11 @@ export function walkthrough(overrides: Record<string, unknown> = {}): Walkthroug
     createdAt: 0,
     updatedAt: 0,
     ...overrides,
-  } as Walkthrough;
+  } as never);
 }
 
 export function note(overrides: Record<string, unknown> = {}): Note {
-  return { id: "n1", walkthroughId: "wt_1", kind: "todo", text: "Check this", groupIndex: 0, location: null, quote: null, status: "open", resolution: null, author: "user", createdAt: 1, updatedAt: 1, ...overrides } as Note;
+  return deliverNote({ id: "n1", walkthroughId: "wt_1", kind: "todo", text: "Check this", groupIndex: 0, location: null, quote: null, status: "open", resolution: null, author: "user", createdAt: 1, updatedAt: 1, ...overrides } as never);
 }
 
 /** Stubs ResizeObserver so the reader sees `width` as its own width. */
@@ -88,7 +90,7 @@ export async function mountPanel(params: unknown, rpc: Record<string, (input: ne
   return slot;
 }
 
-export const viewOf = (w: Walkthrough, notes: Note[] = []) => ({ get: () => ({ view: { walkthrough: w, notes } }) });
+export const viewOf = (w: Walkthrough, notes: Note[] = []) => ({ get: () => ({ view: { walkthrough: w, notes, reviewDraft: mergedReviewDraft(w, notes) } }) });
 
 /** Opens a Radix dropdown the way a pointer does. */
 export function openMenu(trigger: HTMLElement) {
