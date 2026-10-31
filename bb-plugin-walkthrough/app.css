@@ -139,9 +139,6 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
   backdrop-filter: blur(22px) saturate(1.7);
   box-shadow: inset 0 0 0 0.5px var(--wt-hair);
 }
-@media (prefers-reduced-transparency: reduce) {
-  .wt-glass { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
 
 /* Top bar */
 .wt-top {
@@ -174,7 +171,7 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 .wt-chip[data-selected="true"] { background: var(--wt-y); color: var(--wt-yt); }
 .wt-chip[data-selected="true"]:hover:not(:disabled) { background: color-mix(in srgb, var(--wt-y) 88%, #000); color: var(--wt-yt); }
 .wt-chip-icon { padding: 0 6px; }
-.wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-y); animation: wt-pulse 1.4s ease-in-out infinite; }
+.wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-y); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
 
 /* The desk and the page */
 .wt-scroll {
@@ -197,7 +194,7 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
   min-height: 100%;
   padding: 30px 28px 56px 62px;
   background-image: linear-gradient(90deg, transparent 46px, var(--wt-rule) 46px, var(--wt-rule) 47px, transparent 47px);
-  animation: wt-in 0.35s ease;
+  animation: wt-in var(--wt-dur-3) var(--wt-ease-out);
 }
 .wt[data-wide] .wt-page { max-width: 1080px; padding-right: 260px; }
 /*
@@ -221,6 +218,24 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 .wt-link { text-decoration: underline; text-underline-offset: 2px; }
 .wt-link-btn { border: 0; background: none; padding: 0; text-decoration: underline; text-underline-offset: 2px; color: var(--wt-ink); font-size: 12px; text-align: left; }
 @keyframes wt-in { from { opacity: 0; transform: translateY(6px); } }
+/*
+ * Moments. Turning a page (Next or Prev) eases the new page's content in from
+ * the side it came from, and a note's marker settles into the margin with a
+ * small overshoot. Both are transform and opacity only, start from the new
+ * state (so the page is never hidden if the animation does not run), and are
+ * switched off by the reduced-motion rule below.
+ */
+@keyframes wt-turn-next-a { from { opacity: 0; transform: translateX(18px); } }
+@keyframes wt-turn-next-b { from { opacity: 0; transform: translateX(18px); } }
+@keyframes wt-turn-prev-a { from { opacity: 0; transform: translateX(-18px); } }
+@keyframes wt-turn-prev-b { from { opacity: 0; transform: translateX(-18px); } }
+.wt-page[data-turn] > :not(.wt-flag) { animation-duration: var(--wt-dur-3); animation-timing-function: var(--wt-ease-out); animation-fill-mode: backwards; }
+.wt-page[data-turn="next-a"] > :not(.wt-flag) { animation-name: wt-turn-next-a; }
+.wt-page[data-turn="next-b"] > :not(.wt-flag) { animation-name: wt-turn-next-b; }
+.wt-page[data-turn="prev-a"] > :not(.wt-flag) { animation-name: wt-turn-prev-a; }
+.wt-page[data-turn="prev-b"] > :not(.wt-flag) { animation-name: wt-turn-prev-b; }
+@keyframes wt-settle { from { opacity: 0; transform: scale(0.5); } 60% { opacity: 1; transform: scale(1.14); } }
+.wt-m-own, .wt-prose-flag { animation: wt-settle var(--wt-dur-3) var(--wt-ease-out) backwards; }
 @keyframes wt-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) {
   .wt *:not(.wt-code), .wt *::before, .wt *::after { animation: none !important; transition: none !important; }
@@ -241,8 +256,9 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 .wt-pre { font: 12px/1.55 var(--wt-mono); background: var(--wt-fill); border-radius: 8px; padding: 8px 12px; overflow-x: auto; max-width: none; }
 .wt-ref { background: linear-gradient(transparent 55%, rgba(255, 204, 0, 0.5) 55%); color: inherit; cursor: pointer; }
 .wt-ref:hover { background: rgba(255, 204, 0, 0.35); }
-.dark .wt-ref { background: linear-gradient(transparent 60%, rgba(255, 214, 10, 0.3) 60%); }
-.dark .wt-ref:hover { background: rgba(255, 214, 10, 0.2); }
+/* In the dark a yellow block turns olive; a thin stroke under the words stays clean. */
+.dark .wt-ref { background: linear-gradient(transparent 84%, rgba(255, 214, 10, 0.7) 84% 93%, transparent 93%); }
+.dark .wt-ref:hover { background: linear-gradient(transparent 84%, #ffd60a 84% 93%, transparent 93%); }
 .wt-table-wrap { overflow-x: auto; max-width: none !important; }
 .wt-table { width: 100%; border-collapse: collapse; font: 13px/1.4 var(--wt-sans); }
 .wt-th { text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--wt-hair); background: var(--wt-fill); }
@@ -263,7 +279,8 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 .wt-skeleton > .wt-skel, .wt-skel-p { max-width: var(--wt-measure); }
 /* A part's own title is already on the page, so the skeleton does not draw a second one. */
 article:has(> .wt-head) .wt-skel-title { display: none; }
-.wt-skel { display: block; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--wt-ink) 8%, transparent); animation: wt-pulse 1.6s ease-in-out infinite; }
+.wt-skel { display: block; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--wt-ink) 10%, transparent); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
+.dark .wt-skel { background: color-mix(in srgb, var(--wt-ink) 8%, transparent); }
 .wt-skel-title { height: 28px; width: 70%; border-radius: 8px; margin-bottom: 14px; }
 /* A line of prose is 27px tall; each bar sits in one, and a paragraph ends with the prose's own gap. */
 .wt-skel-p { margin-bottom: 12px; }
@@ -272,7 +289,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-skel-figure .wt-row { padding-left: calc(var(--wt-fig-l) + 28px); }
 .wt-skel-figure .wt-row b { justify-content: flex-end; }
 .wt-skel-note { margin-top: 4px; }
-.wt-pulse { animation: wt-pulse 1.6s ease-in-out infinite; }
+.wt-pulse { animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
 
 /* Figures */
 .wt-figure { --wt-fig-pad: 14px; --wt-fig-l: 16px; margin: 18px -14px 18px -16px; position: relative; }
@@ -294,7 +311,11 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .dark .wt-seg button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.18); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
 .wt-icon-btn { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--wt-mute); }
 .wt-icon-btn:hover:not(:disabled) { background: var(--wt-fill); color: var(--wt-ink); }
+.wt-codebox { position: relative; }
 .wt-code { position: relative; padding: 6px 0; overflow-x: auto; }
+/* Line tints live in their own layer under the scroller (one 20px strip per row), so the edge fade never reaches them. */
+.wt-tints { position: absolute; inset: 6px 0; overflow: hidden; pointer-events: none; }
+.wt-tints i { display: block; height: 20px; }
 /*
  * A line longer than the figure scrolls sideways. Where it does, the code
  * fades out at that edge (and at the left edge once scrolled). The fade is
@@ -314,7 +335,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-code:focus-visible { outline-offset: -2px; }
 .wt-code-rows { min-width: max-content; }
 /* Switching between Diff, After and Before fades the new lines in instead of cutting. */
-.wt-swap { animation: wt-swap 0.22s ease-out; }
+.wt-swap { animation: wt-swap var(--wt-dur-2) var(--wt-ease-out); }
 @keyframes wt-swap { from { opacity: 0.15; } }
 .wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
 /* With no markers there is nothing for the marker column to hold, so the code starts at the figure's own inset. */
@@ -332,10 +353,10 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-mk .wt-m:has(+ .wt-m) { --wt-m-halo: 0 0 0 1.5px var(--wt-page); }
 .wt-text { position: relative; }
 /* Added and removed lines carry a sign and an edge as well as a tint, so the diff reads without colour. */
-.wt-add { background: var(--wt-add); box-shadow: inset 2px 0 0 var(--wt-add-edge); }
-.wt-del { background: var(--wt-del); box-shadow: inset 2px 0 0 var(--wt-del-edge); }
+.wt-tints .wt-add { background: var(--wt-add); box-shadow: inset 2px 0 0 var(--wt-add-edge); }
+.wt-tints .wt-del { background: var(--wt-del); box-shadow: inset 2px 0 0 var(--wt-del-edge); }
 /* A file that is added whole is not a change among unchanged lines; the tint would only make a slab, so its edge and signs carry it. */
-.wt-code-rows:where(:not(:has(.wt-del, .wt-row:not(.wt-add)))) .wt-add:not(.wt-hot) { background: none; }
+.wt-tints:where(:not(:has(.wt-del, i:not(.wt-add)))) .wt-add { background: none; }
 .wt-del .wt-text { opacity: 0.72; }
 .wt-add .wt-text::before, .wt-del .wt-text::before { position: absolute; left: -12px; width: 10px; text-align: center; font-weight: 600; }
 .wt-add .wt-text::before { content: "+"; color: var(--wt-add-ink); }
@@ -346,7 +367,6 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-del .wt-w { --wt-w-bg: var(--wt-del-word); }
 .wt-gap { color: var(--wt-mute); }
 .wt-hot, .wt-row.wt-hot { background: var(--wt-yhi); }
-.wt-row.wt-hot.wt-add, .wt-row.wt-hot.wt-del { background: linear-gradient(var(--wt-yhi), var(--wt-yhi)), var(--wt-page); }
 .wt-ln { border: 0; background: none; padding: 0 2px; font: inherit; color: var(--wt-mute); }
 .wt-ln:hover { color: var(--wt-ink); text-decoration: underline; }
 .wt-m {
@@ -364,7 +384,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-skel-row { align-items: center; }
 .wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px var(--wt-fig-l); font: 13px var(--wt-sans); color: var(--wt-mute); }
 /* The marker hangs in the note's left indent, so wrapped lines align with the first word, not under the marker. */
-.wt-mn { position: relative; padding-left: 22px; font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color 0.2s, opacity 0.2s; }
+.wt-mn { position: relative; padding-left: 22px; font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color var(--wt-dur-2) var(--wt-ease-out), opacity var(--wt-dur-2) var(--wt-ease-out); }
 .wt-mn.wt-hot { opacity: 1; background: var(--wt-yhi); }
 .wt-mn-kind { font-style: normal; font: 600 11px var(--wt-sans); color: var(--wt-mute); }
 .wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px var(--wt-fig-l); display: flex; flex-direction: column; gap: 10px; }
@@ -445,6 +465,14 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   .wt-pager:has(.wt-pager-actions) .wt-pager-row { grid-column: 1 / -1; grid-row: 4; }
   .wt .wt-pager .wt-pager-actions { grid-column: 1 / -1; grid-row: 3; margin-bottom: 6px; flex-wrap: wrap; }
   .wt .wt-pager .wt-pager-actions .wt-btn { flex: 1; }
+  /* With Prev and Next sharing a row, the finished line has no room to be one line. */
+  .wt-pager-row:has(.wt-next) .wt-finished { display: none; }
+  /* A narrow code gutter: markers and numbers keep their order in less room. */
+  .wt-figure:has(.wt-mk) .wt-row { padding-left: calc(var(--wt-fig-l) + 18px); }
+  .wt-row b { width: 26px; }
+}
+@container wt (max-width: 420px) {
+  .wt .wt-next-title { display: none; }
 }
 .wt-send { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 11px; background: var(--wt-btn); color: var(--wt-btnt); }
 .wt-next { min-width: 0; max-width: 48%; }
@@ -456,7 +484,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
  * never over the top bar, so glass never sits on glass.
  */
 .wt-sheet {
-  position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 10px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
+  position: absolute; z-index: 4; top: 66px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 20px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
   border-radius: 18px;
   /* Nearly opaque: over a tinted diff, a thinner glass shows the tints as blotches. */
   background: color-mix(in srgb, var(--wt-glass-solid) 95%, transparent);
@@ -464,16 +492,20 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   box-shadow: 0 16px 40px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
   -webkit-backdrop-filter: blur(40px) saturate(1.1); backdrop-filter: blur(40px) saturate(1.1);
   transform: translateX(calc(100% + 24px)); visibility: hidden;
-  transition: transform 0.26s cubic-bezier(0.4, 0, 1, 1), visibility 0s 0.26s;
+  transition: transform var(--wt-dur-2) var(--wt-ease-in), visibility 0s var(--wt-dur-2);
 }
+/* A sheet with nothing in it is only as tall as its sentence. */
+.wt-sheet:not(:has(.wt-it)) { bottom: auto; }
 /* In the narrow panel the sheet spans the page. */
 .wt:not([data-wide]) .wt-sheet { left: calc(var(--wt-inset) + 10px); width: auto; }
 /* It arrives on a damped spring (about 3 percent overshoot, settled in half a second) and leaves on a short ease-in; engines without linear() get the plain curve. */
-.wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.wt-sheet[data-open] { transform: none; visibility: visible; transition: transform var(--wt-dur-3) var(--wt-ease-out); }
 @supports (transition-timing-function: linear(0, 1)) {
-  .wt-sheet[data-open] { transition: transform 0.5s linear(0, 0.0469, 0.158, 0.2982, 0.4441, 0.5808, 0.7, 0.7983, 0.8754, 0.9329, 0.9736, 1.0006, 1.0169, 1.0254, 1.0283, 1.0276, 1.0248, 1.0209, 1.0168, 1.0128, 1.0093, 1.0064, 1.004, 1.0023, 1); }
+  .wt-sheet[data-open] { transition: transform calc(var(--wt-dur-3) * 1.4) linear(0, 0.0469, 0.158, 0.2982, 0.4441, 0.5808, 0.7, 0.7983, 0.8754, 0.9329, 0.9736, 1.0006, 1.0169, 1.0254, 1.0283, 1.0276, 1.0248, 1.0209, 1.0168, 1.0128, 1.0093, 1.0064, 1.004, 1.0023, 1); }
 }
-@media (prefers-reduced-transparency: reduce) { .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+/* One yellow thing per screen: while the sheet is open, the Concerns chip is the accent and the pager's primary rests. */
+.dark .wt:has(.wt-sheet[data-open]) .wt-pager .wt-btn-primary { background: var(--wt-fill); color: var(--wt-ink); }
+.dark .wt .wt-it-proposal { background: color-mix(in srgb, var(--wt-y) 9%, var(--wt-glass-solid)); box-shadow: inset 2px 0 0 var(--wt-y); }
 .wt-tabs { display: flex; align-items: center; gap: 16px; padding-bottom: 6px; border-bottom: 0.5px solid var(--wt-hair); }
 .wt-tabs [role="tab"] { border: 0; border-radius: 6px; background: none; padding: 1px 4px; margin: 0 -4px; color: var(--wt-mute); }
 .wt-tabs [role="tab"][aria-selected="true"] { color: var(--wt-ink); font-weight: 600; }
@@ -503,7 +535,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-ex { padding-left: 12px; border-left: 2px solid var(--wt-y); }
 .wt-q { margin: 0 0 4px; font: italic 16px/1.4 var(--wt-serif); color: var(--wt-mute); }
 .wt-a { font-size: 16px; }
-.wt-streaming > :last-child::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.3em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse 1s ease-in-out infinite; }
+.wt-streaming > :last-child::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.3em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
 
 /* Stale and failed parts */
 .wt-stale { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; padding: 8px 12px; border-radius: 10px; background: var(--wt-fill); font-size: 13px; }
@@ -538,10 +570,12 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .dark .wt-status-failed { color: #ff8a80; }
 
 /* Starter and index */
-.wt-start-page { max-width: 640px; }
-.wt-detected { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--wt-fill); max-width: 34em; }
+/* The index and the starter are pages like any other: the same centered sheet, the same ruled margin, the same measure. */
+.wt:has(.wt-index, .wt-start-page) { --wt-sheet-w: 760px; }
+.wt-continue, .wt-detected, .wt-start-form { max-width: var(--wt-measure); }
+.wt-detected { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--wt-fill); }
 .wt-detected-t { margin: 0; font: 500 17px/1.3 var(--wt-serif); }
-.wt-start-form { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 14px; max-width: 34em; }
+.wt-start-form { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 14px; }
 .wt-input-box { width: 100%; padding-right: 14px; }
 .wt-earlier { margin-top: 32px; max-width: var(--wt-measure); }
 .wt-earlier ul, .wt-index-list { list-style: none; margin: 0; padding: 0; }
@@ -554,7 +588,6 @@ button.wt-it-loc:hover { text-decoration: underline; }
 @media (hover: none) { .wt-summary-delete { width: 32px; height: 32px; margin-left: 4px; } }
 .wt-summary-title { display: block; font: 17px/1.3 var(--wt-serif); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-summary-row:hover .wt-summary-title { text-decoration: underline; text-underline-offset: 3px; }
-.wt-index { max-width: 640px; }
 
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
@@ -566,8 +599,8 @@ button.wt-it-loc:hover { text-decoration: underline; }
 }
 
 /* A figure being written: it fades in once and carries a small pulsing dot until the part is saved. */
-.wt-figure[data-streaming] { animation: wt-in 0.25s ease-out; }
-.wt-figure[data-streaming] .wt-cap::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse 1s ease-in-out infinite; }
+.wt-figure[data-streaming] { animation: wt-in var(--wt-dur-2) var(--wt-ease-out); }
+.wt-figure[data-streaming] .wt-cap::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
 
 /*
  * BB's shared controls in the Notebook language: glass-solid surfaces, one
@@ -621,3 +654,28 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-portal .wt-post-label { display: block; margin-bottom: 3px; font: 600 10.5px var(--wt-sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--wt-mute); }
 .wt-portal .wt-post-label code { font: 11px var(--wt-mono); letter-spacing: 0; text-transform: none; }
 .wt-portal .wt-post-body { display: block; font: 15px/1.45 var(--wt-serif); white-space: pre-wrap; font-variant-numeric: proportional-nums; }
+
+/* Controls ease between states at one speed. */
+.wt-chip, .wt-btn, .wt-seg button, .wt-icon-btn, .wt-suggest button, .wt-act, .wt-toc button, .wt-picker button, .wt-summary-delete { transition: background-color var(--wt-dur-1) var(--wt-ease-out), color var(--wt-dur-1) var(--wt-ease-out); }
+/* The reader's toasts and the jump-to-line flash (ux.css) keep to the same tokens. */
+.wt .wt-toasts .wt-toast { animation-duration: var(--wt-dur-2); animation-timing-function: var(--wt-ease-out); }
+.wt .wt-scroll [data-flash] { animation-duration: var(--wt-pulse); }
+
+/*
+ * Accessibility preferences, last in the file so they win over every rule above
+ * at equal specificity. Reduced transparency makes each glass surface a solid
+ * one (the top bar, pager, selection toolbar and sheet; the menus, dialogs,
+ * tooltips and picker are solid already). Increased contrast darkens the
+ * hairlines and secondary text and turns the focus halo into a solid line.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .wt-glass, .wt-flag.wt-glass, .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .wt, .wt-portal { --wt-hair: rgba(0, 0, 0, 0.34); --wt-mute: rgba(0, 0, 0, 0.78); --wt-rule: rgba(255, 59, 48, 0.55); --wt-ring: #1d1d1f; }
+  .dark .wt, .dark .wt-portal { --wt-hair: rgba(255, 255, 255, 0.4); --wt-mute: rgba(255, 255, 255, 0.84); --wt-rule: rgba(255, 159, 10, 0.65); --wt-ring: #ffd60a; }
+}
+/* Portaled surfaces are outside .wt, so the reader's reduced-motion rule does not reach them. */
+@media (prefers-reduced-motion: reduce) {
+  .wt-portal, .wt-portal * { animation: none !important; transition: none !important; }
+}

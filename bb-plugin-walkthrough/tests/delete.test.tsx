@@ -113,8 +113,11 @@ describe("deleting from a walkthrough", () => {
     const deleted: string[] = [];
     const slot = await mountPanel({ walkthroughId: "wt_1" }, { ...viewOf(walkthrough()), delete: ({ walkthroughId }: { walkthroughId: string }) => (deleted.push(walkthroughId), { deleted: true }) });
     openMenu(await slot.findByRole("button", { name: "More" }));
-    fireEvent.click(await slot.findByRole("menuitem", { name: "Delete walkthrough…" }));
+    const item = await slot.findByRole("menuitem", { name: "Delete walkthrough…" });
+    expect(item.className).toContain("wt-menu-danger");
+    fireEvent.click(item);
     expect((await slot.findByRole("dialog")).textContent).toContain("Delete “Branch feature”?");
+    expect(slot.getByRole("button", { name: "Delete walkthrough" }).className).toContain("wt-btn-danger");
     expect(deleted).toEqual([]);
     fireEvent.click(slot.getByRole("button", { name: "Delete walkthrough" }));
     await waitFor(() => expect(deleted).toEqual(["wt_1"]));

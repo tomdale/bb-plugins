@@ -14,6 +14,7 @@ import { shortPath } from "./fields.ts";
 import { unsentItems } from "./hand-off.ts";
 import { ellipsize } from "./highlight.ts";
 import { Hint } from "./Hint.tsx";
+import { InlineCode } from "./inline.tsx";
 import { type WalkthroughRpc } from "./hooks.ts";
 import { useFail, useNotify } from "./notices.tsx";
 import { ReaderContext } from "./context.ts";
@@ -45,6 +46,8 @@ export type ReviewDraftView = NonNullable<WalkthroughView["reviewDraft"]>;
 type DraftComment = ReviewDraftView["comments"][number];
 
 const EVENT_LABEL: Record<ReviewEvent, string> = { COMMENT: "Comment", REQUEST_CHANGES: "Request changes", APPROVE: "Approve" };
+/** The dialog title's ending, in a sentence of its own: the event as a label would read as a proper noun. */
+const POST_AS: Record<ReviewEvent, string> = { COMMENT: "as a comment", REQUEST_CHANGES: "and request changes", APPROVE: "and approve" };
 
 /** "owner/repo#12" for a GitHub pull request URL; the URL itself for anything else. */
 export function prLabel(url: string, number: number): string {
@@ -234,9 +237,9 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
           ) : null}
           {note.status === "open" && note.proposedResolution ? (
             <div className="wt-it-proposal" role="group" aria-label="Suggested outcome">
-              <p className="wt-it-res">
-                <strong>Suggested {note.kind === "todo" ? "outcome" : "answer"}:</strong> {note.proposedResolution}
-              </p>
+              <div className="wt-it-res">
+                <Markdown content={`**Suggested ${note.kind === "todo" ? "outcome" : "answer"}:** ${note.proposedResolution}`} />
+              </div>
               <div className="wt-it-actions">
                 <button type="button" className="wt-act" onClick={() => void rpc.call("acceptResolution", { walkthroughId: walkthrough.id, noteId: note.id }).catch(fail)}>
                   <Icon name="Check" className="size-3" aria-hidden />
@@ -405,7 +408,7 @@ export function PostReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="wt-portal wt-dialog">
         <DialogHeader>
-          <DialogTitle>Post review to GitHub as {EVENT_LABEL[event]}</DialogTitle>
+          <DialogTitle>Post review to GitHub {POST_AS[event]}</DialogTitle>
           <DialogDescription>
             Posts {body.trim() ? `the summary and ${inline}` : inline} to {target}. Nothing is sent until you press Post review.
           </DialogDescription>
@@ -427,7 +430,7 @@ export function PostReviewDialog({
             {body.trim() ? (
               <li>
                 <span className="wt-post-label">Summary</span>
-                <span className="wt-post-body">{ellipsize(body, 400)}</span>
+                <span className="wt-post-body"><InlineCode text={ellipsize(body, 400)} /></span>
               </li>
             ) : null}
             {comments.map((comment, index) => (
@@ -439,7 +442,7 @@ export function PostReviewDialog({
                     {comment.side === "LEFT" ? " (old side)" : ""}
                   </code>
                 </span>
-                <span className="wt-post-body">{ellipsize(comment.body, 240)}</span>
+                <span className="wt-post-body"><InlineCode text={ellipsize(comment.body, 240)} /></span>
               </li>
             ))}
           </ul>

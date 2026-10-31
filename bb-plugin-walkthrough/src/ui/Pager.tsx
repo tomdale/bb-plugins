@@ -34,10 +34,12 @@ export interface PagerProps {
   onSubmit: (text: string) => Promise<unknown>;
   /** The wrap-up's actions, pinned above the input row. */
   actions?: ReactNode;
+  /** Prev shows its word at this width, so it needs no tooltip (which would also cover the first suggestion). */
+  wide?: boolean;
 }
 
 export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
-  { prevTitle, nextLabel, nextTitle = null, nextWaiting = false, onPrev, onNext, placeholder, inputDisabled = false, finished = false, suggestions, suggestionsLocked = false, scope, onClearScope, busy, onSubmit, actions },
+  { prevTitle, nextLabel, nextTitle = null, nextWaiting = false, onPrev, onNext, placeholder, inputDisabled = false, finished = false, suggestions, suggestionsLocked = false, scope, onClearScope, busy, onSubmit, actions, wide = false },
   inputRef,
 ) {
   const [text, setText] = useState("");
@@ -82,7 +84,7 @@ export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
       ) : null}
       {actions ? <div className="wt-pager-actions">{actions}</div> : null}
       <form className="wt-pager-row" onSubmit={submit}>
-        <Hint label={prevLabel}>
+        <Hint label={prevLabel} disabled={wide}>
           <button type="button" className="wt-btn wt-btn-quiet wt-prev" aria-label={prevLabel} disabled={prevTitle === null} onClick={onPrev}>
             <Icon name="ChevronLeft" className="size-4" aria-hidden />
             <span className="wt-prev-label">Prev</span>

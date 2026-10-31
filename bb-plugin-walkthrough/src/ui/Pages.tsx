@@ -72,7 +72,8 @@ export function Skeleton({ label }: { label?: string }) {
         </div>
       </figure>
       {lines([92, 44])}
-      {label ? <p className="wt-muted wt-skel-note">{label}</p> : null}
+      {/* The pager and the part's own state already say a part is being written; its label stays for assistive technology only. */}
+      {label ? <p className={label.startsWith("Writing") ? "wt-sr" : "wt-muted wt-skel-note"}>{label}</p> : null}
     </div>
   );
 }

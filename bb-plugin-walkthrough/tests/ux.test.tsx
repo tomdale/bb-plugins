@@ -470,7 +470,7 @@ describe("concerns sheet", () => {
   it("lets the reader accept or dismiss the helper's suggested outcome", async () => {
     const proposed = [note({ id: "n2", kind: "question", text: "Why?", proposedResolution: "Because the cap truncates." })];
     const slot = await open({ ...viewOf(base(), proposed), acceptResolution: () => proposed[0], dismissResolution: () => proposed[0] });
-    expect(slot.container.textContent).toContain("Suggested answer: Because the cap truncates.");
+    expect(slot.container.textContent).toMatch(/Suggested answer:\W*Because the cap truncates\./u);
     fireEvent.click(slot.getByRole("button", { name: "Accept and resolve" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "acceptResolution")?.input).toEqual({ walkthroughId: "wt_1", noteId: "n2" }));
     fireEvent.click(slot.getByRole("button", { name: "Dismiss" }));
@@ -503,7 +503,7 @@ describe("review draft and post dialog", () => {
     fireEvent.click(slot.getByRole("tab", { name: /Review draft/u }));
     fireEvent.click(await slot.findByRole("button", { name: "Post review" }));
     const dialog = await slot.findByRole("dialog");
-    expect(dialog.textContent).toContain("Post review to GitHub as Comment");
+    expect(dialog.textContent).toContain("Post review to GitHub as a comment");
     const items = Array.from(dialog.querySelectorAll('[aria-label="What will be posted"] li'));
     expect(items[0]!.textContent).toContain("Summary");
     expect(items[0]!.textContent).toContain("Looks good overall.");
@@ -512,6 +512,6 @@ describe("review draft and post dialog", () => {
     expect(comment.querySelector(".wt-post-body")!.textContent).toBe("This removed branch mattered.");
     expect(comment.querySelector(".wt-post-label")!.textContent).toContain("Inline comment");
     fireEvent.click(await slot.findByRole("radio", { name: "Request changes" }));
-    expect(dialog.textContent).toContain("Post review to GitHub as Request changes");
+    expect(dialog.textContent).toContain("Post review to GitHub and request changes");
   });
 });

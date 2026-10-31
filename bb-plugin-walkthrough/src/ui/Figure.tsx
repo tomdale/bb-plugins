@@ -342,6 +342,15 @@ export function Figure({
         ) : empty ? (
           <p className="wt-fig-empty">{block.snapshotError ?? NO_SAVED_COPY}</p>
         ) : (
+          <div className="wt-codebox">
+          {/* The tints of added, removed and gap lines sit under the scroller, not in it: a long line's fade then masks only its glyphs and the colour stays a clean band. */}
+          <div className="wt-tints" aria-hidden style={clamped ? { bottom: "auto", height: clampRows * ROW_HEIGHT } : undefined}>
+            <div key={view} className={cn(chosen !== null && "wt-swap")}>
+              {rows.map((row, index) => (
+                <i key={index} className={`wt-${row.kind}`} />
+              ))}
+            </div>
+          </div>
           <div
             className="wt-code"
             role="region"
@@ -434,6 +443,7 @@ export function Figure({
                 Show all {rows.length} lines
               </button>
             ) : null}
+          </div>
           </div>
         )}
         {marginNotes}

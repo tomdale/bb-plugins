@@ -57,8 +57,8 @@ describe("focus and selection", () => {
 
 describe("the diff", () => {
   it("marks added and removed lines with a sign and an edge, not colour alone, and calms the dark tints", () => {
-    expect(rule(".wt-add")).toContain("inset 2px 0 0");
-    expect(rule(".wt-del")).toContain("inset 2px 0 0");
+    expect(rule(".wt-tints .wt-add")).toContain("inset 2px 0 0");
+    expect(rule(".wt-tints .wt-del")).toContain("inset 2px 0 0");
     expect(css).toMatch(/\.wt-add \.wt-text::before[^{]*\{[^}]*\}/u);
     expect(css).toContain('content: "+"');
     const dark = /\.dark \.wt,[^{]*\{([^}]*)\}/u.exec(css)![1]!;
@@ -77,7 +77,7 @@ describe("the diff", () => {
 describe("the concerns sheet, pager and shared controls", () => {
   it("floats the sheet clear of the top bar, as one glass layer", () => {
     const sheet = rule(".wt-sheet");
-    expect(sheet).toMatch(/top: 56px/u);
+    expect(sheet).toMatch(/top: 66px/u);
     expect(sheet).toMatch(/border-radius: 18px/u);
     expect(sheet).not.toMatch(/-20px 0 40px/u);
   });
@@ -177,15 +177,16 @@ describe("round two: geometry, stacking and focus", () => {
   });
 
   it("rings a focused control in a colour that reads as yellow, never yellow on yellow, and never past a track", () => {
-    expect(css).toMatch(/--wt-ring: #b88a00/u);
-    expect(rule(".wt-chip[data-selected]:focus-visible")).toContain("outline-color: var(--wt-ink)");
+    expect(css).toMatch(/--wt-ring: color-mix\(in srgb, #ffcc00 70%, transparent\)/u);
+    expect(css).not.toMatch(/--wt-ring: #b88a00/u);
+    expect(rule(".wt-chip[data-selected]:focus-visible")).toContain("outline-color: color-mix(in srgb, var(--wt-ink)");
     expect(rule(".wt-seg button:focus-visible")).toContain("outline-offset: -2px");
   });
 
   it("highlights one picker row at a time: hover fills, the current part has a dot, focus is a ring", () => {
     expect(rule(".wt-picker button:hover:not(:disabled)")).toContain("background: var(--wt-fill)");
     expect(css).not.toMatch(/\.wt-picker button\[aria-current="step"\] \{ background/u);
-    expect(rule(".wt-picker button:focus-visible")).toContain("inset 0 0 0 1.5px var(--wt-ring)");
+    expect(rule(".wt-picker button:focus-visible")).toContain("inset 0 0 0 2px var(--wt-ring)");
     expect(rule(".wt-picker")).toContain("border-radius: 12px");
   });
 
@@ -208,7 +209,7 @@ describe("round two: geometry, stacking and focus", () => {
     expect(figure.querySelector(".wt-cap")).not.toBeNull();
     expect(figure.querySelector(".wt-fig > .wt-fh")).not.toBeNull();
     expect(figure.querySelectorAll(".wt-code-rows > .wt-row").length).toBeGreaterThanOrEqual(6);
-    expect(rule(".wt-skel")).toContain("color-mix(in srgb, var(--wt-ink) 8%, transparent)");
+    expect(rule(".wt-skel")).toContain("color-mix(in srgb, var(--wt-ink) 10%, transparent)");
   });
 
   it("hangs a margin note's marker in an indent, and draws a leader from each note to its line", async () => {
@@ -220,7 +221,7 @@ describe("round two: geometry, stacking and focus", () => {
     expect(notes[0]!.firstElementChild!.getAttribute("class")).toContain("wt-leader");
     const paths = notes.map((note) => note.querySelector(".wt-leader path")!.getAttribute("d")!);
     expect(paths[0]).toBe("M0 .5 H18");
-    expect(paths[1]).toMatch(/^M0 \.5 H5 Q9 \.5 9 4\.5 V/u);
+    expect(paths[1]).toMatch(/^M0 \.5 H4 Q8 \.5 8 4\.5 V/u);
     expect(rule(".wt-mn")).toContain("padding-left: 22px");
     expect(rule(".wt-mn > .wt-m-inline")).toContain("position: absolute");
   });
@@ -260,8 +261,8 @@ describe("round two: detail and motion", () => {
   });
 
   it("brings the concerns sheet in on a damped spring where the engine can, and leaves on a short ease-in", () => {
-    expect(css).toMatch(/@supports \(transition-timing-function: linear\(0, 1\)\) \{\s*\.wt-sheet\[data-open\] \{ transition: transform 0\.5s linear\(0, /u);
-    expect(rule(".wt-sheet")).toContain("0.26s cubic-bezier(0.4, 0, 1, 1)");
+    expect(css).toMatch(/@supports \(transition-timing-function: linear\(0, 1\)\) \{\s*\.wt-sheet\[data-open\] \{ transition: transform calc\(var\(--wt-dur-3\) \* 1\.4\) linear\(0, /u);
+    expect(rule(".wt-sheet")).toContain("var(--wt-dur-2) var(--wt-ease-in)");
     // Reduced motion drops every transition and animation under the reader, the sheet's spring included.
     expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.wt \*:not\(\.wt-code\)[^}]*transition: none !important/u);
   });

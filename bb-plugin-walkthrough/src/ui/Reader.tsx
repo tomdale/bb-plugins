@@ -186,6 +186,15 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const preparing = walkthrough.status === "planning" || (walkthrough.status === "failed" && partCount === 0);
   const page: PageId = wrapUpShown ? { kind: "wrap-up" } : walkthrough.currentPart === null ? { kind: "intro" } : { kind: "part", index: Math.min(walkthrough.currentPart, Math.max(0, partCount - 1)) };
   const position = pagePosition(page, partCount);
+  // Moving between pages turns the page: the content eases in from the side it came from. The attribute alternates (next-a, next-b) so a second turn in the same direction restarts the animation.
+  const [turn, setTurn] = useState<string | undefined>(undefined);
+  const lastPosition = useRef(position);
+  useLayoutEffect(() => {
+    if (lastPosition.current === position) return;
+    const direction = position > lastPosition.current ? "next" : "prev";
+    lastPosition.current = position;
+    setTurn((current) => `${direction}-${current?.endsWith("-a") ? "b" : "a"}`);
+  }, [position]);
   const total = partCount + 2;
   const openCount = countedOpen(notes).length;
   const closed = walkthrough.status === "done";
@@ -567,7 +576,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       {progressLabel}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" sideOffset={8} collisionPadding={8} collisionBoundary={boundary} autoFocusRef={currentPartRef} className="wt-portal wt-picker" mobileTitle="Parts">
+                  <PopoverContent align="end" sideOffset={14} collisionPadding={8} collisionBoundary={boundary} autoFocusRef={currentPartRef} className="wt-portal wt-picker" mobileTitle="Parts">
                     <ol aria-label="Parts">
                       {partItems.map((item) => (
                         <li key={item.key}>
@@ -581,7 +590,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                               goTo(item.go);
                             }}
                           >
-                            <span className="wt-picker-n">{item.key === "intro" || item.key === "wrap" ? "·" : item.go}</span>
+                            <span className="wt-picker-n">{item.key === "intro" || item.key === "wrap" ? null : item.go}</span>
                             <span className="wt-picker-t">{item.label}</span>
                             <span className={cn("wt-status", `wt-status-${item.state}`)}>{PART_STATE_LABEL[item.state]}</span>
                           </button>
@@ -609,13 +618,13 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       </button>
                     </DropdownMenuTrigger>
                   </Hint>
-                  <DropdownMenuContent align="end" sideOffset={8} collisionPadding={8} collisionBoundary={boundary} className="wt-portal wt-menu">
+                  <DropdownMenuContent align="end" sideOffset={14} collisionPadding={8} collisionBoundary={boundary} className="wt-portal wt-menu">
                     {surface === "panel" ? (
                       <DropdownMenuItem onSelect={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}>Open as full page</DropdownMenuItem>
                     ) : (
                       <DropdownMenuItem onSelect={() => navigate.toThread(walkthrough.threadId)}>Back to thread</DropdownMenuItem>
                     )}
-                    <DropdownMenuSeparator />
+                    {!closed ? <DropdownMenuSeparator /> : null}
                     {!closed ? <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem> : null}
                     <DropdownMenuItem className="wt-menu-danger" onSelect={() => setDeleting(true)}>Delete walkthrough…</DropdownMenuItem>
                   </DropdownMenuContent>
@@ -623,7 +632,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
               </header>
 
               <div ref={scrollRef} className="wt-scroll">
-                <div ref={pageRef} className="wt-page" onMouseUp={onMouseUp}>
+                <div ref={pageRef} className="wt-page" data-turn={turn} onMouseUp={onMouseUp}>
                   {/* Only parts are numbered; the introduction and wrap-up name themselves in their own heading. */}
                   {page.kind === "part" && !preparing ? (
                     <div className="wt-pn" aria-hidden>
@@ -670,6 +679,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                 scope={scope?.quote ?? null}
                 onClearScope={() => setScope(null)}
                 busy={busy}
+                wide={wide}
                 onSubmit={submit}
                 actions={page.kind === "wrap-up" && !preparing ? <WrapUpActions walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} send={send} /> : undefined}
               />

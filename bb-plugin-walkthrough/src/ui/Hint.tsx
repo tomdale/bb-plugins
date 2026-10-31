@@ -4,8 +4,9 @@ import { useContext, type ReactNode } from "react";
 import { BoundaryContext } from "./context.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export function Hint({ label, children, side = "top" }: { label: string; children: ReactNode; side?: "top" | "bottom" | "left" | "right" }) {
+export function Hint({ label, children, side = "top", disabled = false }: { label: string; children: ReactNode; side?: "top" | "bottom" | "left" | "right"; /** The control already says it; no tooltip repeats it. */ disabled?: boolean }) {
   const boundary = useContext(BoundaryContext);
+  if (disabled) return <>{children}</>;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>

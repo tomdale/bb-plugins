@@ -46,9 +46,9 @@ describe("figures", () => {
     const slot = await mountPage("wt_1", viewOf(codeWalkthrough(code({ snapshot }))));
     const group = await slot.findByRole("group", { name: "Show the code as" });
     expect(Array.from(group.querySelectorAll("button")).map((button) => [button.textContent, button.getAttribute("aria-pressed")])).toEqual([["Diff", "true"], ["After", "false"], ["Before", "false"]]);
-    expect(slot.container.querySelectorAll(".wt-add")).toHaveLength(1);
+    expect(slot.container.querySelectorAll(".wt-row.wt-add")).toHaveLength(1);
     fireEvent.click(slot.getByRole("button", { name: "After" }));
-    expect(slot.container.querySelectorAll(".wt-add, .wt-del")).toHaveLength(0);
+    expect(slot.container.querySelectorAll(".wt-row.wt-add, .wt-row.wt-del")).toHaveLength(0);
     expect(slot.container.textContent).toContain("two added");
     fireEvent.click(slot.getByRole("button", { name: "Before" }));
     expect(slot.container.textContent).toContain("two removed");
@@ -363,7 +363,7 @@ describe("part picker", () => {
     fireEvent.click(chip);
     const list = await slot.findByRole("list", { name: "Parts" });
     const rows = Array.from(list.querySelectorAll("li")).map((row) => row.textContent);
-    expect(rows).toEqual(["·IntroductionReady", "1SchemaOut of date", "2StoreWriting", "3CacheNot started", "4RetryFailed", "·Wrap-upNot started"]);
+    expect(rows).toEqual(["IntroductionReady", "1SchemaOut of date", "2StoreWriting", "3CacheNot started", "4RetryFailed", "Wrap-upNot started"]);
   });
 });
 
@@ -447,7 +447,7 @@ describe("wrap-up", () => {
     const slot = await mountPage("wt_1", viewOf(wrapped({ mode: "pr", pr: { number: 2, url: null, title: "T" }, review }), notes));
     await slot.findByText("That is the change.");
     fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-pager .wt-pager-actions .wt-btn-primary")!);
-    await slot.findByText(/Post review to GitHub as Comment/u);
+    await slot.findByText(/Post review to GitHub as a comment/u);
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "requestReviewPost")).toEqual([]);
   });
 
