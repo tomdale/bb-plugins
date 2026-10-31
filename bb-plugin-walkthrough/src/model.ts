@@ -261,6 +261,8 @@ export function deriveReviewComments(notes: Note[]): DerivedReviewComment[] {
     const included = note.includeInReview ?? note.kind === "comment";
     const location = note.location;
     if (note.kind !== "comment" || !included || note.status !== "open" || !location) continue;
+    // The helper folded this one into its own drafted comment and proposed closing it; it must not appear twice meanwhile.
+    if (note.proposedResolution === COVERED_RESOLUTION) continue;
     const line = location.endLine ?? location.startLine;
     if (line === undefined) continue;
     const startLine = location.startLine !== undefined && location.startLine < line ? location.startLine : undefined;

@@ -117,6 +117,8 @@ export default function plugin(bb: BbPluginApi) {
     addNote: ({ walkthroughId, kind, text, groupIndex, location, quote, includeInReview }) =>
       handle(() => service.addNote(walkthroughId, { kind, text, groupIndex, location, quote, includeInReview }, "user")),
     updateNote: ({ walkthroughId, noteId, ...patch }) => handle(() => service.updateNote(walkthroughId, noteId, patch, "user")),
+    acceptResolution: ({ walkthroughId, noteId }) => handle(() => service.acceptResolution(walkthroughId, noteId)),
+    dismissResolution: ({ walkthroughId, noteId }) => handle(() => service.dismissResolution(walkthroughId, noteId)),
     deleteNote: ({ walkthroughId, noteId }) => handle(() => ({ deleted: service.deleteNote(walkthroughId, noteId) })),
     saveNotes: ({ walkthroughId }) => handle(() => saveNotes(bb.sdk, service.get(walkthroughId), service.notes(walkthroughId))),
     diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>

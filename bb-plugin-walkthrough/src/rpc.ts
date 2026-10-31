@@ -144,6 +144,16 @@ export const rpcContract = defineRpcContract({
       .strict(),
     output: noteSchema,
   },
+  /** Accepts the helper's proposed outcome for a note: the note resolves with it. Errors when there is no proposal. */
+  acceptResolution: {
+    input: z.object({ ...target, noteId: noteIdSchema }).strict(),
+    output: noteSchema,
+  },
+  /** Dismisses the helper's proposed outcome; the note stays open and unchanged. */
+  dismissResolution: {
+    input: z.object({ ...target, noteId: noteIdSchema }).strict(),
+    output: noteSchema,
+  },
   deleteNote: {
     input: z.object({ ...target, noteId: noteIdSchema }).strict(),
     output: z.object({ deleted: z.boolean() }).strict(),

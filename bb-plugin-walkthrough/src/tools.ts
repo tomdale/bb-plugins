@@ -189,7 +189,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
   bb.agents.registerTool({
     name: "walkthrough_note",
     description:
-      "Add, update, resolve, or delete a walkthrough note. At the wrap-up, resolve questions and todos with their answer or outcome.",
+      "Add, update, or delete a walkthrough note, or propose how one ends. You never resolve a note yourself: propose its outcome and the reader accepts or dismisses it in the pane.",
     presentation: { label: { pending: "Updating walkthrough notes", completed: "Updated walkthrough notes" }, icon: { glyph: "ListTodo" } },
     parameters: z
       .object({
@@ -200,7 +200,13 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         part: z.number().int().positive().optional().describe("1-based part number for a new note."),
         location: locationSchema.optional(),
         status: noteStatusSchema.optional(),
-        resolution: z.string().trim().max(8000).optional(),
+        resolution: z.string().trim().max(8000).optional().describe("Deprecated alias of proposedResolution: it only ever proposes."),
+        proposedResolution: z
+          .string()
+          .trim()
+          .max(8000)
+          .optional()
+          .describe("Your suggestion for how this note ends: the answer to a question, or what you found or did for a todo. Shown to the reader to accept or dismiss; the note stays open until they accept."),
       })
       .strict(),
     execute: (input, ctx) =>
@@ -212,13 +218,14 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         }
         if (input.op === "update") {
           if (!input.noteId) return failure("noteId is required.");
+          const before = service.notes(walkthrough.id).find((candidate) => candidate.id === input.noteId);
           const note = service.updateNote(
             walkthrough.id,
             input.noteId,
-            { kind: input.kind, text: input.text, status: input.status, resolution: input.resolution },
+            { kind: input.kind, text: input.text, status: input.status, resolution: input.resolution, proposedResolution: input.proposedResolution },
             "agent",
           );
-          return `Updated:\n${describeNoteForAgent(service.get(walkthrough.id), note)}`;
+          return `${note.proposedResolution && note.proposedResolution !== (before?.proposedResolution ?? null) ? `Proposed an outcome for ${note.id}; it stays open until the reader accepts it.` : "Updated."}\n${describeNoteForAgent(service.get(walkthrough.id), note)}`;
         }
         if (!input.kind || !input.text) return failure("kind and text are required to add a note.");
         const note = service.addNote(
@@ -290,7 +297,8 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
         service.setReview(walkthrough.id, review);
         for (const noteId of input.coveredNotes ?? []) {
           try {
-            service.updateNote(walkthrough.id, noteId, { status: "resolved", resolution: COVERED_RESOLUTION }, "agent");
+            // A proposal, like every other outcome: the reader's note closes only when they accept.
+            service.updateNote(walkthrough.id, noteId, { proposedResolution: COVERED_RESOLUTION }, "agent");
           } catch {
             // Unknown ids are ignored; the draft is saved.
           }

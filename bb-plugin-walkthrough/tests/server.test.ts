@@ -4,7 +4,7 @@ import { isOutdated } from "../src/staleness.ts";
 import { PART, PLAN, setup, settle, THREAD, WORKER } from "./helpers.ts";
 
 /** The code reads among the host calls; the walkthrough also asks the host for its changed files and hashes. */
-const readCodeCalls = (harness: { experimental_hostRpcCalls: Array<{ method: string }> }) => harness.experimental_hostRpcCalls.filter((call) => call.method === "readCode");
+const readCodeCalls = (harness: { experimental_hostRpcCalls: readonly { method: string }[] }) => harness.experimental_hostRpcCalls.filter((call) => call.method === "readCode");
 
 describe("walkthrough code routing", () => {
   const patch = "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new\n";

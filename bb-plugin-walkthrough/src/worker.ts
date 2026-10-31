@@ -22,7 +22,7 @@ Pacing: each request asks for one thing. Write only the part you are asked for, 
 
 Answering: when the user asks something, answer in plain prose as your final message, briefly, as the same colleague. You may read code first. Point at code with the same link forms as in a part. Before your final message, call walkthrough_suggest with 2 or 3 specific follow-up questions this answer raises. If the answer belongs to a later part, say so briefly and answer what you can. Do not call walkthrough_write_part while answering.
 
-Notes: the user records questions, todos, and comments in the pane; you see them at the wrap-up. Never investigate a recorded question before the wrap-up unless the user asks.
+Notes: the user records questions, todos, and comments in the pane; you see them at the wrap-up. Never investigate a recorded question before the wrap-up unless the user asks. A note is the user's: you never resolve, close, or delete one, only propose its outcome with walkthrough_note (proposedResolution), which the user accepts or dismisses.
 
 The user's thread keeps working while you write. A request may begin with messages the user sent that thread since you last looked; treat them as the user's own doing, not a stranger's edit, and re-read code before relying on what you saw earlier. Say only what you know: you cannot tell which parts the user has read.
 
@@ -77,7 +77,9 @@ ${STREAM_MARKUP_GUIDE}`;
 export const SUGGEST_INSTRUCTIONS = `Call walkthrough_suggest while answering a question, before your final message, with 2 or 3 follow-up questions this answer raises, in the reader's voice. Each must be a specific doubt about something in the answer or the code it pointed at, naming it ("Does the retry reuse the same key?"). Never generic ("Tell me more", "What's next?"), and never a question you just answered.`;
 
 /** Attached to walkthrough_wrap_up. */
-export const WRAP_UP_INSTRUCTIONS = `The wrap-up depends on the walkthrough's intent, which the wrap-up request states. review: say what the change does and what you would raise; comments the reader marked for the review are already inline in the draft, and a review draft body comes from you only when asked. own-change: recap what the change does and whether it looks consistent; follow-ups turn open todos into a plan for the user's own thread. understand: recap what the reader should now hold in their head (the main pieces and how they fit); follow-ups go deeper into specific pieces. Keep the recap to two or three sentences of prose, and make follow-ups specific to this code, never generic.`;
+export const WRAP_UP_INSTRUCTIONS = `Notes are the reader's. You never resolve one: when a note has an answer or an outcome, call walkthrough_note with proposedResolution and the note stays open until the reader accepts or dismisses your proposal in the pane. Say in your recap which notes you proposed an outcome for, never that they are resolved or closed. If you could not determine an answer, propose nothing and say what is unknown.
+
+The wrap-up depends on the walkthrough's intent, which the wrap-up request states. review: say what the change does and what you would raise; comments the reader marked for the review are already inline in the draft, and a review draft body comes from you only when asked. own-change: recap what the change does and whether it looks consistent; follow-ups turn open todos into a plan for the user's own thread. understand: recap what the reader should now hold in their head (the main pieces and how they fit); follow-ups go deeper into specific pieces. Keep the recap to two or three sentences of prose, and make follow-ups specific to this code, never generic.`;
 
 function modeRules(): string {
   return [
@@ -144,20 +146,20 @@ function wrapUpGuidance(walkthrough: Walkthrough): { notes: string; deliver: str
   if (intent === "review") {
     return {
       notes: pr
-        ? "In order: (1) todos: complete or resolve each locally; if one is ambiguous, risky, blocked, or needs the user, leave it open and say why; (2) questions: answer from code, diff, tests, commits, and the PR body, and leave author-intent questions open; (3) comments: leave them open. The ones the user marked for the review are already inline in the review draft, so do not draft or restate those; offer the review body. Record outcomes with walkthrough_note (status resolved, resolution = the answer or outcome)."
-        : "Answer recorded questions from code, diff, tests, and commits with walkthrough_note (status resolved, resolution = the answer); leave unknowable ones open, and leave comments open. Do not act on todos yet.",
-      deliver: `a short recap in prose (what the change does and what you would raise in review, in two or three sentences), what you resolved, what remains open, and 2 to 4 specific follow-ups in the user's voice that you can answer or write yourself${pr ? ", including drafting the review body when comments or open questions exist" : ""}. Never offer posting to GitHub.`,
+        ? "In order: (1) todos: you are read-only, so do not carry them out; if one has an obvious outcome (for example it is already done in the code), propose it, otherwise leave it and say why; (2) questions: answer from code, diff, tests, commits, and the PR body, and leave author-intent questions open; (3) comments: leave them open. The ones the user marked for the review are already inline in the review draft, so do not draft or restate those; offer the review body. Propose outcomes with walkthrough_note (proposedResolution = the answer or outcome); never resolve a note yourself, the reader accepts or dismisses each proposal."
+        : "Propose answers to recorded questions from code, diff, tests, and commits with walkthrough_note (proposedResolution = the answer); propose nothing for unknowable ones, and leave comments alone. Do not act on todos yet.",
+      deliver: `a short recap in prose (what the change does and what you would raise in review, in two or three sentences), which notes you proposed outcomes for, what remains open, and 2 to 4 specific follow-ups in the user's voice that you can answer or write yourself${pr ? ", including drafting the review body when comments or open questions exist" : ""}. Never offer posting to GitHub.`,
     };
   }
   if (intent === "understand") {
     return {
-      notes: "Answer recorded questions from the code with walkthrough_note (status resolved, resolution = the answer); leave unknowable ones open. There is no change to judge, so do not treat todos or comments as review work.",
-      deliver: "a short recap in prose of what the reader should now hold in their head (the main pieces and how they fit, in two or three sentences), what you resolved, what remains open, and 2 to 4 specific follow-ups in the user's voice that go deeper into particular pieces of this code. Do not offer a review or code changes.",
+      notes: "Propose answers to recorded questions from the code with walkthrough_note (proposedResolution = the answer); propose nothing for unknowable ones. There is no change to judge, so do not treat todos or comments as review work.",
+      deliver: "a short recap in prose of what the reader should now hold in their head (the main pieces and how they fit, in two or three sentences), which notes you proposed outcomes for, what remains open, and 2 to 4 specific follow-ups in the user's voice that go deeper into particular pieces of this code. Do not offer a review or code changes.",
     };
   }
   return {
-    notes: "Answer recorded questions from code, diff, tests, and commits with walkthrough_note (status resolved, resolution = the answer); leave unknowable ones open. Do not act on todos yet.",
-    deliver: "a short recap in prose (what the change does and whether it looks consistent, in two or three sentences), what you resolved, what remains open, and 2 to 4 specific follow-ups in the user's voice that you can answer or write yourself, such as turning the todos into a plan; work on the code is done by the user's own thread, so do not offer to do it.",
+    notes: "Propose answers to recorded questions from code, diff, tests, and commits with walkthrough_note (proposedResolution = the answer); propose nothing for unknowable ones. Do not act on todos yet.",
+    deliver: "a short recap in prose (what the change does and whether it looks consistent, in two or three sentences), which notes you proposed outcomes for, what remains open, and 2 to 4 specific follow-ups in the user's voice that you can answer or write yourself, such as turning the todos into a plan; work on the code is done by the user's own thread, so do not offer to do it.",
   };
 }
 
@@ -168,7 +170,7 @@ export function wrapUpMessage(walkthrough: Walkthrough, notes: Note[]): string {
     `Parts:\n${describeOutline(walkthrough)}`,
     `Notes:\n${describeNotesForAgent(walkthrough, notes)}`,
     guidance.notes,
-    `Then call walkthrough_wrap_up with ${guidance.deliver} A note you leave open stays open: do not call it resolved while saying the concern stands.`,
+    `Then call walkthrough_wrap_up with ${guidance.deliver} Notes are the reader's: you only propose outcomes, so never say a note is resolved, closed, or done; the reader accepts or dismisses each proposal.`,
   ].join("\n\n");
 }
 

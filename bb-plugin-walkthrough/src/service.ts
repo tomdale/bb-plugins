@@ -72,6 +72,8 @@ export interface NoteInput {
 
 export interface NotePatch {
   includeInReview?: boolean | undefined;
+  /** What the helper suggests the outcome is; only the reader's accept turns it into a resolution. */
+  proposedResolution?: string | null | undefined;
   kind?: NoteKind | undefined;
   text?: string | undefined;
   status?: NoteStatus | undefined;
@@ -961,12 +963,14 @@ export class WalkthroughService {
   updateNote(walkthroughId: string, noteId: string, patch: NotePatch, author: Note["author"]): Note {
     const note = this.store.note(walkthroughId, noteId);
     if (note === null) throw new WalkthroughError(`No note ${JSON.stringify(noteId)} in this walkthrough.`);
+    const { status, resolution, proposedResolution } = this.noteOutcome(note, patch, author);
     const next: Note = {
       ...note,
       kind: patch.kind ?? note.kind,
       text: patch.text?.trim() || note.text,
-      status: patch.status ?? note.status,
-      resolution: patch.resolution === undefined ? note.resolution : patch.resolution?.trim() || null,
+      status,
+      resolution,
+      proposedResolution,
       includeInReview: patch.includeInReview ?? (patch.kind !== undefined && patch.kind !== note.kind ? patch.kind === "comment" : (note.includeInReview ?? note.kind === "comment")),
       // A note that changed is news to the thread again.
       sentAt: patch.text !== undefined || patch.kind !== undefined || (patch.status === "open" && note.status !== "open") ? null : note.sentAt ?? null,
@@ -975,6 +979,41 @@ export class WalkthroughService {
     this.store.saveNote(next, author === "agent");
     this.save(this.get(walkthroughId));
     return next;
+  }
+
+  /**
+   * What a note's outcome becomes under a patch. Only the reader closes a note:
+   * when the helper tries to resolve one (or sets its resolution), what it wrote
+   * is kept as a proposal and the note stays open for the reader to accept or
+   * dismiss. A reader's own change to a note's text, kind or status settles any
+   * pending proposal, since it was a suggestion about the note as it was.
+   */
+  private noteOutcome(note: Note, patch: NotePatch, author: Note["author"]): { status: NoteStatus; resolution: string | null; proposedResolution: string | null } {
+    const proposed = note.proposedResolution ?? null;
+    if (author === "agent") {
+      const suggested = patch.proposedResolution !== undefined ? patch.proposedResolution : patch.status === "resolved" || patch.resolution !== undefined ? patch.resolution : undefined;
+      return { status: note.status, resolution: note.resolution, proposedResolution: suggested === undefined ? proposed : suggested?.trim() || null };
+    }
+    const settles = patch.text !== undefined || patch.kind !== undefined || patch.status !== undefined;
+    return {
+      status: patch.status ?? note.status,
+      resolution: patch.resolution === undefined ? note.resolution : patch.resolution?.trim() || null,
+      proposedResolution: patch.proposedResolution !== undefined ? patch.proposedResolution?.trim() || null : settles ? null : proposed,
+    };
+  }
+
+  /** The reader accepts the helper's proposed outcome: the note closes with it as its resolution. */
+  acceptResolution(walkthroughId: string, noteId: string): Note {
+    const note = this.store.note(walkthroughId, noteId);
+    if (note === null) throw new WalkthroughError(`No note ${JSON.stringify(noteId)} in this walkthrough.`);
+    const proposed = note.proposedResolution?.trim();
+    if (!proposed) throw new WalkthroughError("There is no proposed outcome to accept for this note.");
+    return this.updateNote(walkthroughId, noteId, { status: "resolved", resolution: proposed }, "user");
+  }
+
+  /** The reader dismisses the helper's proposal; the note stays as it was. */
+  dismissResolution(walkthroughId: string, noteId: string): Note {
+    return this.updateNote(walkthroughId, noteId, { proposedResolution: null }, "user");
   }
 
   deleteNote(walkthroughId: string, noteId: string): boolean {
