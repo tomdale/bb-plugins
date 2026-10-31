@@ -295,9 +295,52 @@ export type MergedReviewDraft = Omit<ReviewDraft, "comments"> & { comments: Deri
 // Text for the worker
 // ---------------------------------------------------------------------------
 
-export function describeNoteForAgent(walkthrough: Walkthrough, note: Note): string {
+/**
+ * The letter the reader sees beside each of their own notes (a, b, … z, aa):
+ * the same sequence the pane draws, so text sent to the thread or shown in
+ * the wrap-up can say "your note (a)" instead of an internal id.
+ */
+export function noteMarkers(notes: Array<{ id: string; author: string; createdAt: number }>): Map<string, string> {
+  const own = notes.filter((note) => note.author === "user").sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return new Map(own.map((note, index) => [note.id, markerLetters(index)]));
+}
+
+function markerLetters(index: number): string {
+  let rest = index;
+  let out = "";
+  do {
+    out = String.fromCharCode(97 + (rest % 26)) + out;
+    rest = Math.floor(rest / 26) - 1;
+  } while (rest >= 0);
+  return out;
+}
+
+/** How a reader-facing sentence names a note: "your todo (b)"; the helper's own notes have no marker. */
+function noteMention(note: Pick<Note, "kind" | "author">, marker: string | undefined): string {
+  const kind = NOTE_KIND_LABEL[note.kind].toLowerCase();
+  return note.author === "user" && marker ? `your ${kind} (${marker})` : `the helper's ${kind}`;
+}
+
+/**
+ * Replaces internal note ids ("n2") in text a reader will see with how the pane
+ * names the note. The worker is told never to write ids; this is the net for
+ * when it does. Only ids of real notes are touched.
+ */
+export function scrubNoteIds(text: string, notes: Note[]): string {
+  if (!/\bn\d+\b/u.test(text)) return text;
+  const markers = noteMarkers(notes);
+  const byId = new Map(notes.map((note) => [note.id, note]));
+  return text.replace(/\bn\d+\b/gu, (id) => {
+    const note = byId.get(id);
+    return note ? noteMention(note, markers.get(id)) : id;
+  });
+}
+
+/** One note for the worker: its id (the tools take it) and the marker the reader sees. */
+export function describeNoteForAgent(walkthrough: Walkthrough, note: Note, markers: Map<string, string> = new Map()): string {
   const locus = noteLocus(walkthrough, note);
-  const parts = [`${note.id} ${NOTE_KIND_LABEL[note.kind].toLowerCase()}`];
+  const marker = markers.get(note.id);
+  const parts = [`${note.id}${marker ? ` (reader's marker: ${marker})` : ""} ${NOTE_KIND_LABEL[note.kind].toLowerCase()}`];
   if (note.status === "resolved") parts.push("resolved");
   const head = `${parts.join(", ")}${locus ? ` [${locus}]` : ""}`;
   const lines = [`- ${head}: ${JSON.stringify(note.text)}`];
@@ -307,13 +350,22 @@ export function describeNoteForAgent(walkthrough: Walkthrough, note: Note): stri
   return lines.join("\n");
 }
 
+/** One note as the reader's own thread receives it: named the way the reader sees it, never by an internal id. */
+export function describeNoteForThread(walkthrough: Walkthrough, note: Note, markers: Map<string, string>): string {
+  const locus = noteLocus(walkthrough, note);
+  const lines = [`- ${noteMention(note, markers.get(note.id))}${locus ? ` [${locus}]` : ""}: ${JSON.stringify(note.text)}`];
+  if (note.quote) lines.push(`  quoted: ${JSON.stringify(note.quote.slice(0, 400))}`);
+  return lines.join("\n");
+}
+
 export function describeNotesForAgent(walkthrough: Walkthrough, notes: Note[]): string {
   if (notes.length === 0) return "No notes recorded.";
   const ordered = [
     ...NOTE_SECTIONS.flatMap((section) => notes.filter((note) => note.kind === section.kind && note.status === "open")),
     ...notes.filter((note) => note.status === "resolved"),
   ];
-  return ordered.map((note) => describeNoteForAgent(walkthrough, note)).join("\n");
+  const markers = noteMarkers(notes);
+  return ordered.map((note) => describeNoteForAgent(walkthrough, note, markers)).join("\n");
 }
 
 export function describeOutline(walkthrough: Walkthrough): string {
@@ -368,4 +420,9 @@ export function excerptCode(patch: string, view: ExcerptView): string {
   if (view === "after") return pick(" +").join("\n");
   if (view === "before") return pick(" -").join("\n");
   return lines.map((line) => `${line.marker}${line.text}`).join("\n");
+}
+
+/** The thread tab's title: "Walkthrough" until the walkthrough has a name of its own, then "Walkthrough: <name>". */
+export function tabTitle(title: string): string {
+  return title === "Walkthrough" || title.trim() === "" ? "Walkthrough" : `Walkthrough: ${title}`;
 }

@@ -3,7 +3,7 @@
 // bb.agents.configure in server.ts).
 import type { BbPluginApi, PluginAgentToolResult } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { COVERED_RESOLUTION, describeNoteForAgent, describeNotesForAgent, describeOutline, mergedReviewDraft, NOTE_KIND_LABEL } from "./model.ts";
+import { COVERED_RESOLUTION, describeNoteForAgent, describeNotesForAgent, describeOutline, mergedReviewDraft, NOTE_KIND_LABEL, noteMarkers } from "./model.ts";
 import {
   blockInputSchema,
   intentSchema,
@@ -63,7 +63,16 @@ export const OPEN_INSTRUCTIONS = [
   "After the call, say in one short line that the Walkthrough pane is open beside this thread and fills in as the helper writes each part, then carry on with anything else they asked.",
 ].join("\n\n");
 
-export function registerTools(bb: BbPluginApi, service: WalkthroughService, panelOpensItself: () => Promise<boolean> = async () => true): void {
+/**
+ * `persistTab` writes the walkthrough's tab into the thread's persisted tabs, so
+ * the Walkthrough panel leads to it for any client that views the thread later.
+ */
+export function registerTools(
+  bb: BbPluginApi,
+  service: WalkthroughService,
+  panelOpensItself: () => Promise<boolean> = async () => true,
+  persistTab: (walkthrough: { id: string; threadId: string; title: string }) => Promise<boolean> = async () => false,
+): void {
   bb.agents.registerTool({
     name: "walkthrough_open",
     description: OPEN_DESCRIPTION,
@@ -82,9 +91,11 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService, pane
     execute: ({ request }, ctx) =>
       guard(async () => {
         if (service.byWorker(ctx.threadId)) return failure("This thread is already writing a walkthrough.");
-        await service.start(ctx.threadId, request);
+        const started = await service.start(ctx.threadId, request);
         // The pane opens itself on the user's screen when the setting allows it; say which, so the thread never claims a pane that is not there.
-        return (await panelOpensItself())
+        const opens = await panelOpensItself();
+        if (opens) await persistTab(started);
+        return opens
           ? "The Walkthrough pane is open beside this thread now, showing the walkthrough getting ready; the helper's first part appears there as soon as it is written, usually within a minute. Tell the user that in one short line; do not narrate the code here, and do not offer to check on or summarize the helper's progress, since you cannot see it."
           : "The walkthrough is being prepared, but the user turned off opening the pane automatically: tell them in one short line to open it from this thread's Walkthrough panel (the + menu), where it is listed and fills in as the helper writes. Do not narrate the code here, and do not offer to check on the helper's progress, since you cannot see it.";
       }),
@@ -270,7 +281,7 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService, pane
             { kind: input.kind, text: input.text, status: input.status, resolution: input.resolution, proposedResolution: input.proposedResolution },
             "agent",
           );
-          return `${note.proposedResolution && note.proposedResolution !== (before?.proposedResolution ?? null) ? `Proposed an outcome for ${note.id}; it stays open until the reader accepts it.` : "Updated."}\n${describeNoteForAgent(service.get(walkthrough.id), note)}`;
+          return `${note.proposedResolution && note.proposedResolution !== (before?.proposedResolution ?? null) ? `Proposed an outcome for ${note.id}; it stays open until the reader accepts it.` : "Updated."}\n${describeNoteForAgent(service.get(walkthrough.id), note, noteMarkers(service.notes(walkthrough.id)))}`;
         }
         if (!input.kind || !input.text) return failure("kind and text are required to add a note.");
         const note = service.addNote(

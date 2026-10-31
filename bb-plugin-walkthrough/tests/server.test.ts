@@ -186,7 +186,7 @@ describe("walkthrough orchestration", () => {
     await idle("stopped writing");
     await settle();
     expect(sent.at(-1)!.text).toContain("The user is wrapping up");
-    expect(sent.at(-1)!.text).toContain('n1 todo [Keeping speech requests small · tts.ts:3]: "Name the cap"');
+    expect(sent.at(-1)!.text).toContain('n1 (reader\'s marker: a) todo [Keeping speech requests small · tts.ts:3]: "Name the cap"');
     await tool("walkthrough_wrap_up", { blocks: [{ kind: "prose", text: "We covered the cap." }], followUps: ["Make the todo"] });
     await idle("Wrapped.");
     await settle();
@@ -195,7 +195,7 @@ describe("walkthrough orchestration", () => {
 
     expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: true });
     expect(sent.at(-1)).toMatchObject({ threadId: THREAD });
-    expect(sent.at(-1)!.text).toContain('n1 todo [Keeping speech requests small · tts.ts:3]: "Name the cap"');
+    expect(sent.at(-1)!.text).toContain('your todo (a) [Keeping speech requests small · tts.ts:3]: "Name the cap"');
 
     await rpc("close", { walkthroughId });
     current = await view(walkthroughId);

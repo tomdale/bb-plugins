@@ -3,7 +3,7 @@
 // the pane can read them without guarding, and fills them again for any row
 // that reached here by another path.
 import { computeCoverage } from "./coverage.ts";
-import { intentCopy } from "./model.ts";
+import { intentCopy, scrubNoteIds } from "./model.ts";
 import {
   defaultIntent,
   type Block,
@@ -40,11 +40,37 @@ export function deliverNote(note: Note): DeliveredNote {
   return { ...note, includeInReview: note.includeInReview ?? note.kind === "comment", proposedResolution: note.proposedResolution ?? null };
 }
 
+/** The worker's prose, with any internal note id it wrote replaced by the name the pane gives the note. */
+function scrubPart(part: DeliveredPart, notes: Note[]): DeliveredPart {
+  const scrub = (text: string) => scrubNoteIds(text, notes);
+  return {
+    ...part,
+    summary: scrub(part.summary),
+    message: part.message === null ? null : scrub(part.message),
+    blocks: part.blocks.map((block) => (block.kind === "prose" ? { ...block, text: scrub(block.text) } : block)),
+    discussion: part.discussion.map((exchange) => ({ ...exchange, answer: scrub(exchange.answer) })),
+  };
+}
+
 export function deliverView(view: { walkthrough: Walkthrough; notes: Note[]; reviewDraft: WalkthroughView["reviewDraft"] }): WalkthroughView {
-  const walkthrough = deliverWalkthrough(view.walkthrough);
+  const delivered = deliverWalkthrough(view.walkthrough);
+  const walkthrough: DeliveredWalkthrough = {
+    ...delivered,
+    message: delivered.message === null ? null : scrubNoteIds(delivered.message, view.notes),
+    introduction: scrubNoteIds(delivered.introduction, view.notes),
+    parts: delivered.parts.map((part) => scrubPart(part, view.notes)),
+    wrapUp: delivered.wrapUp && scrubPart(delivered.wrapUp, view.notes),
+  };
   return {
     walkthrough,
-    notes: view.notes.map(deliverNote),
+    notes: view.notes.map((note) => {
+      const delivered = deliverNote(note);
+      return {
+        ...delivered,
+        resolution: delivered.resolution == null ? null : scrubNoteIds(delivered.resolution, view.notes),
+        proposedResolution: delivered.proposedResolution == null ? null : scrubNoteIds(delivered.proposedResolution, view.notes),
+      };
+    }),
     coverage: computeCoverage(view.walkthrough, view.walkthrough.changeSet),
     copy: intentCopy(walkthrough),
     reviewDraft: view.reviewDraft,

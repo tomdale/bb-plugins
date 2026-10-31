@@ -17,6 +17,8 @@ import type { Place, StreamPayload, StreamRequestKind, StreamState, WorkerReques
 export const POLL_BASE_MS = 120;
 /** Longest the tail waits between polls while the worker is quiet. */
 export const POLL_MAX_MS = 300;
+/** Shortest time between two looks at what the helper is doing besides writing. */
+export const WORK_EVERY_MS = 1000;
 /** Shortest time between two publishes for one walkthrough. */
 export const PUBLISH_MIN_MS = 60;
 /** How often an answer is saved to the walkthrough while it streams, so a reload shows progress. */
@@ -48,6 +50,12 @@ export interface TailDeps {
   /** One page (at most 100) of delta events after `afterSeq`, oldest first. */
   readDeltas(threadId: string, afterSeq: number): Promise<DeltaRow[]>;
   publish(payload: StreamPayload): void;
+  /**
+   * Work the helper has started after `afterSeq` (reading, searching, running
+   * commands; not its own writing or the walkthrough tools): how many, and the
+   * highest event seq seen. Optional; asked about only for the plan turn.
+   */
+  readWork?(threadId: string, afterSeq: number): Promise<{ count: number; cursor: number }>;
   /** Saves an answer so far; called at most every PERSIST_EVERY_MS. */
   persist?(target: TailTarget, text: string): void;
   log?(message: string): void;
@@ -121,6 +129,10 @@ interface Tracker {
   dirty: boolean;
   lastPublishAt: number;
   lastPersistAt: number;
+  /** Things the helper has started besides writing, read up to `workCursor`. */
+  steps: number;
+  workCursor: number;
+  lastWorkAt: number;
   published: boolean;
   polling: Promise<void> | null;
   finishing: boolean;
@@ -161,6 +173,9 @@ export class StreamTail {
       dirty: false,
       lastPublishAt: Number.NEGATIVE_INFINITY,
       lastPersistAt: Number.NEGATIVE_INFINITY,
+      steps: 0,
+      workCursor: target.afterSeq,
+      lastWorkAt: Number.NEGATIVE_INFINITY,
       published: false,
       polling: null,
       finishing: false,
@@ -240,7 +255,18 @@ export class StreamTail {
       seq: tracker.collector.cursor,
       text: tracker.collector.text,
       state,
+      ...(tracker.steps > 0 ? { steps: tracker.steps } : {}),
     };
+  }
+
+  /** Counts the helper's work for the plan turn, at most once a second; true when the count grew. */
+  private async lookAtWork(tracker: Tracker): Promise<boolean> {
+    if (tracker.kind !== "plan" || !this.deps.readWork || this.now() - tracker.lastWorkAt < WORK_EVERY_MS) return false;
+    tracker.lastWorkAt = this.now();
+    const { count, cursor } = await this.deps.readWork(tracker.target.workerThreadId, tracker.workCursor);
+    tracker.workCursor = Math.max(tracker.workCursor, cursor);
+    tracker.steps += count;
+    return count > 0;
   }
 
   private publish(tracker: Tracker, state: StreamState): void {
@@ -275,7 +301,8 @@ export class StreamTail {
     const run = (async () => {
       try {
         const changed = tracker.collector.apply(await this.readAll(tracker));
-        if (changed) {
+        const worked = await this.lookAtWork(tracker).catch(() => false);
+        if (changed || worked) {
           tracker.dirty = true;
           tracker.idlePolls = 0;
         } else tracker.idlePolls += 1;

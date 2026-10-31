@@ -91,3 +91,15 @@ export function citedPaths(walkthrough: Pick<Walkthrough, "workspacePath">, part
   for (const location of part.locations) paths.add(workspaceRelativePath(location.path, walkthrough.workspacePath) ?? location.path);
   return [...paths].sort();
 }
+
+/**
+ * The files an explanation drew on: every file a written part or the wrap-up
+ * cites in a figure. An overview has no change set to measure against, so this
+ * is its counterpart to the coverage strip. Sorted, workspace-relative.
+ */
+export function filesRead(walkthrough: Pick<Walkthrough, "workspacePath" | "parts" | "wrapUp">): string[] {
+  const read = new Set<string>();
+  const parts = walkthrough.wrapUp ? [...walkthrough.parts, walkthrough.wrapUp] : walkthrough.parts;
+  for (const part of parts) citedBy(walkthrough, part).shown.forEach((path) => read.add(path));
+  return [...read].sort();
+}

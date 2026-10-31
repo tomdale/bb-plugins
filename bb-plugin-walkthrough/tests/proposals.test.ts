@@ -96,7 +96,7 @@ describe("asking the thread to apply open items", () => {
     const { rpc, walkthroughId, toThread } = await withTodos();
     const { draft } = await rpc("prepareHandOff", { walkthroughId });
     expect(draft.noteIds).toEqual(["n1", "n2"]);
-    expect(draft.message).toContain('n1 todo [Keeping speech requests small]: "Name the cap"');
+    expect(draft.message).toContain('your todo (a) [Keeping speech requests small]: "Name the cap"');
     expect(toThread()).toHaveLength(0);
     expect((await rpc("get", { walkthroughId })).view.notes.every((note: any) => !note.sentAt)).toBe(true);
   });

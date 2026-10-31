@@ -71,6 +71,8 @@ export const walkthroughSummarySchema = z
     currentPart: z.number().int().nonnegative().nullable(),
     openNotes: z.number().int().nonnegative(),
     createdAt: z.number(),
+    /** When the walkthrough last changed: a client arriving later opens only walkthroughs that are still live. */
+    updatedAt: z.number().optional(),
   })
   .strict();
 export type WalkthroughSummary = z.infer<typeof walkthroughSummarySchema>;

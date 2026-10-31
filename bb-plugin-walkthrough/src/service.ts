@@ -15,7 +15,7 @@ import { codeHostContract, type ChangedFiles, type CodeSnapshot } from "./code-c
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
-import { describeNoteForAgent, intentOf, mergedReviewDraft } from "./model.ts";
+import { describeNoteForThread, intentOf, mergedReviewDraft, noteMarkers } from "./model.ts";
 import { citedPaths } from "./coverage.ts";
 import { filterPatchToRange } from "./patch.ts";
 import { stripReplyWrapper } from "./reply-wrapper.ts";
@@ -114,6 +114,15 @@ function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
+const NOT_WORK = new Set(["reasoning", "agentMessage", "userMessage", "plan", "contextCompaction"]);
+
+/** Whether an `item/started` event is the helper looking at the code: not thinking, not talking, not calling one of this plugin's own tools. */
+export function isHelperWork(data: unknown): boolean {
+  const item = (data as { item?: { type?: unknown } } | null)?.item;
+  if (typeof item?.type !== "string" || NOT_WORK.has(item.type)) return false;
+  return !JSON.stringify(item).includes("walkthrough_");
+}
+
 export class WalkthroughService {
   /** The working-tree summary for each walkthrough's plan request, started when the walkthrough launches. */
   private readonly briefs = new Map<string, Promise<string | null>>();
@@ -122,6 +131,8 @@ export class WalkthroughService {
   private readonly locks = new Map<string, Promise<void>>();
   /** Follows the worker's message text while a plan, part, or answer is in flight. */
   readonly tail: StreamTail;
+  /** Called when the plan names the walkthrough, so its thread tab can take the name. */
+  onPlanned: ((walkthrough: Walkthrough) => void) | null = null;
 
   private readonly codeHost: ExperimentalHostClient<typeof codeHostContract>;
 
@@ -134,6 +145,7 @@ export class WalkthroughService {
     this.tail = new StreamTail(
       {
         readDeltas: (threadId, afterSeq) => this.readDeltas(threadId, afterSeq),
+        readWork: (threadId, afterSeq) => this.readWork(threadId, afterSeq),
         publish: (payload) => {
           if (payload.requestKind === "plan" && payload.text !== "") this.mark(payload.walkthroughId, "firstText");
           bb.realtime.publish(STREAM_CHANNEL, payload);
@@ -208,6 +220,23 @@ export class WalkthroughService {
       types: ["item/agentMessage/delta"],
     })) as unknown as Array<{ seq: number; data: { itemId?: string; delta?: string } }>;
     return rows.map((row) => ({ seq: row.seq, itemId: row.data.itemId ?? null, delta: typeof row.data.delta === "string" ? row.data.delta : "" }));
+  }
+
+  /** What the helper has started besides writing since `afterSeq`: reading files, searching, running commands. Its own message and reasoning, and the walkthrough tools, are not work the reader would care to hear about. */
+  private async readWork(threadId: string, afterSeq: number): Promise<{ count: number; cursor: number }> {
+    const rows = (await this.bb.sdk.threads.events.list({
+      threadId,
+      afterSeq: String(afterSeq),
+      limit: "100",
+      types: ["item/started"],
+    })) as unknown as Array<{ seq: number; data: { item?: { type?: string } } }>;
+    let count = 0;
+    let cursor = afterSeq;
+    for (const row of rows) {
+      cursor = Math.max(cursor, row.seq);
+      if (isHelperWork(row.data)) count += 1;
+    }
+    return { count, cursor };
   }
 
   /** Records when a first-paint stage was first reached, in ms after the walkthrough began; a later reach of the same stage is ignored. */
@@ -766,10 +795,12 @@ export class WalkthroughService {
    */
   prepareHandOff(id: string): { message: string; noteIds: string[] } | null {
     const walkthrough = this.get(id);
-    const open = this.store.notes(id).filter((note) => note.status === "open" && !note.sentAt && (note.kind === "todo" || note.kind === "question"));
+    const everyNote = this.store.notes(id);
+    const markers = noteMarkers(everyNote);
+    const open = everyNote.filter((note) => note.status === "open" && !note.sentAt && (note.kind === "todo" || note.kind === "question"));
     if (open.length === 0) return null;
     const subject = walkthrough.pr ? `PR #${walkthrough.pr.number}${walkthrough.pr.url ? ` (${walkthrough.pr.url})` : ""}` : walkthrough.title;
-    const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
+    const lines = open.map((note) => describeNoteForThread(walkthrough, note, markers));
     const intro =
       intentOf(walkthrough) === "understand"
         ? `From my walkthrough of ${subject}. While reading how this code works I recorded these follow-ups; act on the todos and answer the questions here, in this thread:`
@@ -853,6 +884,7 @@ export class WalkthroughService {
     next = this.scheduleWrites(next);
     const saved = this.save(next);
     this.mark(saved.id, "planned");
+    this.onPlanned?.(saved);
     void this.refreshChangeSet(saved.id);
     if (saved.inFlight === null) void this.pump(saved.id);
     return saved;

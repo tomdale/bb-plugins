@@ -461,6 +461,8 @@ export const streamPayloadSchema = z
     seq: z.number().int().nonnegative(),
     text: z.string(),
     state: streamStateSchema,
+    /** For the plan turn: how many things the helper has started doing (reading, searching, running) other than writing. Omitted until it has done one. */
+    steps: z.number().int().nonnegative().optional(),
   })
   .strict();
 export type StreamPayload = z.infer<typeof streamPayloadSchema>;

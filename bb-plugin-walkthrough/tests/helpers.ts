@@ -4,7 +4,7 @@ import plugin from "../server.ts";
 export const THREAD = "thr_user";
 export const WORKER = "thr_worker";
 
-export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }> } = {}) {
+export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }>; tabs?: { get: (args: { threadId: string }) => unknown; update: (args: { threadId: string; expectedRevision: number; tabs: any[] }) => unknown } } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
@@ -41,6 +41,7 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
                   : []) as never,
         },
         queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },
+        ...(options.tabs ? { tabs: options.tabs as never } : {}),
       },
       environments: {
         get: async () => ({ id: "env_1", hostId: "host_1", path: "/work/repo" }) as never,

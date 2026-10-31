@@ -6,6 +6,7 @@ import { deliverView } from "./src/deliver.ts";
 import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
 import type { Walkthrough } from "./src/schemas.ts";
 import { saveNotes } from "./src/save-notes.ts";
+import { WalkthroughTabs } from "./src/tabs.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
 import { isWorker, registerTools, USER_TOOLS, WORKER_TOOLS } from "./src/tools.ts";
@@ -47,9 +48,13 @@ export default function plugin(bb: BbPluginApi) {
     currentPart: walkthrough.currentPart,
     openNotes: service.notes(walkthrough.id).filter((note) => note.status === "open").length,
     createdAt: walkthrough.createdAt,
+    updatedAt: walkthrough.updatedAt,
   });
 
-  registerTools(bb, service, async () => (await settings.get()).autoOpenPanel !== false);
+  const tabs = new WalkthroughTabs(bb);
+  // A tab the server wrote takes the walkthrough's name once the plan gives it one.
+  service.onPlanned = (walkthrough) => void tabs.ensure(walkthrough, { onlyIfPresent: true });
+  registerTools(bb, service, async () => (await settings.get()).autoOpenPanel !== false, (walkthrough) => tabs.ensure(walkthrough));
   bb.agents.configure((context) =>
     isWorker(context.pluginMetadata)
       ? { tools: [...WORKER_TOOLS], skills: [], instructions: WORKER_GUIDE }
