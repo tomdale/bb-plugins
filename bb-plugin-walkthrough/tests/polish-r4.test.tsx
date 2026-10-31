@@ -48,3 +48,24 @@ describe("an excluded comment", () => {
     expect(item("n1").classList.contains("wt-it-excluded")).toBe(false);
   });
 });
+
+describe("Save notes", () => {
+  for (const intent of ["review", "own-change", "understand"] as const) {
+    it(`is offered in a ${intent} wrap-up and saves the open notes`, async () => {
+      stubWidth(480);
+      const w = walkthrough({ status: "wrapping-up", intent, mode: intent === "review" ? "pr" : "local", pr: intent === "review" ? { number: 2, url: "https://github.com/o/r/pull/2", title: "T" } : null, currentPart: 0, parts: [part("Schema")], wrapUp: part("W", { blocks: [{ kind: "prose", text: "Done here." }] }) });
+      const notes = [note({ id: "n1", kind: "note", text: "Remember this" })];
+      const slot = await mountPage("wt_1", {
+        get: () => ({ view: { walkthrough: w, notes, reviewDraft: mergedReviewDraft(w, notes) } }),
+        saveNotes: () => ({ threadId: "thr_1", path: "walkthrough-notes/x.md", absolutePath: "/s/walkthrough-notes/x.md", notes: 1 }),
+      });
+      await slot.findByText("Done here.");
+      const button = slot.getByRole("button", { name: "Save notes" }) as HTMLButtonElement;
+      expect(button.closest(".wt-pager")).not.toBeNull();
+      expect(button.disabled).toBe(false);
+      fireEvent.click(button);
+      await waitFor(() => expect(slot.inspection.rpcCalls.some((call) => call.method === "saveNotes")).toBe(true));
+      await waitFor(() => expect(slot.getByRole("button", { name: "Saved" })).toBeTruthy());
+    });
+  }
+});

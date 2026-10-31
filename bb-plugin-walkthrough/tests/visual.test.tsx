@@ -116,11 +116,11 @@ describe("page chrome", () => {
     expect(heading.nextElementSibling?.className).toContain("wt-subject");
   });
 
-  it("places the selection toolbar above a selection, and below the line under one with no room above it", async () => {
+  it("places the selection toolbar above a selection, and in room made above its paragraph when there is none", async () => {
     const rectAt = (top: number) => ({ top, bottom: top + 20, left: 40, right: 80, width: 40, height: 20, x: 40, y: top, toJSON() {} }) as DOMRect;
     // The toolbar measures itself; jsdom has no layout, so it is 34px tall here.
     const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(34);
-    for (const [top, expected] of [[400, 360], [10, 30 + 20.8 + 4]] as const) {
+    for (const [top, expected, side] of [[400, 360, "above"], [10, 4, "reserve"]] as const) {
       const slot = await mountPage("wt_1", viewOf(walkthrough()));
       (Range.prototype as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () => rectAt(top);
       const paragraph = (await slot.findByText("The schema comes first.")).firstChild!;
@@ -131,8 +131,10 @@ describe("page chrome", () => {
       window.getSelection()!.addRange(range);
       fireEvent.mouseUp(paragraph.parentElement!);
       const toolbar = await slot.findByRole("toolbar");
-      // With no room above, it clears the line under the selection (a 1.3em line in jsdom, which has no layout).
+      // With no room above, the paragraph moves down and the toolbar takes the room: no line of prose is covered.
+      expect(toolbar.getAttribute("data-side")).toBe(side);
       expect(parseFloat(toolbar.style.top)).toBeCloseTo(expected, 1);
+      expect(paragraph.parentElement!.closest<HTMLElement>(".wt-prose > *, .wt-prose p")?.style.marginTop ?? "").toBe(side === "reserve" ? `${34 + 6 + 4}px` : "");
       slot.unmount();
       mounted.pop();
     }
@@ -177,7 +179,7 @@ describe("round two: geometry, stacking and focus", () => {
   });
 
   it("rings a focused control in a colour that reads as yellow, never yellow on yellow, and never past a track", () => {
-    expect(css).toMatch(/--wt-ring: color-mix\(in srgb, #ffcc00 70%, transparent\)/u);
+    expect(css).toMatch(/--wt-ring: color-mix\(in srgb, #ffb400 88%, transparent\)/u);
     expect(css).not.toMatch(/--wt-ring: #b88a00/u);
     expect(rule(".wt-chip[data-selected]:focus-visible")).toContain("outline-color: color-mix(in srgb, var(--wt-ink)");
     expect(rule(".wt-seg button:focus-visible")).toContain("outline-offset: -2px");

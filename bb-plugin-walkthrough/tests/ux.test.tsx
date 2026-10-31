@@ -354,7 +354,7 @@ describe("wrap-up actions and counts", () => {
     const slot = await mountPage("wt_1", viewOf(wrapped(), [note({ id: "n1", kind: "todo" })]));
     await slot.findByText("That is the change.");
     const actions = Array.from(slot.container.querySelectorAll<HTMLElement>(".wt-pager .wt-pager-actions button"));
-    expect(actions.map((button) => button.textContent)).toEqual(["Send open items to thread"]);
+    expect(actions.map((button) => button.textContent)).toEqual(["Send open items to thread", "Save notes"]);
     expect(actions[0]!.closest(".wt-scroll")).toBeNull();
     expect(slot.container.querySelector(".wt-scroll")!.textContent).not.toContain("Send open items to thread");
   });

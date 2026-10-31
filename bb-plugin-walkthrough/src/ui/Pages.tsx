@@ -478,28 +478,34 @@ export function WrapUpActions({ walkthrough, notes, draft, rpc, send }: { walkth
       fail(cause);
     }
   };
-  if (intent === "review") return <PostReviewControl walkthrough={walkthrough} draft={draft} rpc={rpc} />;
   const sentAll = unsent === 0 && sentBefore;
   const sendButton = (primary: boolean) => (
     <button type="button" className={cn("wt-btn", primary ? "wt-btn-primary" : "wt-btn-quiet")} disabled={send.sending || unsent === 0} onClick={send.openDialog} data-sent={sentAll ? "" : undefined}>
       {sentAll ? "Sent to thread" : send.title}
     </button>
   );
-  if (intent === "own-change") return sendButton(true);
+  // Notes are the reader's whatever they came to do, so every wrap-up can keep them; the primary action differs by intent.
+  const saveButton = (primary: boolean) => (
+    <button type="button" className={cn("wt-btn", primary && !savedNow ? "wt-btn-primary" : "wt-btn-quiet")} disabled={savedNow || openNotes === 0} data-sent={savedNow ? "" : undefined} onClick={() => void saveNotes()}>
+      {savedNow ? "Saved" : "Save notes"}
+    </button>
+  );
+  const savedLine = saved ? (
+    <span className="wt-muted wt-saved" role="status">
+      Saved to this thread&rsquo;s storage:{" "}
+      <FileLink target={{ kind: "thread-storage", threadId: saved.result.threadId, path: saved.result.path }} className="wt-loc">
+        {saved.result.path.split("/").pop()}
+      </FileLink>
+    </span>
+  ) : null;
   return (
     <>
-      <button type="button" className={cn("wt-btn", savedNow ? "wt-btn-quiet" : "wt-btn-primary")} disabled={savedNow || openNotes === 0} data-sent={savedNow ? "" : undefined} onClick={() => void saveNotes()}>
-        {savedNow ? "Saved" : "Save notes"}
-      </button>
-      {sendButton(false)}
-      {saved ? (
-        <span className="wt-muted wt-saved" role="status">
-          Saved to this thread&rsquo;s storage:{" "}
-          <FileLink target={{ kind: "thread-storage", threadId: saved.result.threadId, path: saved.result.path }} className="wt-loc">
-            {saved.result.path.split("/").pop()}
-          </FileLink>
-        </span>
-      ) : null}
+      {intent === "review" ? <PostReviewControl walkthrough={walkthrough} draft={draft} rpc={rpc} /> : null}
+      {intent === "own-change" ? sendButton(true) : null}
+      {intent === "understand" ? saveButton(true) : null}
+      {intent === "understand" ? sendButton(false) : null}
+      {intent !== "understand" ? saveButton(false) : null}
+      {savedLine}
     </>
   );
 }
