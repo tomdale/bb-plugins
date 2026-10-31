@@ -423,7 +423,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
   border-radius: 18px;
   /* Nearly opaque: over a tinted diff, a thinner glass shows the tints as blotches. */
-  background: color-mix(in srgb, var(--wt-glass-solid) 92%, transparent);
+  background: color-mix(in srgb, var(--wt-glass-solid) 95%, transparent);
   display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px;
   box-shadow: 0 16px 40px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
   -webkit-backdrop-filter: blur(40px) saturate(1.1); backdrop-filter: blur(40px) saturate(1.1);
@@ -520,7 +520,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 /* The figure header gives the location its own line, so a long path is never squeezed to a letter. */
 @container wt (max-width: 540px) {
   .wt-fh { flex-wrap: wrap; height: auto; min-height: 32px; padding-block: 5px; row-gap: 4px; }
-  .wt-fh .wt-fh-where { flex: 1 0 100%; }
+  .wt .wt-fh .wt-fh-where { flex: 1 0 100%; }
 }
 
 /* A figure being written: it fades in once and carries a small pulsing dot until the part is saved. */

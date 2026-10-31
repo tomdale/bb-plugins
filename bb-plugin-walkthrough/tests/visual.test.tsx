@@ -225,7 +225,7 @@ describe("round two: geometry, stacking and focus", () => {
   });
 
   it("keeps the concerns sheet nearly opaque, so a tinted diff beneath it does not blotch", () => {
-    expect(rule(".wt-sheet")).toContain("var(--wt-glass-solid) 92%");
+    expect(rule(".wt-sheet")).toContain("var(--wt-glass-solid) 95%");
     expect(rule(".wt-sheet")).toContain("blur(40px) saturate(1.1)");
   });
 
