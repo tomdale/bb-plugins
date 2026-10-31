@@ -278,6 +278,10 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-figure { --wt-fig-pad: 14px; --wt-fig-l: 16px; margin: 18px -14px 18px -16px; position: relative; }
 /* Figures break out of the reading column, but only to about 900px. */
 .wt[data-wide] .wt-figure { max-width: 900px; }
+/* Figures size to what they hold: one with no code is as wide as a sentence, not 900px. */
+.wt-figure:has(.wt-fig-empty) { max-width: calc(var(--wt-measure) + 30px); }
+/* Margin notes hang past the figure's bottom rule instead of stretching it; a figure right after one makes room for them. */
+.wt-figure[data-hang] + .wt-figure { margin-top: calc(var(--wt-hang) + 12px); }
 .wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px var(--wt-fig-l); max-width: calc(var(--wt-measure) + 30px); font-variant-numeric: proportional-nums; }
 .wt-fig { position: relative; font: 11.5px/20px var(--wt-mono); border-block: 0.5px solid var(--wt-hair); }
 .wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad) 0 var(--wt-fig-l); color: var(--wt-mute); font-size: 11px; }
@@ -313,6 +317,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-swap { animation: wt-swap 0.22s ease-out; }
 @keyframes wt-swap { from { opacity: 0.15; } }
 .wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
+/* With no markers there is nothing for the marker column to hold, so the code starts at the figure's own inset. */
+.wt-figure:not(:has(.wt-mk), .wt-skel-figure) .wt-row { padding-left: var(--wt-fig-l); }
 .wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
 /* Note markers have their own column left of the line numbers, so a flagged line keeps its number. */
 /* Three overlapping markers span 40px, which ends before the numbers' digits begin, so a flagged line never touches its number. */
@@ -328,6 +334,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 /* Added and removed lines carry a sign and an edge as well as a tint, so the diff reads without colour. */
 .wt-add { background: var(--wt-add); box-shadow: inset 2px 0 0 var(--wt-add-edge); }
 .wt-del { background: var(--wt-del); box-shadow: inset 2px 0 0 var(--wt-del-edge); }
+/* A file that is added whole is not a change among unchanged lines; the tint would only make a slab, so its edge and signs carry it. */
+.wt-code-rows:where(:not(:has(.wt-del, .wt-row:not(.wt-add)))) .wt-add:not(.wt-hot) { background: none; }
 .wt-del .wt-text { opacity: 0.72; }
 .wt-add .wt-text::before, .wt-del .wt-text::before { position: absolute; left: -12px; width: 10px; text-align: center; font-weight: 600; }
 .wt-add .wt-text::before { content: "+"; color: var(--wt-add-ink); }

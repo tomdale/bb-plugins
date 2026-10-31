@@ -2,7 +2,7 @@
 // note markers, with each note hanging in the right margin on wide pages and
 // stacked under the code on narrow ones. Rows have a fixed height, so a note's
 // offset is arithmetic instead of measurement and nothing reflows after paint.
-import { useContext, useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useContext, useEffect, useId, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -150,11 +150,12 @@ function EmphasizedText({ text, ranges }: { text: string; ranges: Emphasis | und
  * It crosses the 18px gap between the figure and the margin, and is drawn in the
  * note's own box so it lights up with it.
  */
-function Leader({ drift }: { drift: number }) {
+function Leader({ drift, slot }: { drift: number; /** Which of the figure's notes this is; neighbours bend at different x so their leaders read as separate lines, not one bracket. */ slot: number }) {
   const d = Math.max(0, Math.round(drift));
   const elbow = d > 12;
   const height = elbow ? d + 1 : 1;
-  const path = elbow ? `M0 .5 H5 Q9 .5 9 4.5 V${d - 3.5} Q9 ${d + 0.5} 13 ${d + 0.5} H18` : "M0 .5 H18";
+  const x = 5 + (slot % 3) * 3;
+  const path = elbow ? `M0 .5 H${x - 4} Q${x} .5 ${x} 4.5 V${d - 3.5} Q${x} ${d + 0.5} ${x + 4} ${d + 0.5} H18` : "M0 .5 H18";
   return (
     <svg className="wt-leader" width={18} height={height} viewBox={`0 0 18 ${height}`} style={{ top: 10 - (elbow ? d : 0) }} aria-hidden>
       <path d={path} fill="none" stroke="currentColor" strokeWidth={1} />
@@ -208,9 +209,12 @@ export function Figure({
   annotations.forEach((annotation) => markerRows.set(annotation.row, [...(markerRows.get(annotation.row) ?? []), annotation]));
   // A figure with nothing to show has no rows for notes to point at: they collapse under it instead.
   const empty = !loading && rows.length === 0;
-  // The margin hangs outside the figure, so the figure must be at least as tall as the last note reaches.
+  // The margin hangs outside the figure and may run past its bottom rule: the notes are free to, since the column beside the next paragraph is empty.
+  // Only a figure that follows closely is moved down (see .wt-figure[data-hang] in app.css), so notes never collide with the next figure's.
   const last = annotations.at(-1);
-  const minHeight = wide && last && !empty ? (offsets.at(-1) ?? 0) + noteHeight(last) + MARGIN_NOTE_GAP : undefined;
+  const shownRows = clamped ? clampRows : rows.length;
+  const figureHeight = HEADER_HEIGHT + CODE_PAD * 2 + shownRows * ROW_HEIGHT;
+  const hang = wide && last && !empty ? Math.max(0, Math.ceil((offsets.at(-1) ?? 0) + noteHeight(last) - figureHeight)) : 0;
   const revision = shortSha(block.snapshot?.headSha) ?? shortSha(block.snapshot?.baseSha);
   const github = githubLink(walkthrough, block);
 
@@ -245,14 +249,14 @@ export function Figure({
   };
   const cursorLine = cursor === null ? null : (rows[cursor]?.newNo ?? null);
 
-  const note = (annotation: Annotation, drift = -1) => (
+  const note = (annotation: Annotation, drift = -1, slot = 0) => (
     <div
       key={annotation.key}
       className={cn("wt-mn", annotation.own && "wt-mn-own", hot === annotation.key && "wt-hot")}
       onMouseEnter={() => setHovered(annotation.key)}
       onMouseLeave={() => setHovered(null)}
     >
-      {drift >= 0 ? <Leader drift={drift} /> : null}
+      {drift >= 0 ? <Leader drift={drift} slot={slot} /> : null}
       <span className={cn("wt-m wt-m-inline", annotation.own && "wt-m-own")} aria-hidden>
         {annotation.glyph}
       </span>
@@ -264,26 +268,26 @@ export function Figure({
     annotations.length === 0 ? null : empty ? (
       <details className="wt-notes-collapsed">
         <summary>{annotations.length === 1 ? "1 note on this code" : `${annotations.length} notes on this code`}</summary>
-        <div className="wt-notes-stack">{annotations.map(note)}</div>
+        <div className="wt-notes-stack">{annotations.map((annotation) => note(annotation))}</div>
       </details>
     ) : wide ? (
       <div className="wt-margin" aria-label="Notes on this code">
         {annotations.map((annotation, index) => (
           <div key={annotation.key} className="wt-margin-slot" style={{ top: offsets[index] }}>
-            {note(annotation, (offsets[index] ?? 0) - (HEADER_HEIGHT + CODE_PAD + annotation.row * ROW_HEIGHT))}
+            {note(annotation, (offsets[index] ?? 0) - (HEADER_HEIGHT + CODE_PAD + annotation.row * ROW_HEIGHT), index)}
           </div>
         ))}
       </div>
     ) : (
       <div className="wt-notes-stack" aria-label="Notes on this code">
-        {annotations.map(note)}
+        {annotations.map((annotation) => note(annotation))}
       </div>
     );
 
   return (
-    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-streaming={streaming || undefined}>
+    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-streaming={streaming || undefined} data-hang={hang > 0 || undefined} style={hang > 0 ? ({ "--wt-hang": `${hang}px` } as CSSProperties) : undefined}>
       <figcaption className="wt-cap">{block.caption}</figcaption>
-      <div className="wt-fig" style={minHeight ? { minHeight } : undefined}>
+      <div className="wt-fig">
         <div className="wt-fh">
           <span className="wt-fh-where">
             <LocationLink files={walkthrough} location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }} className="wt-fh-loc" />
