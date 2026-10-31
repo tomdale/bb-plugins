@@ -831,3 +831,24 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** `variant: "composer"` on `ThreadChat`, or a
   `ThreadComposer` component taking `threadId`, `initialText`, `onSent`, and
   `onCancel`.
+
+## Syntax tokens from BB's highlighter, and lazily loaded plugin code
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100; Walkthrough builds against SDK 0.5.29
+- **Use case:** a figure that draws its own gutter, markers, word-level diff
+  overlay and row tints still wants syntax colour, from the same grammars BB
+  uses, and wants to load only the grammars a file needs
+- **Limit and evidence:** `experimental_SourceCode` and `experimental_Diff` render
+  a whole viewer (their own gutter and rows), so they cannot sit inside another
+  row layout; `experimental_useCodeTheme` returns a TextMate theme document but
+  no tokenizer. A plugin's `bb.app` bundle is one `app.js`: BB's server serves
+  only `app.js` and `app.css` from `dist/`, so a dynamic `import()` of a grammar
+  cannot become a lazily fetched chunk
+- **Workaround:** Walkthrough tokenizes in its server bundle with Shiki (grammars
+  are lazily initialised modules there) and answers a `highlight` RPC, adding
+  about 3 MB to `server.js` and nothing to `app.js`; the palette is its own
+  rather than BB's code theme
+- **Possible API:** a `tokenize(path, text)` call or hook returning per-line
+  `{ start, end, scopes }` tokens from BB's highlighter, and either chunked app
+  bundles served from `dist/` or an asset URL for plugin-owned lazy files
