@@ -66,8 +66,18 @@ there is no rail and no contents list.
     outcome for a note; the note stays open until you accept the proposal.
 - **Save notes:** the file goes to `walkthrough-notes/<title>-<id>.md` in the
   walkthrough thread's own storage, which is outside your repository, so it never
-  appears as untracked work. The same file is replaced each time. Nothing else is
+  appears as untracked work and needs no repository at all. The pane says "Saved
+  to this thread's storage" and links the file; the button then reads Saved until
+  your notes change. The same file is replaced each time. Nothing else is
   written to your workspace; there is no notes mirror.
+- **Notes are named the way you see them:** your flags wear letters (a, b, …);
+  text sent to your thread and the helper's wrap-up call them "your todo (b)",
+  never by an internal id.
+- **Coming back to a walkthrough:** the thread's Walkthrough panel starts with a
+  **Continue** card for the thread's live (or recently finished) walkthrough. When
+  an agent starts a walkthrough, a Walkthrough tab is added to the thread for
+  every client, and a client that loads the thread later opens a live
+  walkthrough it has not shown yet.
 - **Full page:** the overflow menu opens the walkthrough as a page of the BB
   window; the **Walkthroughs** sidebar entry lists recent walkthroughs from
   every thread.
@@ -123,7 +133,7 @@ nothing has changed.
 
 ## Settings
 
-`autoOpenPanel` (default on): open the pane when an agent starts a walkthrough.
+`autoOpenPanel` (default on): open the pane when an agent starts a walkthrough, and add its tab to the thread so it is there for every client.
 
 ## Development
 

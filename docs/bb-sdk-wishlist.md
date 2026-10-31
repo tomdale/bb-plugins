@@ -761,3 +761,30 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Limit and evidence:** `environments.diffPatch` and `diffFile` take `uncommitted`, `branch_committed`, `all` and `commit` targets; none names the index, and a file with no changes has no patch or side to read. In the UAT a staged-only change was reported as "No changes found" and a new staged file as "has no changes against HEAD"
 - **Workaround:** a read-only host entry runs git itself (`git diff <base>` for the working tree, `git status --porcelain`, `git diff --numstat -M`), and BB's APIs are the fallback
 - **Possible API:** a `staged` diff target, `includeUntracked` on `uncommitted`, and a `files.read`-like call that returns a workspace file at a revision (`HEAD`, the index, or the working tree)
+
+## Retitle or replace a thread panel tab from inside it
+
+- **Status:** not filed
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29 (Walkthrough UAT round 2)
+- **Use case:** the Walkthrough tab should read "Walkthrough: <title>" once the helper has named the walkthrough, whichever way the tab was opened, and the tab the starter lives in should become the walkthrough's own tab.
+- **Limit:** a thread panel component receives `params` but cannot change them, rename its tab, or replace itself; `useBbNavigate().openThreadPanel` can retitle only a tab whose params match, from a component that was itself opened with those params. A tab opened from the + menu has empty params, so the starter renders the walkthrough inside its own tab and that tab stays titled "Walkthrough". The persisted tabs API (`threads.tabs.update`) can write a titled tab, but only for tabs the server adds itself.
+- **Workaround:** the thread tool path writes a titled `plugin-panel` tab through `threads.tabs` when a walkthrough starts (so it also exists when no client is viewing the thread) and renames it when the plan arrives; a walkthrough started from the starter keeps the starter's tab, titled "Walkthrough".
+- **Possible API:** `useBbNavigate().setThreadPanelTitle(title)` for the calling tab, and an `openThreadPanel({ replaceCurrent: true })` that swaps the calling tab's params.
+
+## A header action that mounts without a thread view, and tab ids that are not derived by hand
+
+- **Status:** not filed
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29 (Walkthrough UAT round 2)
+- **Use case:** when an agent tool starts a walkthrough while nobody is viewing the thread (or only another device is), the thread's Walkthrough panel must still lead to it.
+- **Limit:** the only code that can open a panel is a component that is mounted in a client viewing the thread, so a walkthrough that began earlier is found only when someone loads the thread. The server can add a tab through `threads.tabs.update`, but the SDK has no helper for a plugin panel tab: its id is `plugin-panel:` + `encodeURIComponent("<pluginId>:<actionId>:<paramsJson>")` + `:none`, copied from what the host writes, and the bundled `tabs` types omit the `plugin-fixed` tabs that every thread carries, so a plugin has to round-trip tabs it cannot type.
+- **Workaround:** `src/tabs.ts` reads the thread's tabs, appends or renames the plugin-panel tab with the host's own id, passes the other tabs through untouched, retries on a revision conflict, and never fails the walkthrough if the write is refused. The header action also opens a live walkthrough when a client first views the thread, and the starter shows a Continue card.
+- **Possible API:** `threads.tabs.openPluginPanel({ threadId, actionId, params, title })` that is idempotent on the derived id, and bundled types that cover every tab kind the host returns.
+
+## What a worker is doing between two messages
+
+- **Status:** not filed
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29 (Walkthrough UAT round 2: an 11 s silence while the helper read files)
+- **Use case:** say honestly that the helper is reading while the page is quiet.
+- **Limit and evidence:** `item/started` events carry an `item.type` (`commandExecution`, `reasoning`, `agentMessage`, ...) whose set and fields differ by provider; there is no provider-neutral "the agent read this file" event, so a plugin can count steps but not name files.
+- **Workaround:** the tail counts `item/started` events that are not reasoning, messages or this plugin's own tools, and the pane says "Looking through the code · N steps so far". It does not claim a number of files.
+- **Possible API:** a normalized `thread.activity` event (`read`, `search`, `run`, with a path when there is one) that is the same on every provider.

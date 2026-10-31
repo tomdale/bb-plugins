@@ -209,6 +209,15 @@ Measured on a fake worker (`tests/first-paint.test.ts`: the real service, tail a
 
 Not measured on a real model: whether the worker follows the new order (opening message first, no repeated content), the real time to fork a running thread, real provider chunking, or the 4.3 s start and 26 s read, which are one recorded PR review. The table measures the protocol, not a model; a reading step that takes longer moves every row by the same amount.
 
+## Round 2 (UX and backend)
+
+- `walkthrough_open` persists a `plugin-panel` tab with `threads.tabs` (`src/tabs.ts`, id derived as the host does) when `autoOpenPanel` is on, and `onPlanned` renames it "Walkthrough: <title>". A walkthrough started from the starter keeps the starter's tab.
+- `WalkthroughSummary.updatedAt` (optional): the opener only opens walkthroughs touched in the last six hours; the starter's Continue card takes the newest in-progress one, else the newest finished within a day.
+- Note ids never reach a reader: `noteMarkers` (model.ts) is the one lettering; `describeNoteForThread` words hand-offs as "your todo (b)"; `deliverView` rewrites stray ids in stored prose (`scrubNoteIds`).
+- `StreamPayload.steps` (optional, plan turn only): the helper's reading, searching and command steps so far.
+- One send flow: `useSendToThread` (Pages.tsx) owns the previewed, editable message; the sheet's duplicate button hides while the same action is pinned on the wrap-up.
+- The flag toolbar and composer place themselves from their measured height (`src/ui/place-flag.ts`): above the selection when it fits, else below, else pinned inside the visible area.
+
 ## Polish requests
 
 ### From UX (answered by Backend; see "Backend API: polish pass")
@@ -221,3 +230,8 @@ The pane builds against these shapes and degrades when they are absent.
 - `detectTarget` `uncommitted` target gains optional `staged: number` (files with staged changes, counted within `files`). The starter reads "5 files, 3 staged" and re-polls while it is open, so detection must be cheap to repeat.
 - A snapshot `headSha`/`baseSha` is read as the revision a figure was captured at. In PR mode `walkthrough.pr.url` is the base for "Open on GitHub" (`<pr url>/files`; there is no per-file permalink without the repo slug, so the figure links to the PR's blob for `headSha` when `pr.url` parses as `https://github.com/<owner>/<repo>/pull/<n>`).
 - SDK limit (for `docs/bb-sdk-wishlist.md`): a thread panel tab cannot change its own `params` or be replaced. The starter therefore renders the new walkthrough inside its own tab; a reload of that tab shows the starter again, with the walkthrough listed under Earlier walkthroughs.
+
+### From UX, round 2 (to VISUAL)
+- I replaced `placeFlag` in Reader.tsx (it now passes the selection and the visible area to `FlagPopover`, which measures itself); your "not over the page heading" rule is kept by raising the visible top to the heading's bottom for a selection below it. The flag box no longer uses `data-above` or `translateY(-100%)`; its `top` is the box's own top edge, with `transform: none` inline.
+- The starter's Focus field is `label.wt-start-field > span.wt-input.wt-input-box.wt-start-input` (ux.css); the Continue card is `.wt-continue` (ux.css). Both are plain and yours to restyle.
+- The Next button is `.wt-next-label > .wt-next-kicker + .wt-next-title`; only the title truncates.

@@ -136,13 +136,13 @@ export function Starter({ threadId, onOpen }: { threadId: string; /** Shows a wa
       <header className="wt-top wt-glass">
         <h1 className="wt-title">Walkthrough</h1>
         <span className="wt-sp" />
-        <span className="wt-start-count">{walkthroughs.length === 0 ? "New" : `${walkthroughs.length} earlier`}</span>
+        <span className="wt-start-count">{earlierOnes.length > 0 ? `${earlierOnes.length} earlier` : resume ? "" : "New"}</span>
       </header>
       <div className="wt-scroll">
         <div className="wt-page wt-start-page">
           {resume ? (
             <section className="wt-continue" aria-label="Continue">
-              <p className="wt-lbl">{resume.status === "done" ? "Finished recently" : "In progress"}</p>
+              <p className="wt-lbl">{resume.status === "done" ? "Finished recently" : "Pick up where you left off"}</p>
               <h2 className="wt-continue-title">{summaryTitle(resume)}</h2>
               <p className="wt-muted">{summaryDetail(resume)}</p>
               <button type="button" className="wt-btn wt-btn-primary" onClick={() => onOpen(resume.id)}>
