@@ -1045,14 +1045,14 @@ export class WalkthroughService {
       blocks.map(async (block): Promise<Block> => {
         if (block.kind !== "code" || !only(block as Block)) return block as Block;
         const view = block.view ?? "diff";
-        const base = { ...block, view, snapshot: null, snapshotError: null };
+        const base = { ...block, view, snapshot: null, snapshotError: null, displayPath: workspaceRelativePath(block.path, walkthrough.workspacePath) };
         try {
           const read = this.readExcerpt(walkthrough, block.path, block.startLine, block.endLine, files);
           const result = await Promise.race([read, deadline]);
           if (result === "late") return { ...base, snapshotError: snapshotReason(new Error("timed out")) };
           const { baseSha, headSha } = await shas;
           const snapshot: BlockSnapshot = { change: result.change || null, after: result.after, before: result.before, baseSha, headSha, capturedAt: this.now() };
-          return { ...base, snapshot };
+          return { ...base, snapshot, displayPath: result.path };
         } catch (cause) {
           this.bb.log.debug(`snapshot skipped for ${block.path}: ${errorText(cause)}`);
           return { ...base, snapshotError: snapshotReason(cause) };

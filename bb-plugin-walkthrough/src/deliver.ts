@@ -3,6 +3,7 @@
 // the pane can read them without guarding, and fills them again for any row
 // that reached here by another path.
 import { computeCoverage } from "./coverage.ts";
+import { displayPath, repoPathFromPatch, repoRootOf, workspaceRelativePath } from "./files.ts";
 import { intentCopy, scrubNoteIds } from "./model.ts";
 import {
   defaultIntent,
@@ -18,21 +19,52 @@ import {
 
 type DeliveredBlock = DeliveredPart["blocks"][number];
 
-function deliverBlock(block: Block): DeliveredBlock {
-  if (block.kind !== "code") return block;
-  return { ...block, view: block.view ?? "diff", snapshot: block.snapshot ?? null, snapshotError: block.snapshotError ?? null };
+/**
+ * The path inside its repository that a code block names. The worker may write
+ * a machine path (and for code outside the thread's workspace, always does), so
+ * the saved name wins, then the one the snapshot's own patch header carries,
+ * then the workspace-relative form.
+ */
+export function blockDisplayPath(block: Pick<Extract<Block, { kind: "code" }>, "path" | "displayPath" | "snapshot">, workspacePath: string | null, repoRoots: readonly string[] = []): string {
+  return (
+    block.displayPath ||
+    repoPathFromPatch(block.snapshot?.after ?? block.snapshot?.change ?? block.snapshot?.before) ||
+    workspaceRelativePath(block.path, workspacePath) ||
+    displayPath(block.path, { workspacePath, repoRoots })
+  );
 }
 
-function deliverPart(part: Part): DeliveredPart {
-  return { ...part, blocks: part.blocks.map(deliverBlock), staleFiles: part.staleFiles ?? [] };
+function deliverBlock(block: Block, workspacePath: string | null, repoRoots: readonly string[]): DeliveredBlock {
+  if (block.kind !== "code") return block;
+  return { ...block, view: block.view ?? "diff", snapshot: block.snapshot ?? null, snapshotError: block.snapshotError ?? null, displayPath: blockDisplayPath(block, workspacePath, repoRoots) };
+}
+
+function deliverPart(part: Part, workspacePath: string | null, repoRoots: readonly string[]): DeliveredPart {
+  return { ...part, blocks: part.blocks.map((block) => deliverBlock(block, workspacePath, repoRoots)), staleFiles: part.staleFiles ?? [] };
+}
+
+/** The directories the figures' files were read from, found by cutting each block's repository path off its machine path. */
+function repoRootsOf(walkthrough: Walkthrough): string[] {
+  const roots = new Set<string>();
+  for (const part of [...walkthrough.parts, ...(walkthrough.wrapUp ? [walkthrough.wrapUp] : [])]) {
+    for (const block of part.blocks) {
+      if (block.kind !== "code") continue;
+      const relative = block.displayPath || repoPathFromPatch(block.snapshot?.after ?? block.snapshot?.change ?? block.snapshot?.before);
+      const root = relative ? repoRootOf(block.path, relative) : null;
+      if (root) roots.add(root);
+    }
+  }
+  return [...roots];
 }
 
 export function deliverWalkthrough(walkthrough: Walkthrough): DeliveredWalkthrough {
+  const repoRoots = repoRootsOf(walkthrough);
   return {
     ...walkthrough,
     intent: walkthrough.intent ?? defaultIntent(walkthrough.mode),
-    parts: walkthrough.parts.map(deliverPart),
-    wrapUp: walkthrough.wrapUp && deliverPart(walkthrough.wrapUp),
+    parts: walkthrough.parts.map((part) => deliverPart(part, walkthrough.workspacePath, repoRoots)),
+    wrapUp: walkthrough.wrapUp && deliverPart(walkthrough.wrapUp, walkthrough.workspacePath, repoRoots),
+    repoRoots,
   };
 }
 

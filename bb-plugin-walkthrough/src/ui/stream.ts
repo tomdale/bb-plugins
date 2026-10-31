@@ -71,6 +71,8 @@ function figureBlock(figure: StreamFigure): DeliveredCodeBlock | null {
     view: figure.view ?? "diff",
     snapshot: null,
     snapshotError: null,
+    // The worker's own path; the figure names it relative to its repository when it renders.
+    displayPath: figure.path,
   };
 }
 

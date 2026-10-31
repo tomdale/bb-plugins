@@ -100,6 +100,8 @@ export const codeBlockSchema = z
     snapshot: codeSnapshotSchema.nullable().optional().catch(null),
     /** A short, reader-safe reason the snapshot is null; never raw git output. */
     snapshotError: z.string().max(300).nullable().optional().catch(null),
+    /** The path inside the repository the code was read from ("src/server/quick.ts"), saved when the code is read; `path` stays what the worker wrote, which may be a machine path. Delivered blocks always carry one (see deliver.ts). */
+    displayPath: z.string().max(1024).nullable().optional().catch(null),
   })
   .strict();
 
@@ -367,6 +369,7 @@ const deliveredCodeBlockSchema = codeBlockSchema.extend({
   view: codeViewSchema,
   snapshot: codeSnapshotSchema.nullable(),
   snapshotError: z.string().nullable(),
+  displayPath: z.string(),
 });
 const deliveredPartSchema = partSchema.extend({
   blocks: z.array(z.discriminatedUnion("kind", [proseBlockSchema, deliveredCodeBlockSchema])),
@@ -377,6 +380,8 @@ const deliveredWalkthroughSchema = walkthroughSchema.extend({
   intent: intentSchema,
   parts: z.array(deliveredPartSchema),
   wrapUp: deliveredPartSchema.nullable(),
+  /** Directories the figures' code was read from, outside or inside the workspace; the pane strips them from any absolute path it must name. */
+  repoRoots: z.array(z.string()).optional(),
 });
 const deliveredNoteSchema = noteSchema.extend({ includeInReview: z.boolean(), proposedResolution: z.string().nullable().optional() });
 export type DeliveredCodeBlock = z.infer<typeof deliveredCodeBlockSchema>;
