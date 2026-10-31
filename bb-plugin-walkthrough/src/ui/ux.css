@@ -1,0 +1,110 @@
+/*
+ * Interaction styles the reading surface needs on top of app.css: the reader's
+ * own flag markers, toasts, gutter affordances, coverage, and the controls that
+ * must stay visible. Colors and spacing come from app.css's custom properties;
+ * rules are prefixed with `.wt` so they win over app.css's equal-specificity
+ * rules regardless of load order.
+ */
+
+/* Selecting text: Notes yellow, not the system blue. */
+.wt ::selection { background: var(--wt-select, rgba(255, 204, 0, 0.4)); color: inherit; }
+
+/* A saved prose note keeps a yellow highlight over its span. */
+::highlight(wt-note) { background-color: rgba(255, 204, 0, 0.38); color: inherit; text-decoration: underline; text-decoration-color: rgba(255, 204, 0, 0.9); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+
+/* The reader's flags: an outlined, lettered marker, so they never read as the agent's numbered ones. */
+.wt .wt-m-own { background: transparent; color: var(--wt-ink); box-shadow: inset 0 0 0 1.5px var(--wt-y); font-style: italic; font-family: var(--wt-serif); font-weight: 600; font-size: 11px; text-transform: lowercase; }
+.wt .wt-m-own[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--wt-y), 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
+.wt .wt-prose-flag { position: absolute; left: 38px; margin-top: 2px; background: var(--wt-page); z-index: 1; }
+.wt .wt-mn-own { font-style: normal; }
+.wt .wt-notes-collapsed { padding: 4px 14px 8px; font: 12px var(--wt-sans); color: var(--wt-mute); }
+.wt .wt-notes-collapsed summary { cursor: pointer; width: fit-content; }
+.wt .wt-notes-collapsed summary:hover { color: var(--wt-ink); }
+
+/* Jumping to a concern flashes its line once. */
+.wt [data-flash] { animation: wt-flash 1.5s ease-out; }
+@keyframes wt-flash { 0%, 40% { background-color: rgba(255, 204, 0, 0.55); } 100% { background-color: transparent; } }
+
+/* Toasts: stacked above the pager, never over Next or Ask. */
+.wt .wt-toasts { position: absolute; z-index: 7; left: 12px; right: 12px; bottom: calc(var(--wt-pager-h, 72px) + 4px); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.wt .wt-toast { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; max-width: min(420px, 100%); padding: 6px 8px 6px 14px; border-radius: 16px; font: 500 12.5px var(--wt-sans); background: var(--wt-glass-solid); color: var(--wt-ink); box-shadow: 0 6px 20px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); animation: wt-in 0.2s ease-out; }
+.wt .wt-toast[data-tone="error"] { box-shadow: 0 6px 20px var(--wt-shadow), inset 0 0 0 1px rgba(255, 59, 48, 0.55); }
+.wt .wt-toast-x { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 10px; background: none; color: var(--wt-mute); }
+.wt .wt-toast-x:hover { background: var(--wt-fill); color: var(--wt-ink); }
+
+/* Code lines: the whole line flags, and the gutter shows how. */
+.wt .wt-flaggable { cursor: pointer; }
+.wt .wt-flaggable:hover { background-color: var(--wt-yhi); }
+.wt .wt-ln { position: relative; cursor: pointer; }
+.wt .wt-ln-plus { position: absolute; right: 100%; margin-right: 1px; display: none; width: 14px; text-align: center; font: 600 13px/1 var(--wt-sans); color: var(--wt-ink); }
+.wt .wt-flaggable:hover .wt-ln-plus, .wt .wt-ln:focus-visible .wt-ln-plus { display: inline-block; }
+.wt .wt-row[data-cursor] { box-shadow: inset 2px 0 0 var(--wt-y); background-color: var(--wt-yhi); }
+.wt .wt-code:focus-visible { outline-offset: -2px; }
+/* A tooltip for things the vendored one cannot wrap (one per code line would be a Radix tooltip per row). */
+.wt [data-tip] { position: relative; }
+.wt [data-tip]:hover::after { content: attr(data-tip); position: absolute; z-index: 8; left: 0; bottom: calc(100% + 4px); width: max-content; max-width: 220px; padding: 3px 8px; border-radius: 6px; font: 500 11px/1.35 var(--wt-sans); text-align: left; white-space: normal; background: var(--wt-ink); color: var(--wt-page); pointer-events: none; }
+.wt .wt-ln[data-tip]:hover::after { left: 100%; bottom: auto; top: -2px; margin-left: 6px; white-space: nowrap; }
+
+/* Figure header: location, revision, and the trust actions. */
+.wt .wt-fh-where { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; }
+.wt .wt-fh-where .wt-fh-loc { flex: 0 1 auto; min-width: 0; }
+.wt .wt-fh-rev { flex: none; font: 11px var(--wt-mono); color: var(--wt-mute); }
+.wt .wt-fh-link { flex: none; font: 500 11px var(--wt-sans); color: var(--wt-mute); text-decoration: underline; text-underline-offset: 2px; white-space: nowrap; }
+.wt .wt-fh-link:hover { color: var(--wt-ink); }
+
+/* The note composer says what it is making. */
+.wt .wt-flag-kind { display: flex; flex-direction: column; gap: 1px; margin: 0; font: 12px/1.35 var(--wt-sans); color: var(--wt-mute); }
+.wt .wt-flag-kind b { color: var(--wt-ink); font-weight: 600; }
+.wt .wt-flag > button:disabled { opacity: 0.5; cursor: not-allowed; }
+.wt .wt-flag > button:disabled:hover { background: none; color: inherit; }
+
+/* Title placeholder until the plan names the walkthrough. */
+.wt .wt-title[data-placeholder], .wt .wt-head h2[data-placeholder] { color: var(--wt-mute); font-style: italic; }
+
+/* Pager: always the same controls; a waiting Next says so. */
+.wt .wt-pager-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 2px; }
+.wt .wt-pager-actions .wt-btn[data-sent] { opacity: 1; background: var(--wt-fill); color: var(--wt-mute); }
+.wt .wt-prev { padding: 0 8px; flex: none; }
+.wt .wt-prev-label { display: none; font-weight: 500; }
+.wt[data-wide] .wt-prev-label { display: inline; }
+.wt .wt-input[data-disabled] { opacity: 0.7; }
+.wt .wt-input[data-disabled] input { cursor: default; }
+.wt .wt-next:disabled { opacity: 1; background: var(--wt-fill); color: var(--wt-mute); }
+.wt .wt-saved { align-self: center; }
+
+/* Concerns: every control is visible and labelled. */
+.wt .wt-it-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: none; overflow: visible; opacity: 1; margin-top: 4px; }
+.wt .wt-act { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px; border: 0; border-radius: 12px; background: var(--wt-fill); font: 500 11.5px var(--wt-sans); color: var(--wt-ink); }
+.wt .wt-act:hover { background: var(--wt-hair); }
+.wt .wt-act-danger { background: rgba(255, 59, 48, 0.16); color: #b3261e; }
+.dark .wt .wt-act-danger { color: #ff8a80; }
+.wt .wt-it-confirm { font: 12px var(--wt-sans); }
+.wt .wt-it-confirm > span { margin-right: auto; color: var(--wt-mute); }
+.wt .wt-it-body[data-jumps] { cursor: pointer; border-radius: 6px; }
+.wt .wt-it-body[data-jumps]:hover { background: var(--wt-fill); }
+.wt .wt-include { margin: 0; gap: 6px; color: var(--wt-mute); }
+.wt .wt-it-quote { -webkit-line-clamp: 3; }
+.wt .wt-summary-field { gap: 6px; }
+
+/* Coverage: which changed files the figures show. */
+.wt .wt-coverage { margin: 22px 0 0; padding-top: 12px; max-width: var(--wt-measure, 34em); border-top: 0.5px solid var(--wt-hair); font: 13px/1.45 var(--wt-sans); }
+.wt .wt-coverage-line { margin: 0 0 6px; }
+.wt .wt-coverage-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wt .wt-coverage-files li { padding: 1px 8px; border-radius: 10px; font: 11px/1.6 var(--wt-mono); box-shadow: inset 0 0 0 1px var(--wt-hair); color: var(--wt-mute); }
+.wt .wt-coverage-files li[data-covered] { background: var(--wt-fill); color: var(--wt-ink); box-shadow: none; }
+.wt .wt-coverage-files li[data-excluded] { opacity: 0.7; border-style: dashed; }
+.wt .wt-coverage-left { margin: 8px 0 0; font-size: 12px; }
+
+/* "Ask the thread to apply it": the message, editable. */
+.wt-apply-text { width: 100%; resize: vertical; border: 1px solid var(--border, rgba(128, 128, 128, 0.3)); border-radius: 8px; background: transparent; padding: 8px 10px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color: inherit; }
+
+/* The starter: a top bar of its own and a field that looks like one. */
+.wt-starter .wt-top { justify-content: space-between; }
+.wt-start-input { background: var(--wt-fill); box-shadow: inset 0 0 0 1px var(--wt-hair); height: 38px; border-radius: 12px; }
+.wt-start-input:focus-within { box-shadow: 0 0 0 2px var(--wt-focus); }
+.wt-start-label { font: 600 12px var(--wt-sans); color: var(--wt-mute); margin-bottom: -4px; }
+.wt-start-count { color: var(--wt-mute); font: 13px var(--wt-sans); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wt .wt-toast, .wt [data-flash] { animation: none; }
+}

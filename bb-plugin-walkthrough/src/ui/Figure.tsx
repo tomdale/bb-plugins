@@ -2,15 +2,17 @@
 // note markers, with each note hanging in the right margin on wide pages and
 // stacked under the code on narrow ones. Rows have a fixed height, so a note's
 // offset is arithmetic instead of measurement and nothing reflows after paint.
-import { useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
+import { useContext, useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { defaultExcerptView, excerptCode, NOTE_KIND_LABEL, type ExcerptView } from "../model.ts";
 import type { DeliveredCodeBlock as CodeBlock, DeliveredNote as Note, DeliveredWalkthrough as Walkthrough, Location } from "../schemas.ts";
+import { ReaderContext } from "./context.ts";
 import { savedExcerpt, type Snapshot } from "./fields.ts";
 import { Hint } from "./Hint.tsx";
 import { useWalkthroughRpc } from "./hooks.ts";
+import { useNotify } from "./notices.tsx";
 import { LocationLink } from "./parts.tsx";
 import { parsePatchRows, rowIndexForLine, type PatchRow } from "./patch-lines.ts";
 
@@ -21,6 +23,8 @@ const HEADER_HEIGHT = 32;
 const CODE_PAD = 6;
 const CLAMP_ROWS = 30;
 const MARGIN_NOTE_GAP = 8;
+/** Said when a figure has no code to show (a walkthrough saved before excerpts were kept, or code that is gone). */
+export const NO_SAVED_COPY = "No saved copy of this code";
 
 /** What a reader flagged: a place in the code and the text it came from. */
 export interface FlagTarget {
@@ -33,7 +37,27 @@ interface Annotation {
   key: string;
   row: number;
   text: string;
+  /** The reader's flag kind ("Note", "Todo"…); null for the agent's own margin notes. */
   label: string | null;
+  /** What the marker shows: the agent's notes are numbered, the reader's flags lettered. */
+  glyph: string;
+  own: boolean;
+}
+
+/** The revision a figure was read at, as a short SHA. */
+export function shortSha(sha: string | null | undefined): string | null {
+  return sha && /^[0-9a-f]{7,64}$/iu.test(sha) ? sha.slice(0, 7) : null;
+}
+
+/** A GitHub page for the figure's file at the revision it was read at, for a walkthrough of a GitHub PR. */
+export function githubLink(walkthrough: Pick<Walkthrough, "pr">, block: Pick<CodeBlock, "path" | "startLine" | "endLine" | "snapshot">): string | null {
+  const url = walkthrough.pr?.url;
+  const match = url ? /^(https:\/\/github\.com\/[^/]+\/[^/]+)\/pull\/\d+/u.exec(url) : null;
+  if (!match) return null;
+  const sha = block.snapshot?.headSha;
+  if (!sha || !/^[0-9a-f]{7,64}$/iu.test(sha) || block.path.startsWith("/")) return `${url!.replace(/\/+$/u, "")}/files`;
+  const encoded = block.path.split("/").map(encodeURIComponent).join("/");
+  return `${match[1]}/blob/${sha}/${encoded}#L${block.startLine}-L${block.endLine}`;
 }
 
 /** The file lines a selection inside a figure spans, read from the rows' `data-line` attributes. */
@@ -75,10 +99,13 @@ function useSnapshot(walkthrough: Walkthrough, block: CodeBlock): { data: Snapsh
   return { data: fetched && fetched !== "missing" ? fetched : null, loading: fetched === null };
 }
 
-function annotationsFor(block: CodeBlock, notes: Note[], rows: PatchRow[]): Annotation[] {
+function annotationsFor(block: CodeBlock, notes: Note[], rows: PatchRow[], glyphs: Map<string, string>): Annotation[] {
   const at = (line: number | undefined) => (rows.length === 0 ? 0 : line === undefined ? 0 : rowIndexForLine(rows, line));
-  const agent = block.notes.map((note, index): Annotation => ({ key: `a${index}`, row: at(note.line), text: note.text, label: null }));
-  const own = notes.map((note): Annotation => ({ key: `n${note.id}`, row: at(note.location?.startLine), text: note.text, label: NOTE_KIND_LABEL[note.kind] }));
+  const agent = block.notes
+    .map((note, index) => ({ key: `a${index}`, row: at(note.line), text: note.text }))
+    .sort((a, b) => a.row - b.row)
+    .map((note, index): Annotation => ({ ...note, label: null, glyph: String(index + 1), own: false }));
+  const own = notes.map((note): Annotation => ({ key: `n${note.id}`, row: at(note.location?.startLine), text: note.text, label: NOTE_KIND_LABEL[note.kind], glyph: glyphs.get(note.id) ?? "•", own: true }));
   return [...agent, ...own].sort((a, b) => a.row - b.row);
 }
 
@@ -110,11 +137,16 @@ export function Figure({
   streaming?: boolean;
 }) {
   const { data, loading } = useSnapshot(walkthrough, block);
+  const { glyphs } = useContext(ReaderContext);
+  const notify = useNotify();
   const isCode = block.view === "code";
   const [chosen, setChosen] = useState<ExcerptView | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
+  // The line the keyboard is on, as a row index; `c` flags it.
+  const [cursor, setCursor] = useState<number | null>(null);
+  const figureId = useId();
   const hot = hovered ?? pinned;
 
   const preferred: ExcerptView = isCode ? "after" : (chosen ?? (data ? defaultExcerptView(data) : "change"));
@@ -122,46 +154,101 @@ export function Figure({
   const patch = data ? (isCode ? (data.after ?? data.change) : data[view]) : null;
   const copyView: ExcerptView = isCode ? (data?.after ? "after" : "change") : view;
   const rows = useMemo(() => (patch ? parsePatchRows(patch) : []), [patch]);
-  const annotations = useMemo(() => annotationsFor(block, notes, rows), [block, notes, rows]);
+  const annotations = useMemo(() => annotationsFor(block, notes, rows, glyphs), [block, notes, rows, glyphs]);
   const offsets = useMemo(() => marginOffsets(annotations), [annotations]);
-  const beyondClamp = annotations.some((annotation) => annotation.row >= CLAMP_ROWS);
-  const clamped = rows.length > CLAMP_ROWS && !expanded && !beyondClamp;
+  // A note below the clamp stretches it to just past that note; the rest stays folded so flagging never opens the whole figure.
+  const lastNoteRow = annotations.reduce((max, annotation) => Math.max(max, annotation.row), -1);
+  const clampRows = Math.max(CLAMP_ROWS, lastNoteRow + 2);
+  const clamped = rows.length > clampRows && !expanded;
   const markerRows = new Map<number, Annotation[]>();
   annotations.forEach((annotation) => markerRows.set(annotation.row, [...(markerRows.get(annotation.row) ?? []), annotation]));
-  const numberOf = (annotation: Annotation) => annotations.indexOf(annotation) + 1;
+  // A figure with nothing to show has no rows for notes to point at: they collapse under it instead.
+  const empty = !loading && rows.length === 0;
   // The margin hangs outside the figure, so the figure must be at least as tall as the last note reaches.
-  const minHeight = wide && annotations.length > 0 ? (offsets.at(-1) ?? 0) + 70 : undefined;
+  const minHeight = wide && annotations.length > 0 && !empty ? (offsets.at(-1) ?? 0) + 70 : undefined;
+  const revision = shortSha(block.snapshot?.headSha) ?? shortSha(block.snapshot?.baseSha);
+  const github = githubLink(walkthrough, block);
 
-  const copy = () => {
-    if (!patch) return;
-    void navigator.clipboard.writeText(excerptCode(patch, copyView)).then(
-      () => toast.success("Copied the code"),
-      () => toast.error("Could not copy"),
+  const copy = (text: string, done: string) =>
+    void navigator.clipboard.writeText(text).then(
+      () => notify(done),
+      () => notify("Could not copy", "error"),
     );
+  const flaggable = rows.map((row, index) => (row.kind !== "gap" && row.newNo !== null ? index : -1)).filter((index) => index >= 0);
+  const flagRow = (index: number, element: Element) => {
+    const row = rows[index];
+    if (!row || row.newNo === null) return;
+    onFlag({ location: { path: block.path, startLine: row.newNo }, quote: row.text.trim() || null }, element.getBoundingClientRect());
   };
+  const onCodeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.target !== event.currentTarget) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      event.stopPropagation();
+      const at = cursor === null ? -1 : flaggable.indexOf(cursor);
+      const next = event.key === "ArrowDown" ? Math.min(flaggable.length - 1, at + 1) : Math.max(0, at - 1);
+      const row = flaggable[next];
+      if (row === undefined) return;
+      setCursor(row);
+      document.getElementById(`${figureId}-r${row}`)?.scrollIntoView?.({ block: "nearest" });
+    } else if ((event.key === "c" || event.key === "Enter") && cursor !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      const element = document.getElementById(`${figureId}-r${cursor}`);
+      if (element) flagRow(cursor, element);
+    }
+  };
+  const cursorLine = cursor === null ? null : (rows[cursor]?.newNo ?? null);
+
   const note = (annotation: Annotation) => (
     <div
       key={annotation.key}
-      className={cn("wt-mn", hot === annotation.key && "wt-hot")}
+      className={cn("wt-mn", annotation.own && "wt-mn-own", hot === annotation.key && "wt-hot")}
       onMouseEnter={() => setHovered(annotation.key)}
       onMouseLeave={() => setHovered(null)}
     >
-      <span className="wt-m wt-m-inline" aria-hidden>
-        {numberOf(annotation)}
+      <span className={cn("wt-m wt-m-inline", annotation.own && "wt-m-own")} aria-hidden>
+        {annotation.glyph}
       </span>
       {annotation.label ? <span className="wt-mn-kind">{annotation.label} · </span> : null}
       {annotation.text}
     </div>
   );
+  const marginNotes =
+    annotations.length === 0 ? null : empty ? (
+      <details className="wt-notes-collapsed">
+        <summary>{annotations.length === 1 ? "1 note on this code" : `${annotations.length} notes on this code`}</summary>
+        <div className="wt-notes-stack">{annotations.map(note)}</div>
+      </details>
+    ) : wide ? (
+      <div className="wt-margin" aria-label="Notes on this code">
+        {annotations.map((annotation, index) => (
+          <div key={annotation.key} className="wt-margin-slot" style={{ top: offsets[index] }}>
+            {note(annotation)}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="wt-notes-stack" aria-label="Notes on this code">
+        {annotations.map(note)}
+      </div>
+    );
 
   return (
     <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-streaming={streaming || undefined}>
       <figcaption className="wt-cap">{block.caption}</figcaption>
       <div className="wt-fig" style={minHeight ? { minHeight } : undefined}>
         <div className="wt-fh">
-          <LocationLink files={walkthrough} location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }} className="wt-fh-loc" />
+          <span className="wt-fh-where">
+            <LocationLink files={walkthrough} location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }} className="wt-fh-loc" />
+            {revision ? (
+              <span className="wt-fh-rev" aria-label={`Read at revision ${revision}`}>
+                @ {revision}
+              </span>
+            ) : null}
+          </span>
           <span className="wt-sp" />
-          {!isCode ? (
+          {!isCode && !empty ? (
             <div role="group" aria-label="Show the code as" className="wt-seg">
               {VIEWS.map((candidate) => (
                 <button
@@ -176,11 +263,23 @@ export function Figure({
               ))}
             </div>
           ) : null}
-          <Hint label="Copy the code">
-            <button type="button" className="wt-icon-btn" aria-label="Copy the code" disabled={!patch} onClick={copy}>
-              <Icon name="Copy" className="size-3.5" aria-hidden />
+          {github ? (
+            <UrlLink href={github} className="wt-fh-link">
+              Open on GitHub
+            </UrlLink>
+          ) : null}
+          <Hint label="Copy the path">
+            <button type="button" className="wt-icon-btn" aria-label="Copy the path" onClick={() => copy(block.path, "Path copied")}>
+              <Icon name="Link" className="size-3.5" aria-hidden />
             </button>
           </Hint>
+          {!empty ? (
+            <Hint label="Copy the code">
+              <button type="button" className="wt-icon-btn" aria-label="Copy the code" disabled={!patch} onClick={() => patch && copy(excerptCode(patch, copyView), "Code copied")}>
+                <Icon name="Copy" className="size-3.5" aria-hidden />
+              </button>
+            </Hint>
+          ) : null}
         </div>
         {loading ? (
           <div className="wt-code" role="status" aria-label="Loading the code">
@@ -190,10 +289,21 @@ export function Figure({
               </div>
             ))}
           </div>
-        ) : rows.length === 0 ? (
-          <p className="wt-fig-empty">{block.caption && (block as { snapshotError?: string | null }).snapshotError ? (block as { snapshotError?: string | null }).snapshotError : "This code is no longer on disk."}</p>
+        ) : empty ? (
+          <p className="wt-fig-empty">{block.snapshotError ?? NO_SAVED_COPY}</p>
         ) : (
-          <div className="wt-code" role="region" tabIndex={0} aria-label={`Code from ${block.path}, lines ${block.startLine} to ${block.endLine}`} style={clamped ? { maxHeight: CLAMP_ROWS * ROW_HEIGHT + CODE_PAD * 2, overflow: "hidden" } : undefined}>
+          <div
+            className="wt-code"
+            role="region"
+            tabIndex={0}
+            aria-label={`Code from ${block.path}, lines ${block.startLine} to ${block.endLine}. Up and Down move between lines, C flags the line.`}
+            style={clamped ? { maxHeight: clampRows * ROW_HEIGHT + CODE_PAD * 2, overflow: "hidden" } : undefined}
+            onKeyDown={onCodeKeyDown}
+            onBlur={() => setCursor(null)}
+          >
+            <span className="wt-sr" role="status" aria-live="polite">
+              {cursorLine === null ? "" : `Line ${cursorLine}. Press C to flag it.`}
+            </span>
             <div className="wt-code-rows">
               {rows.map((row, index) => {
                 const line = row.newNo ?? row.oldNo;
@@ -208,15 +318,27 @@ export function Figure({
                   );
                 }
                 return (
-                  <div key={index} className={cn("wt-row", `wt-${row.kind}`, isHot && "wt-hot")} data-line={line ?? undefined}>
+                  <div
+                    key={index}
+                    id={`${figureId}-r${index}`}
+                    className={cn("wt-row", `wt-${row.kind}`, isHot && "wt-hot", row.newNo !== null && "wt-flaggable")}
+                    data-line={line ?? undefined}
+                    data-cursor={cursor === index || undefined}
+                    // A click on the code flags that line; a drag across it is a selection, which flags through the toolbar.
+                    onClick={(event) => {
+                      if (row.newNo === null || (event.target as HTMLElement).closest("button") || (window.getSelection()?.toString() ?? "") !== "") return;
+                      flagRow(index, event.currentTarget);
+                    }}
+                  >
                     <b>
                       {markers.length > 0 ? (
-                        markers.map((annotation) => (
+                        <span className="wt-mk">
+                        {markers.map((annotation) => (
                           <button
                             key={annotation.key}
                             type="button"
-                            className="wt-m"
-                            aria-label={`Note ${numberOf(annotation)}: ${annotation.text}`}
+                            className={cn("wt-m", annotation.own && "wt-m-own")}
+                            aria-label={annotation.own ? `Your ${annotation.label?.toLowerCase()} ${annotation.glyph}: ${annotation.text}` : `Note ${annotation.glyph}: ${annotation.text}`}
                             aria-pressed={pinned === annotation.key}
                             onMouseEnter={() => setHovered(annotation.key)}
                             onMouseLeave={() => setHovered(null)}
@@ -224,16 +346,24 @@ export function Figure({
                             onBlur={() => setHovered(null)}
                             onClick={() => setPinned(pinned === annotation.key ? null : annotation.key)}
                           >
-                            {numberOf(annotation)}
+                            {annotation.glyph}
                           </button>
-                        ))
-                      ) : row.newNo !== null ? (
+                        ))}
+                        </span>
+                      ) : null}
+                      {row.newNo !== null ? (
                         <button
                           type="button"
                           className="wt-ln"
+                          // Rows are one tab stop (the region); the number is for the pointer.
+                          tabIndex={-1}
                           aria-label={`Flag line ${row.newNo}`}
-                          onClick={(event) => onFlag({ location: { path: block.path, startLine: row.newNo! }, quote: row.text.trim() || null }, event.currentTarget.getBoundingClientRect())}
+                          data-tip="Flag this line"
+                          onClick={(event) => flagRow(index, event.currentTarget)}
                         >
+                          <span className="wt-ln-plus" aria-hidden>
+                            +
+                          </span>
                           {row.newNo}
                         </button>
                       ) : (
@@ -256,21 +386,7 @@ export function Figure({
             ) : null}
           </div>
         )}
-        {annotations.length > 0 ? (
-          wide ? (
-            <div className="wt-margin" aria-label="Notes on this code">
-              {annotations.map((annotation, index) => (
-                <div key={annotation.key} className="wt-margin-slot" style={{ top: offsets[index] }}>
-                  {note(annotation)}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="wt-notes-stack" aria-label="Notes on this code">
-              {annotations.map(note)}
-            </div>
-          )
-        ) : null}
+        {marginNotes}
       </div>
     </figure>
   );

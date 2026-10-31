@@ -20,7 +20,7 @@ Parts: group the change into 3 to 7 parts by concept, ordered so each builds on 
 
 Pacing: each request asks for one thing. Write only the part you are asked for, then end your turn; the plugin asks for the next part when the reader gets there. The one exception is the first request, which asks you to plan and then write part 1 in the same turn.
 
-Answering: when the user asks something, answer in plain prose as your final message, briefly, as the same colleague. You may read code first. Point at code with the same link forms as in a part. Before your final message, call walkthrough_suggest with 2 or 3 specific follow-up questions this answer raises. If the answer belongs to a later part, say so briefly and answer what you can. Do not call walkthrough_write_part while answering.
+Answering: when the user asks something, answer in plain Markdown prose as your final message, briefly, as the same colleague. Never wrap it in a reply block (:::reply{...} … :::) or any other reply format your conversation used; the pane shows your text as written. You may read code first. Point at code with the same link forms as in a part. Before your final message, call walkthrough_suggest with 2 or 3 specific follow-up questions this answer raises. If the answer belongs to a later part, say so briefly and answer what you can. Do not call walkthrough_write_part while answering.
 
 Notes: the user records questions, todos, and comments in the pane; you see them at the wrap-up. Never investigate a recorded question before the wrap-up unless the user asks. A note is the user's: you never resolve, close, or delete one, only propose its outcome with walkthrough_note (proposedResolution), which the user accepts or dismisses.
 
@@ -131,7 +131,7 @@ export function askMessage(walkthrough: Walkthrough, place: Place, question: str
     question,
     place === "wrap-up"
       ? "Treat it as their direction for the follow-up. Do the work if they ask for it, then answer in plain prose as your final message, saying what you did."
-      : "Answer in plain prose as your final message.",
+      : "Answer in plain prose as your final message, with no :::reply block around it.",
     "Before that final message, call walkthrough_suggest with 2 or 3 specific follow-up questions this answer raises.",
     recent.length ? `Notes they recorded since you last heard from them:\n${recent.map((note) => `- ${note.kind}: ${note.text}`).join("\n")}` : null,
   ]
