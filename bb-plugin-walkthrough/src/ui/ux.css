@@ -13,11 +13,10 @@
 ::highlight(wt-note) { background-color: rgba(255, 204, 0, 0.38); color: inherit; text-decoration: underline; text-decoration-color: rgba(255, 204, 0, 0.9); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 
 /* The reader's flags: an outlined, lettered marker, so they never read as the agent's numbered ones. */
-.wt .wt-m-own { background: transparent; color: var(--wt-ink); box-shadow: inset 0 0 0 1.5px var(--wt-y); font-style: italic; font-family: var(--wt-serif); font-weight: 600; font-size: 11px; text-transform: lowercase; }
-.wt .wt-m-own[aria-pressed="true"] { box-shadow: inset 0 0 0 1.5px var(--wt-y), 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
+.wt .wt-m-own { --wt-m-inset: inset 0 0 0 1.5px var(--wt-y); background: var(--wt-page); color: var(--wt-ink); font-style: italic; font-family: var(--wt-serif); font-weight: 600; font-size: 11px; text-transform: lowercase; }
 .wt .wt-prose-flag { position: absolute; left: 38px; margin-top: 2px; background: var(--wt-page); z-index: 1; }
 .wt .wt-mn-own { font-style: normal; }
-.wt .wt-notes-collapsed { padding: 4px 14px 8px; font: 12px var(--wt-sans); color: var(--wt-mute); }
+.wt .wt-notes-collapsed { padding: 4px var(--wt-fig-pad) 8px var(--wt-fig-l); font: 12px var(--wt-sans); color: var(--wt-mute); }
 .wt .wt-notes-collapsed summary { cursor: pointer; width: fit-content; }
 .wt .wt-notes-collapsed summary:hover { color: var(--wt-ink); }
 

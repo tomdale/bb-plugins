@@ -237,12 +237,12 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-pulse { animation: wt-pulse 1.6s ease-in-out infinite; }
 
 /* Figures */
-.wt-figure { --wt-fig-pad: 14px; margin: 18px -14px 18px; position: relative; }
+.wt-figure { --wt-fig-pad: 14px; --wt-fig-l: 16px; margin: 18px -14px 18px -16px; position: relative; }
 /* Figures break out of the reading column, but only to about 900px. */
 .wt[data-wide] .wt-figure { max-width: 900px; }
-.wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px; max-width: calc(var(--wt-measure) + 28px); font-variant-numeric: proportional-nums; }
+.wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px var(--wt-fig-l); max-width: calc(var(--wt-measure) + 30px); font-variant-numeric: proportional-nums; }
 .wt-fig { position: relative; font: 11.5px/20px var(--wt-mono); border-block: 0.5px solid var(--wt-hair); }
-.wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad); color: var(--wt-mute); font-size: 11px; }
+.wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad) 0 var(--wt-fig-l); color: var(--wt-mute); font-size: 11px; }
 .wt-fh-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wt-seg { display: flex; gap: 1px; padding: 2px; border-radius: 7px; background: var(--wt-fill); font: 500 11px var(--wt-sans); }
 .wt-seg button { border: 0; border-radius: 5px; background: none; padding: 0 8px; line-height: 18px; color: var(--wt-mute); }
@@ -270,13 +270,18 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 }
 .wt-code:focus-visible { outline-offset: -2px; }
 .wt-code-rows { min-width: max-content; }
-.wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-pad) + 22px); position: relative; white-space: pre; }
+.wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
 .wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
 /* Note markers have their own column left of the line numbers, so a flagged line keeps its number. */
-.wt-mk { position: absolute; left: var(--wt-fig-pad); top: 2px; display: flex; }
-.wt-mk { gap: 2px; }
-/* A third marker on one line tucks under the second so the cluster never reaches the line number. */
-.wt-mk .wt-m:nth-child(n + 3) { margin-left: -9px; }
+/* Three overlapping markers span 40px, which ends before the numbers' digits begin, so a flagged line never touches its number. */
+.wt-mk { position: absolute; left: var(--wt-fig-l); top: 2px; display: flex; }
+/* Markers on one line stack like avatars: the first sits on top, and each cuts a halo out of the one beneath it. */
+.wt-mk .wt-m { position: relative; }
+.wt-mk .wt-m:nth-child(1) { z-index: 3; }
+.wt-mk .wt-m:nth-child(2) { z-index: 2; }
+.wt-mk .wt-m:nth-child(3) { z-index: 1; }
+.wt-mk .wt-m + .wt-m { margin-left: -4px; }
+.wt-mk .wt-m:has(+ .wt-m) { --wt-m-halo: 0 0 0 1.5px var(--wt-page); }
 .wt-text { position: relative; }
 /* Added and removed lines carry a sign and an edge as well as a tint, so the diff reads without colour. */
 .wt-add { background: var(--wt-add); box-shadow: inset 2px 0 0 var(--wt-add-edge); }
@@ -293,16 +298,18 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-m {
   display: inline-grid; place-items: center; width: 16px; height: 16px; border: 0; padding: 0; border-radius: 8px;
   font: 600 10px var(--wt-sans); background: var(--wt-y); color: var(--wt-yt); cursor: pointer;
+  /* Ring layers, set by the marker's kind, pressed state and place in a stack: an inset outline, a pressed ring, a halo. */
+  box-shadow: var(--wt-m-inset, 0 0 #0000), var(--wt-m-ring, 0 0 #0000), var(--wt-m-halo, 0 0 #0000);
 }
-.wt-m[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
+.wt-m[aria-pressed="true"] { --wt-m-ring: 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
 .wt-m-inline { margin-right: 6px; vertical-align: -2px; cursor: default; }
-.wt-more { display: block; width: 100%; position: absolute; bottom: 0; left: 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: var(--wt-page); padding: 3px var(--wt-fig-pad); text-align: left; font: 12px var(--wt-sans); color: var(--wt-mute); }
+.wt-more { display: block; width: 100%; position: absolute; bottom: 0; left: 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: var(--wt-page); padding: 3px var(--wt-fig-pad) 3px var(--wt-fig-l); text-align: left; font: 12px var(--wt-sans); color: var(--wt-mute); }
 .wt-skel-row { align-items: center; }
-.wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px; font: 13px var(--wt-sans); color: var(--wt-mute); }
+.wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px var(--wt-fig-l); font: 13px var(--wt-sans); color: var(--wt-mute); }
 .wt-mn { font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color 0.2s, opacity 0.2s; }
 .wt-mn.wt-hot { opacity: 1; background: var(--wt-yhi); }
 .wt-mn-kind { font-style: normal; font: 600 11px var(--wt-sans); color: var(--wt-mute); }
-.wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px; display: flex; flex-direction: column; gap: 10px; }
+.wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px var(--wt-fig-l); display: flex; flex-direction: column; gap: 10px; }
 .wt[data-wide] .wt-margin { position: absolute; top: 0; left: calc(100% + 18px); width: 210px; }
 .wt[data-wide] .wt-margin-slot { position: absolute; left: 0; right: 0; }
 
@@ -458,7 +465,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
-.wt:not([data-wide]) .wt-figure { margin-inline: -8px; --wt-fig-pad: 8px; }
+.wt:not([data-wide]) .wt-figure { margin-inline: -16px -8px; --wt-fig-pad: 8px; }
 .wt:not([data-wide]) .wt-skel-figure { margin-inline: -8px; --wt-fig-pad: 8px; }
 /* The figure header gives the location its own line, so a long path is never squeezed to a letter. */
 @container wt (max-width: 460px) {
