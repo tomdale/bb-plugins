@@ -116,11 +116,11 @@ describe("page chrome", () => {
     expect(heading.nextElementSibling?.className).toContain("wt-subject");
   });
 
-  it("places the selection toolbar above a selection, and below one with no room above it", async () => {
+  it("places the selection toolbar above a selection, and below the line under one with no room above it", async () => {
     const rectAt = (top: number) => ({ top, bottom: top + 20, left: 40, right: 80, width: 40, height: 20, x: 40, y: top, toJSON() {} }) as DOMRect;
     // The toolbar measures itself; jsdom has no layout, so it is 34px tall here.
     const height = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(34);
-    for (const [top, expected] of [[400, 360], [10, 36]] as const) {
+    for (const [top, expected] of [[400, 360], [10, 30 + 20.8 + 4]] as const) {
       const slot = await mountPage("wt_1", viewOf(walkthrough()));
       (Range.prototype as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () => rectAt(top);
       const paragraph = (await slot.findByText("The schema comes first.")).firstChild!;
@@ -131,7 +131,8 @@ describe("page chrome", () => {
       window.getSelection()!.addRange(range);
       fireEvent.mouseUp(paragraph.parentElement!);
       const toolbar = await slot.findByRole("toolbar");
-      expect(toolbar.style.top).toBe(`${expected}px`);
+      // With no room above, it clears the line under the selection (a 1.3em line in jsdom, which has no layout).
+      expect(parseFloat(toolbar.style.top)).toBeCloseTo(expected, 1);
       slot.unmount();
       mounted.pop();
     }

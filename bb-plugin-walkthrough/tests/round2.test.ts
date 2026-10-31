@@ -8,7 +8,6 @@ import { isHelperWork } from "../src/service.ts";
 import { StreamTail, WORK_EVERY_MS, type TailTarget } from "../src/stream-tail.ts";
 import { panelTabId, WalkthroughTabs } from "../src/tabs.ts";
 import { WORKER_GUIDE, WRAP_UP_INSTRUCTIONS } from "../src/worker.ts";
-import { flagTop } from "../src/ui/place-flag.ts";
 import { PLAN, setup, settle, THREAD } from "./helpers.ts";
 
 const note = (id: string, createdAt: number, extra: Record<string, unknown> = {}) =>
@@ -220,20 +219,5 @@ describe("files an overview read", () => {
     const part = (status: string, paths: string[]) => ({ status, locations: [], blocks: paths.map((path) => ({ kind: "code", path })) });
     const read = filesRead({ workspacePath: "/w", parts: [part("ready", ["/w/src/a.ts", "src/b.ts"]), part("ready", ["src/a.ts"]), part("writing", ["src/c.ts"])], wrapUp: null } as never);
     expect(read).toEqual(["src/a.ts", "src/b.ts"]);
-  });
-});
-
-describe("placing the toolbar and composer", () => {
-  const view = { visibleTop: 100, visibleBottom: 700 };
-  it("sits above the selection when it fits", () => {
-    expect(flagTop({ anchorTop: 400, anchorBottom: 420, ...view }, 36)).toBe(358);
-  });
-  it("drops below when the top bar would cover it, never under the top bar", () => {
-    expect(flagTop({ anchorTop: 110, anchorBottom: 130, ...view }, 190)).toBe(136);
-    expect(flagTop({ anchorTop: 110, anchorBottom: 130, ...view }, 190)).toBeGreaterThan(view.visibleTop);
-  });
-  it("is pinned inside the visible area when neither side has room", () => {
-    expect(flagTop({ anchorTop: 300, anchorBottom: 690, visibleTop: 100, visibleBottom: 700 }, 420)).toBe(276);
-    expect(flagTop({ anchorTop: 640, anchorBottom: 690, visibleTop: 100, visibleBottom: 700 }, 200)).toBe(434);
   });
 });

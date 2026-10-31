@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import type { NoteKind } from "../schemas.ts";
 import type { FlagTarget } from "./Figure.tsx";
 import { Hint } from "./Hint.tsx";
-import { flagTop, type FlagPlacement } from "./place-flag.ts";
+import { placeFlag, type FlagGeometry, type FlagPosition } from "./place-flag.ts";
 
 export type FlagChoice = NoteKind | "ask";
 const LABEL: Record<FlagChoice, string> = { note: "Note", todo: "Todo", comment: "Comment", question: "Question", ask: "Ask" };
@@ -20,14 +20,14 @@ const PURPOSE: Record<NoteKind, string> = {
 
 export function FlagPopover({
   target,
-  position,
+  geometry,
   commentReason,
   onSave,
   onAsk,
   onDismiss,
 }: {
   target: FlagTarget;
-  position: FlagPlacement & { left: number };
+  geometry: FlagGeometry;
   /** Why Comment is unavailable (shown beside the disabled option), or null when it is offered. */
   commentReason: string | null;
   onSave: (kind: NoteKind, text: string) => Promise<void>;
@@ -40,12 +40,13 @@ export function FlagPopover({
   const area = useRef<HTMLTextAreaElement>(null);
   const reasonId = useId();
   const box = useRef<HTMLDivElement>(null);
-  // Placed from the box's real height, which changes when the composer opens: it never runs under the top bar or the pager.
-  const [top, setTop] = useState(position.anchorTop);
+  // Placed from the box's real size, which changes when the composer opens (see place-flag.ts for the rules).
+  const [position, setPosition] = useState<FlagPosition>({ top: geometry.anchor.top, left: geometry.anchor.left, side: "pinned" });
   useLayoutEffect(() => {
-    const height = box.current?.offsetHeight ?? 0;
-    setTop(flagTop(position, height));
-  }, [position, kind, text]);
+    const element = box.current;
+    const next = placeFlag(geometry, { width: element?.offsetWidth ?? 0, height: element?.offsetHeight ?? 0 });
+    setPosition((held) => (held.top === next.top && held.left === next.left && held.side === next.side ? held : next));
+  }, [geometry, kind, text]);
   useEffect(() => {
     if (kind) area.current?.focus();
   }, [kind]);
@@ -65,8 +66,9 @@ export function FlagPopover({
       role={kind ? "dialog" : "toolbar"}
       aria-label={kind ? `New ${LABEL[kind].toLowerCase()}` : "Flag this"}
       data-flag=""
+      data-side={position.side}
       className={cn("wt-flag wt-glass", kind && "wt-flag-open")}
-      style={{ top, left: position.left, transform: "none" }}
+      style={{ top: position.top, left: position.left, transform: "none" }}
       // Pressing a button here must not collapse the selection it was made from.
       onMouseDown={(event) => {
         if (!(event.target instanceof HTMLTextAreaElement)) event.preventDefault();

@@ -16,7 +16,7 @@ import { ConcernsSheet, countedOpen, hasReview, type ConcernsTab } from "./Conce
 import { BoundaryContext, ReaderContext } from "./context.ts";
 import { figureSelection, type FlagTarget } from "./Figure.tsx";
 import { FlagPopover } from "./Flag.tsx";
-import type { FlagPlacement } from "./place-flag.ts";
+import type { FlagGeometry, Rect } from "./place-flag.ts";
 import { PART_STATE_LABEL, flagGlyphs, pageAt, pagePosition, partState, suggestionsFor, type PageId, type PartState } from "./fields.ts";
 import { cssEscape, findQuote, snapRangeToWords } from "./highlight.ts";
 import { Hint } from "./Hint.tsx";
@@ -55,13 +55,36 @@ function Subject({ walkthrough, subtitle }: { walkthrough: Walkthrough; subtitle
   );
 }
 
+/**
+ * Viewport bottom of the line under a selection: its last line's rect plus one
+ * line of the element it ends in, read from computed style so prose, captions
+ * and code rows each use their own rhythm.
+ */
+function nextLineBottom(range: Range): number {
+  const rects = range.getClientRects?.() ?? [];
+  const last = Array.from(rects).reverse().find((rect) => rect.height > 0) ?? range.getBoundingClientRect();
+  const node = range.endContainer;
+  const element = node instanceof Element ? node : node.parentElement;
+  if (!element) return last.bottom;
+  const style = getComputedStyle(element);
+  const size = parseFloat(style.fontSize) || 16;
+  const line = parseFloat(style.lineHeight);
+  return last.bottom + (Number.isFinite(line) ? line : size * 1.3);
+}
+
+/** The paragraph, list item or heading a selection ends in (undefined for a selection in code). */
+function proseBlock(range: Range): Element | null {
+  const node = range.endContainer;
+  const element = node instanceof Element ? node : node.parentElement;
+  return element?.closest(".wt-prose > *, .wt-prose li, .wt-prose p, .wt-head") ?? null;
+}
+
 function isTyping(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']") !== null;
 }
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 /** The composer's width plus a margin, so it never runs off the page's right edge. */
-const COMPOSER_WIDTH = 320;
 /** How long a second press of Next is ignored if the page never changes (the call failed or the signal was lost). */
 const NAV_LOCK_MS = 1500;
 
@@ -145,7 +168,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   // Wrap-up is a state of the walkthrough, but the reader can still go back to
   // the parts from it; this only picks what is shown.
   const [leftWrapUp, setLeftWrapUp] = useState(false);
-  const [flag, setFlag] = useState<(FlagPlacement & { target: FlagTarget; left: number }) | null>(null);
+  const [flag, setFlag] = useState<{ target: FlagTarget; geometry: FlagGeometry } | null>(null);
   const [scope, setScope] = useState<FlagTarget | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -340,24 +363,36 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const working = workingLine(planStream?.steps);
 
   // Flagging: a selection in prose or code, or a code line.
-  // The toolbar sits above the selection when there is room and drops below it otherwise; the box measures itself (see FlagPopover) so it stays inside what is visible.
-  const placeFlag = (target: FlagTarget, rect: { top: number; bottom: number; left: number }) => {
-    const origin = pageRef.current?.getBoundingClientRect();
-    if (!origin) return;
+  // Where the toolbar goes is decided by `placeFlag` from the geometry measured here; the box measures itself (see FlagPopover).
+  const anchorFlag = (target: FlagTarget, rect: DOMRect, nextBottom: number = rect.bottom + rect.height, block?: Element | null) => {
+    const page = pageRef.current;
+    const origin = page?.getBoundingClientRect();
+    if (!page || !origin) return;
     const measured = scrollRef.current?.getBoundingClientRect();
     const scroller = measured && measured.height > 0 ? measured : undefined;
     const pager = rootRef.current?.querySelector(".wt-pager")?.getBoundingClientRect();
+    const hardTop = (scroller?.top ?? origin.top) - origin.top;
     // Not over the page's own heading either: a selection below it keeps the toolbar from covering the title.
-    const head = pageRef.current?.querySelector(".wt-head")?.getBoundingClientRect();
-    const viewTop = Math.max(scroller?.top ?? origin.top, head !== undefined && rect.top > head.top ? head.bottom : -Infinity);
+    const head = page.querySelector(".wt-head")?.getBoundingClientRect();
+    const visibleTop = head !== undefined && rect.top > head.top ? Math.max(hardTop, head.bottom - origin.top) : hardTop;
     const viewBottom = Math.min(scroller?.bottom ?? Infinity, pager && pager.height > 0 ? pager.top : Infinity);
+    const style = getComputedStyle(page);
+    const relative = (box: DOMRect): Rect => ({ top: box.top - origin.top, bottom: box.bottom - origin.top, left: box.left - origin.left, right: box.right - origin.left });
     setFlag({
       target,
-      anchorTop: rect.top - origin.top,
-      anchorBottom: rect.bottom - origin.top,
-      visibleTop: viewTop - origin.top,
-      visibleBottom: Number.isFinite(viewBottom) ? viewBottom - origin.top : Number.MAX_SAFE_INTEGER,
-      left: Math.max(0, Math.min(rect.left - origin.left, origin.width - COMPOSER_WIDTH)),
+      geometry: {
+        anchor: relative(rect),
+        nextLineBottom: nextBottom - origin.top,
+        visibleTop,
+        visibleBottom: Number.isFinite(viewBottom) ? viewBottom - origin.top : Number.MAX_SAFE_INTEGER,
+        hardTop,
+        pageWidth: origin.width,
+        // The text the selection is in bounds the margin; without a block (a code line) the page's padding does.
+        column: block
+          ? { left: block.getBoundingClientRect().left - origin.left, right: block.getBoundingClientRect().right - origin.left }
+          : { left: parseFloat(style.paddingLeft) || 0, right: origin.width - (parseFloat(style.paddingRight) || 0) },
+        obstacles: Array.from(page.querySelectorAll(".wt-margin-slot, .wt-aside"), (element) => relative(element.getBoundingClientRect())),
+      },
     });
   };
   const onMouseUp = (event: MouseEvent) => {
@@ -376,7 +411,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     }
     const inFigure = figureSelection(range);
     const target: FlagTarget = inFigure ?? { location: null, quote: text.slice(0, 2000) };
-    placeFlag(target, range.getBoundingClientRect());
+    anchorFlag(target, range.getBoundingClientRect(), nextLineBottom(range), proseBlock(range));
   };
   // Saving a note can change the page's height (a margin note appears, a figure grows); the line the reader flagged stays where it was on screen.
   const anchor = useRef<{ selector: string; top: number } | null>(null);
@@ -486,9 +521,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
       return <Introduction walkthrough={{ ...walkthrough, introduction: introPreview.intro }} onOpen={openPart} streaming={introPreview.introOpen} working={working} label={view.copy?.introduction ?? "Introduction"} />;
     }
     if (preparing) return <Preparing walkthrough={walkthrough} skeleton={working ?? view.copy?.skeleton} />;
-    if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} coverage={view.coverage} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
+    if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} coverage={view.coverage} rpc={rpc} wide={wide} onFlag={anchorFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
     if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} coverage={view.coverage} label={view.copy?.introduction ?? "Introduction"} subject={<Subject walkthrough={walkthrough} subtitle={view.copy?.subtitle} />} />;
-    return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} />;
+    return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={anchorFlag} />;
   })();
   // One counting scheme everywhere: parts are numbered 1…N; the introduction and wrap-up are named, never numbered.
   const progressLabel = preparing ? "Getting ready" : page.kind === "intro" ? "Introduction" : page.kind === "wrap-up" ? "Wrap-up" : `Part ${page.index + 1} of ${partCount}`;
@@ -605,7 +640,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                   {flag ? (
                     <FlagPopover
                       target={flag.target}
-                      position={flag}
+                      geometry={flag.geometry}
                       commentReason={canComment ? null : readerContext.commentReason}
                       onSave={saveFlag}
                       onAsk={() => {
