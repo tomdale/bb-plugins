@@ -105,9 +105,6 @@ export function DeletedPage() {
     <div className="wt">
       <div className="wt-scroll">
         <div className="wt-page wt-deleted">
-          <div className="wt-pn" data-bare aria-hidden>
-            PART<b>·</b>
-          </div>
           <header className="wt-head">
             <h2>This walkthrough was deleted</h2>
           </header>
