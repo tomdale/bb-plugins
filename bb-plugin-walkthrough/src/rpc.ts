@@ -115,7 +115,26 @@ export const rpcContract = defineRpcContract({
   },
   wrapUp: { input: z.object(target).strict(), output: ok },
   close: { input: z.object(target).strict(), output: ok },
-  handOff: { input: z.object(target).strict(), output: z.object({ sent: z.boolean() }).strict() },
+  /**
+   * The message "send open items to the thread" (and "ask the thread to apply
+   * it") would send, and the notes it covers. Sends nothing; null when no todo
+   * or question is waiting. The pane shows it in an editable field.
+   */
+  prepareHandOff: {
+    input: z.object(target).strict(),
+    output: z.object({ draft: z.object({ message: z.string(), noteIds: z.array(noteIdSchema) }).strict().nullable() }).strict(),
+  },
+  /**
+   * Sends a message to the user's own thread: the one action that does. Call it
+   * only from an explicit Send in the pane, with the text the reader saw
+   * (`prepareHandOff`'s, possibly edited) and the `noteIds` it came with. Without
+   * `message` it sends the prepared text, which only the pane's explicit Send may
+   * trigger. `sent` is false when there was nothing to send.
+   */
+  handOff: {
+    input: z.object({ ...target, message: z.string().trim().min(1).max(20_000).optional(), noteIds: z.array(noteIdSchema).max(200).optional() }).strict(),
+    output: z.object({ sent: z.boolean() }).strict(),
+  },
   addNote: {
     input: z
       .object({

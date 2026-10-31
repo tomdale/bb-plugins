@@ -79,3 +79,49 @@ describe("the helper proposes how a note ends; only the reader resolves it", () 
     expect(readNote(old).proposedResolution ?? null).toBeNull();
   });
 });
+
+describe("asking the thread to apply open items", () => {
+  async function withTodos(plan: Record<string, unknown> = PLAN) {
+    const env = await setup();
+    const { walkthroughId } = await env.rpc("start", { threadId: THREAD, request: "Explain" });
+    await settle();
+    await env.tool("walkthrough_plan", plan);
+    await env.rpc("addNote", { walkthroughId, kind: "todo", text: "Name the cap", groupIndex: 0 });
+    await env.rpc("addNote", { walkthroughId, kind: "question", text: "Why 4,000?", groupIndex: 0 });
+    const toThread = () => env.sent.filter((message) => message.threadId === THREAD);
+    return { ...env, walkthroughId, toThread };
+  }
+
+  it("prepares the message without sending anything", async () => {
+    const { rpc, walkthroughId, toThread } = await withTodos();
+    const { draft } = await rpc("prepareHandOff", { walkthroughId });
+    expect(draft.noteIds).toEqual(["n1", "n2"]);
+    expect(draft.message).toContain('n1 todo [Keeping speech requests small]: "Name the cap"');
+    expect(toThread()).toHaveLength(0);
+    expect((await rpc("get", { walkthroughId })).view.notes.every((note: any) => !note.sentAt)).toBe(true);
+  });
+
+  it("sends exactly the text the reader edited, and marks only the notes it covered as sent", async () => {
+    const { rpc, walkthroughId, toThread, view } = await withTodos();
+    const { draft } = await rpc("prepareHandOff", { walkthroughId });
+    expect(await rpc("handOff", { walkthroughId, message: `${draft.message}\n\nPlease start with the cap.`, noteIds: ["n1"] })).toEqual({ sent: true });
+    expect(toThread().map((message) => message.text)).toEqual([`${draft.message}\n\nPlease start with the cap.`]);
+    const notes = (await view(walkthroughId)).notes;
+    expect(notes.map((note: any) => Boolean(note.sentAt))).toEqual([true, false]);
+    expect((await rpc("prepareHandOff", { walkthroughId })).draft.noteIds).toEqual(["n2"]);
+  });
+
+  it("words the offer for a walkthrough that explains code, not a change", async () => {
+    const { rpc, walkthroughId } = await withTodos({ ...PLAN, intent: "understand" });
+    expect((await rpc("prepareHandOff", { walkthroughId })).draft.message).toContain("While reading how this code works");
+  });
+
+  it("has nothing to prepare or send when no todo or question is waiting", async () => {
+    const { rpc, walkthroughId, toThread } = await withTodos();
+    await rpc("updateNote", { walkthroughId, noteId: "n1", status: "resolved" });
+    await rpc("updateNote", { walkthroughId, noteId: "n2", status: "resolved" });
+    expect((await rpc("prepareHandOff", { walkthroughId })).draft).toBeNull();
+    expect(await rpc("handOff", { walkthroughId })).toEqual({ sent: false });
+    expect(toThread()).toHaveLength(0);
+  });
+});

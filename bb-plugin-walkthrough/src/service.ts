@@ -15,7 +15,7 @@ import { codeHostContract, type ChangedFiles, type CodeSnapshot } from "./code-c
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
-import { describeNoteForAgent, mergedReviewDraft } from "./model.ts";
+import { describeNoteForAgent, intentOf, mergedReviewDraft } from "./model.ts";
 import { citedPaths } from "./coverage.ts";
 import { filterPatchToRange } from "./patch.ts";
 import { stripReplyWrapper } from "./reply-wrapper.ts";
@@ -711,25 +711,39 @@ export class WalkthroughService {
     }
   }
 
-  /** Hands open todos and questions to the agent in the user's own thread. */
-  async handOff(id: string): Promise<boolean> {
+  /**
+   * The message "send open items to the thread" would send, and the notes it
+   * covers, without sending anything: the pane shows it for the reader to edit
+   * and send. Null when no todo or question is waiting.
+   */
+  prepareHandOff(id: string): { message: string; noteIds: string[] } | null {
     const walkthrough = this.get(id);
     const open = this.store.notes(id).filter((note) => note.status === "open" && !note.sentAt && (note.kind === "todo" || note.kind === "question"));
-    if (open.length === 0) return false;
-    const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
+    if (open.length === 0) return null;
     const subject = walkthrough.pr ? `PR #${walkthrough.pr.number}${walkthrough.pr.url ? ` (${walkthrough.pr.url})` : ""}` : walkthrough.title;
-    await this.bb.sdk.threads.send({
-      threadId: walkthrough.threadId,
-      mode: "auto",
-      input: [
-        {
-          type: "text",
-          text: `From my walkthrough of ${subject}. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n${lines.join("\n")}`,
-          mentions: [],
-        },
-      ],
-    });
-    this.store.markSent(id, open.map((note) => note.id), this.now());
+    const lines = open.map((note) => describeNoteForAgent(walkthrough, note));
+    const intro =
+      intentOf(walkthrough) === "understand"
+        ? `From my walkthrough of ${subject}. While reading how this code works I recorded these follow-ups; act on the todos and answer the questions here, in this thread:`
+        : `From my walkthrough of ${subject}. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:`;
+    return { message: `${intro}\n\n${lines.join("\n")}`, noteIds: open.map((note) => note.id) };
+  }
+
+  /**
+   * Sends the reader's message to the agent in their own thread. The only way
+   * anything leaves the pane for the thread: callers pass the text the reader
+   * saw and chose to send (from prepareHandOff, possibly edited). Without
+   * `message` it sends what prepareHandOff offers, for older callers; without
+   * `noteIds` it marks the notes that draft covers as sent.
+   */
+  async handOff(id: string, message?: string, noteIds?: string[]): Promise<boolean> {
+    const walkthrough = this.get(id);
+    const draft = this.prepareHandOff(id);
+    const text = message?.trim() || draft?.message;
+    if (!text) return false;
+    const covered = noteIds ?? draft?.noteIds ?? [];
+    await this.bb.sdk.threads.send({ threadId: walkthrough.threadId, mode: "auto", input: [{ type: "text", text, mentions: [] }] });
+    this.store.markSent(id, covered, this.now());
     this.save(this.get(id));
     return true;
   }
