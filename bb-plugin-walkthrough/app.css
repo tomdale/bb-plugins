@@ -33,7 +33,7 @@
   --wt-shadow: rgba(0, 0, 0, 0.12);
   --wt-focus: rgba(0, 0, 0, 0.75);
   /* The one focus language: a soft halo of the accent, never a brown line. */
-  --wt-ring: color-mix(in srgb, #ffcc00 70%, transparent);
+  --wt-ring: color-mix(in srgb, #ffb400 88%, transparent);
   --wt-danger: #ff3b30;
   --wt-danger-ink: #d70015;
   /* Motion: three durations, an arrival curve and a departure curve, and one pulse rate for everything that breathes. */
