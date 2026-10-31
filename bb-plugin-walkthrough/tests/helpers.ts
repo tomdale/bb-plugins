@@ -5,7 +5,7 @@ export const THREAD = "thr_user";
 export const WORKER = "thr_worker";
 
 export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }>; tabs?: { get: (args: { threadId: string }) => unknown; update: (args: { threadId: string; expectedRevision: number; tabs: any[] }) => unknown } } = {}) {
-  const sent: Array<{ threadId: string; text: string }> = [];
+  const sent: Array<{ threadId: string; text: string; reasoningLevel?: string | undefined }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
@@ -23,7 +23,7 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
           const failure = options.sendError?.();
           if (failure) throw failure;
           const first = args.input[0];
-          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "" });
+          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "", reasoningLevel: args.reasoningLevel });
           return {} as never;
         },
         stop: async () => ({}) as never,

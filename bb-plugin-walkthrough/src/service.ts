@@ -470,7 +470,8 @@ export class WalkthroughService {
     const text = updates.length > 0 ? `${threadUpdateMessage(updates)}\n\n${body}` : body;
     const workerThreadId = walkthrough.workerThreadId!;
     const afterSeq = await this.latestSeq(workerThreadId);
-    let next: Walkthrough = { ...walkthrough, queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
+    // Re-read: waiting for the brief let other work (the first look at the tree) save in between.
+    let next: Walkthrough = { ...this.get(id), queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
     next = this.markStarted(next, request);
     this.save(next);
     try {
