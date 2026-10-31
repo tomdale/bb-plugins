@@ -10,8 +10,9 @@ import { Icon } from "@/components/ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { comparedWith, parseCommand, tabTitle } from "../model.ts";
+import { comparedWith, parseCommand, summaryTitle, tabTitle } from "../model.ts";
 import { PAGE_PATH, PANEL_ACTION_ID, type DeliveredNote, type DeliveredWalkthrough as Walkthrough, type NoteKind, type WalkthroughView } from "../schemas.ts";
+import { DeleteWalkthroughDialog } from "./DeleteWalkthrough.tsx";
 import { ConcernsSheet, countedOpen, hasReview, type ConcernsTab } from "./Concerns.tsx";
 import { BoundaryContext, ReaderContext } from "./context.ts";
 import { figureSelection, type FlagTarget } from "./Figure.tsx";
@@ -165,6 +166,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const [sheetOpen, setSheetOpen] = useState(false);
   const [tab, setTab] = useState<ConcernsTab>("open");
   const [finishing, setFinishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   // Wrap-up is a state of the walkthrough, but the reader can still go back to
   // the parts from it; this only picks what is shown.
   const [leftWrapUp, setLeftWrapUp] = useState(false);
@@ -613,12 +615,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                     ) : (
                       <DropdownMenuItem onSelect={() => navigate.toThread(walkthrough.threadId)}>Back to thread</DropdownMenuItem>
                     )}
-                    {!closed ? (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem>
-                      </>
-                    ) : null}
+                    <DropdownMenuSeparator />
+                    {!closed ? <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem> : null}
+                    <DropdownMenuItem onSelect={() => setDeleting(true)}>Delete walkthrough…</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </header>
@@ -678,6 +677,8 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 
               <ConcernsSheet view={view} rpc={rpc} open={sheetOpen} tab={tab} onTab={setTab} onClose={closeSheet} onJump={jumpTo} sheetRef={sheetRef} send={send} pinnedSend={pinnedSend} />
               {send.dialog}
+
+              <DeleteWalkthroughDialog target={{ id: walkthrough.id, title: summaryTitle(walkthrough) }} open={deleting} onOpenChange={setDeleting} rpc={rpc} />
 
               <Dialog open={finishing} onOpenChange={setFinishing}>
                 <DialogContent className="wt-portal wt-dialog">

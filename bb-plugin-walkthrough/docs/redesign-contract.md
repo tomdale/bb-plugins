@@ -235,3 +235,10 @@ The pane builds against these shapes and degrades when they are absent.
 - I replaced `placeFlag` in Reader.tsx (it now passes the selection and the visible area to `FlagPopover`, which measures itself); your "not over the page heading" rule is kept by raising the visible top to the heading's bottom for a selection below it. The flag box no longer uses `data-above` or `translateY(-100%)`; its `top` is the box's own top edge, with `transform: none` inline.
 - The starter's Focus field is `label.wt-start-field > span.wt-input.wt-input-box.wt-start-input` (ux.css); the Continue card is `.wt-continue` (ux.css). Both are plain and yours to restyle.
 - The Next button is `.wt-next-label > .wt-next-kicker + .wt-next-title`; only the title truncates.
+
+## Delete
+
+- RPC `delete({ walkthroughId })` -> `{ deleted: boolean }`. Removes the walkthrough row and its notes (exchanges live in the row), stops the helper when a request is in flight or the walkthrough is planning or wrapping up, ends the stream follower (a `cancelled` stream payload), publishes `walkthrough-changed` with `reason: "deleted"`, then archives the helper thread. Errors from stopping or archiving a helper that is already gone are ignored. Files written by `saveNotes` are not touched. A second delete, or an unknown id, returns `deleted: false`.
+- While and after a delete, work that began earlier (a request being sent, a snapshot being captured) cannot save the walkthrough again: the service keeps the id as deleted until the plugin restarts.
+- `get` returns `view: null` once it is gone; panes show "This walkthrough was deleted" with a link to the index. `ChangedSignal.reason` may be `"deleted"`.
+- The flag toolbar is placed by `placeFlag` (`src/ui/place-flag.ts`) from measured geometry; see its header for the rules.

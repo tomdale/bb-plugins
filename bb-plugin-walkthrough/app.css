@@ -509,7 +509,13 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-input-box { width: 100%; padding-right: 14px; }
 .wt-earlier { margin-top: 32px; max-width: var(--wt-measure); }
 .wt-earlier ul, .wt-index-list { list-style: none; margin: 0; padding: 0; }
-.wt-summary-row { display: block; width: 100%; padding: 8px 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: none; text-align: left; }
+.wt-summary-item { display: flex; align-items: center; border-top: 0.5px solid var(--wt-hair); }
+.wt-summary-row { display: block; flex: 1; min-width: 0; padding: 8px 0; border: 0; background: none; text-align: left; }
+/* Takes no room until its row is hovered or holds keyboard focus, so titles use the whole line meanwhile. */
+.wt-summary-delete { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 0; height: 28px; overflow: hidden; border: 0; border-radius: 8px; background: none; color: var(--wt-mute); }
+.wt-summary-item:hover .wt-summary-delete, .wt-summary-item:has(:focus-visible) .wt-summary-delete, .wt-summary-delete[aria-expanded="true"] { width: 28px; margin-left: 4px; }
+.wt-summary-delete:hover { background: var(--wt-fill); color: var(--wt-ink); }
+@media (hover: none) { .wt-summary-delete { width: 32px; height: 32px; margin-left: 4px; } }
 .wt-summary-title { display: block; font: 17px/1.3 var(--wt-serif); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-summary-row:hover .wt-summary-title { text-decoration: underline; text-underline-offset: 3px; }
 .wt-index { max-width: 640px; }
@@ -556,6 +562,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .dark .wt-portal.wt-dialog [role="radiogroup"] button[aria-checked="true"] { background: rgba(255, 255, 255, 0.18); }
 .wt-portal.wt-dialog .wt-btn { height: 32px; border-radius: 16px; }
 .wt-portal .wt-btn:focus-visible { box-shadow: none; }
+.wt-portal.wt-dialog p.wt-delete-error { margin: 0; color: var(--wt-del-ink); }
 .wt-portal.wt-dialog [data-slot="dialog-footer"], .wt-dialog-actions { display: flex; flex-direction: row; justify-content: flex-end; gap: 8px; }
 .wt-check {
   width: 16px; height: 16px; border: 1px solid var(--wt-mute); border-radius: 5px; background: none; box-shadow: none; color: var(--wt-yt);

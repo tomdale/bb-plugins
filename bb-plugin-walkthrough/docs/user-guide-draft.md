@@ -49,6 +49,10 @@ Everything lands in one list, the **Concerns** sheet, opened from the top bar (a
 - **Open items** lists everything. Tick **Include in review** to add a comment to the draft. **Send open items to thread** hands your todos and questions to the thread's agent.
 - **Review draft** (pull requests) shows the summary and inline comments built from what you included. Edit it by asking in the walkthrough ("drop the third comment"). **Post review…** shows exactly what will be posted. Nothing goes to GitHub until you confirm.
 
+## Deleting a walkthrough
+
+Open the **More** menu and choose **Delete walkthrough…**, or point at a row in the Walkthroughs list and press the trash button. The dialog names the walkthrough and asks first. Deleting removes the walkthrough, your notes and your questions with their answers, and archives the helper thread. Notes you saved to a file stay where they are. There is no undo.
+
 ## Staying current
 
 If the code changes after a part was written, that part is marked **out of date** and the agent offers to rewrite it. Code figures are saved when the part is written, so a part still reads correctly if the files are gone; it says so, with the saved copy.

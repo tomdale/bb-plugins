@@ -38,9 +38,11 @@ describe("full page", () => {
     expect(slot.inspection.navigateCalls).toEqual([{ method: "toThread", threadId: "thr_1" }]);
   });
 
-  it("says when the walkthrough no longer exists", async () => {
+  it("says when the walkthrough was deleted, and links to the index", async () => {
     const slot = await mountPage("wt_gone", { get: () => ({ view: null }) });
-    await slot.findByText("This walkthrough no longer exists.");
+    await slot.findByText("This walkthrough was deleted");
+    fireEvent.click(slot.getByRole("button", { name: "See your other walkthroughs" }));
+    expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "walkthroughs" }]);
   });
 
   it("shows a skeleton in the page's layout while the walkthrough loads", async () => {
@@ -54,7 +56,7 @@ describe("full page", () => {
     const slot = await mountPage("", { recent: () => ({ walkthroughs: [summary, { ...summary, id: "wt_2", title: "Walkthrough", request: "The PR", status: "done" }] }) });
     await slot.findByText(/In progress · Part 1 of 3/u);
     expect(slot.queryByText("reading")).toBeNull();
-    fireEvent.click(await slot.findByRole("button", { name: /The PR/ }));
+    fireEvent.click(await slot.findByRole("button", { name: /^The PR/ }));
     expect(slot.inspection.navigateCalls).toEqual([{ method: "toPluginPanel", path: "walkthroughs", options: { subPath: "wt_2" } }]);
   });
 });

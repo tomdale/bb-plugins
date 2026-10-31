@@ -50,7 +50,11 @@ there is no rail and no contents list.
 - **Flag:** select text or lines of code and choose **Note**, **Todo**,
   **Comment** (PR reviews), or **Ask**. Each flag is anchored to its part and
   line. In the Concerns sheet, tick **Include in review** to add a comment to
-  the review draft.
+  the review draft. The toolbar sits just above the selection; when the heading
+  or top bar is in the way it moves beside the selection in the page margin (wide
+  pages, where no margin note is), else below the line that follows the selection
+  with a gap, so it covers neither the selection nor the next line. It never runs
+  under the top bar or the pager. The rules live in `src/ui/place-flag.ts`.
 - **Wrap up:** the last part is a ledger (open items, questions answered, parts
   skipped) with one primary action chosen by what you are doing:
   - *Reviewing a PR:* **Post review** shows exactly what will be posted and
@@ -83,6 +87,15 @@ there is no rail and no contents list.
   every thread.
 - **Finish:** **Finish walkthrough** stops the helper (you can still read it
   afterwards) and asks first unless every part is written.
+- **Delete:** **Delete walkthrough…** in the overflow menu, or the trash button
+  that appears on a row of the Walkthroughs index on hover or keyboard focus,
+  asks first (the dialog names the walkthrough), then removes it with its notes
+  and exchanges. A helper still writing is stopped and its stream ends, then the
+  helper thread is archived (a thread that is already gone is fine). Notes you
+  saved with **Save notes** stay in the thread's storage. A pane that has the
+  walkthrough open shows "This walkthrough was deleted" with a link to the
+  index. There is no undo. The `delete` RPC returns `{ deleted: false }` for a
+  walkthrough that is already gone.
 - **Staying current:** your thread keeps working while the walkthrough is
   written. The helper is told what you said there, and a part written against
   files a part cites that have since changed mark that part out of date (naming the files), with a one-click rewrite.
