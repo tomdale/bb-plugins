@@ -378,6 +378,17 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   `systemMessageKind` and originating plugin/tool, with typed retained payloads
   and a host-owned fallback
 
+- **Additional use case:** Subagents forwards a worker's final output through
+  `threads.send`. Reply blocks in that notification appear literally because
+  user/generated messages do not activate `experimental_messageBlock`; the SDK
+  contract explicitly restricts it to assistant messages. `Markdown` outside a
+  block renderer also has no way to activate registered block renderers.
+- **Additional workaround:** Workstreams observes mounted notification rows,
+  reads the complete saved delivery, checks its run identity against Subagents'
+  `list` RPC, and renders the reply with its existing component. It hides the
+  original body only after the replacement mounts and restores it on cleanup
+  or a rendering failure. This depends on host row identifiers and DOM markup.
+
 ## Mount plugin content in the native thread conversation
 
 - **Status:** not filed
