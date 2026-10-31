@@ -100,6 +100,15 @@ describe("the concerns sheet, pager and shared controls", () => {
   });
 });
 
+describe("accent discipline", () => {
+  it("keeps yellow for markers, highlights, the open Concerns chip and the current position, not for hovers", () => {
+    expect(rule(".wt-suggest button:hover:not(:disabled)")).not.toContain("--wt-y");
+    expect(rule(".wt-flag > button:hover:not(:disabled)")).not.toContain("--wt-y");
+    expect(rule('.wt-chip[aria-expanded="true"]')).not.toContain("--wt-y");
+    expect(rule('.wt-chip[data-selected="true"]')).toContain("--wt-y");
+  });
+});
+
 describe("page chrome", () => {
   it("puts the introduction's subject under its title", async () => {
     const slot = await mountPage("wt_1", viewOf(walkthrough({ currentPart: null, introduction: "Hello there." })));

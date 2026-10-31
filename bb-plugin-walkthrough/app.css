@@ -307,7 +307,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-flag { position: absolute; z-index: 6; display: flex; gap: 2px; padding: 3px; border-radius: 10px; box-shadow: 0 6px 20px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); }
 .wt-flag[data-above] { transform: translateY(-100%); }
 .wt-flag > button { border: 0; background: none; border-radius: 7px; padding: 3px 10px; font-weight: 500; font-size: 12px; }
-.wt-flag > button:hover { background: var(--wt-y); color: var(--wt-yt); }
+.wt-flag > button:hover:not(:disabled) { background: var(--wt-fill); }
 .wt-flag-open { display: block; width: min(300px, calc(100% - 20px)); padding: 8px; border-radius: 14px; }
 .wt-flag-open form { display: flex; flex-direction: column; gap: 6px; }
 .wt-flag-quote, .wt-it-quote { margin: 0; padding-left: 8px; border-left: 2px solid var(--wt-y); font: italic 13.5px/1.4 var(--wt-serif); color: var(--wt-mute); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -336,7 +336,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   }
 }
 .wt-suggest button { flex: none; max-width: 100%; border: 0; border-radius: 12px; background: var(--wt-fill); padding: 2px 10px; font: italic 13px/1.4 var(--wt-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wt-suggest button:hover:not(:disabled) { background: var(--wt-y); color: var(--wt-yt); }
+.wt-suggest button:hover:not(:disabled) { background: var(--wt-hair); }
 .wt-scope { display: flex; align-items: center; gap: 6px; padding: 0 4px; color: var(--wt-mute); font: italic 13px var(--wt-serif); }
 .wt-scope-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-scope button { border: 0; background: none; display: grid; place-items: center; }
@@ -400,7 +400,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-edit { display: flex; flex-direction: column; gap: 6px; }
 .wt-radios { display: flex; flex-wrap: wrap; gap: 2px; }
 .wt-radios button { border: 0; border-radius: 6px; padding: 1px 8px; background: none; color: var(--wt-mute); font-size: 12px; }
-.wt-radios button[aria-checked="true"] { background: var(--wt-y); color: var(--wt-yt); }
+.wt-radios button[aria-checked="true"] { background: var(--wt-hair); color: var(--wt-ink); }
 
 /* Thread of questions under a page */
 .wt-thread { margin-top: 28px; padding-top: 14px; max-width: var(--wt-measure); border-top: 0.5px solid var(--wt-hair); display: flex; flex-direction: column; gap: 18px; }
