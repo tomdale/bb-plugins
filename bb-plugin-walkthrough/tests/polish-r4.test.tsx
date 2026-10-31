@@ -73,7 +73,7 @@ describe("Save notes", () => {
 describe("the narrow pager", () => {
   it("shows the next part's name whole or not at all, and never cuts it with an ellipsis", async () => {
     const { readFileSync } = await import("node:fs");
-    const css = readFileSync(new URL("../src/ui/ux.css", import.meta.url), "utf8");
+    const css = readFileSync("src/ui/ux.css", "utf8");
     const rule = (selector: string) => css.split("\n").find((line) => line.startsWith(selector))!;
     // The label wraps onto a line it clips, so a name that does not fit beside "Next" is hidden entirely.
     expect(rule(".wt .wt-next-label {")).toMatch(/flex-wrap: wrap/u);
