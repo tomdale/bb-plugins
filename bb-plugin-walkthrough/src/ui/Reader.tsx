@@ -173,10 +173,12 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const [leftWrapUp, setLeftWrapUp] = useState(false);
   const [flag, setFlag] = useState<{ target: FlagTarget; geometry: FlagGeometry } | null>(null);
   // Room made for the toolbar by pushing the selection's block down (see the "reserve" rule in place-flag.ts); undone with the toolbar.
+  // Padding, not margin: a margin would collapse into the heading's own and push less than asked.
   const pushed = useRef<{ element: HTMLElement; inline: string; base: number } | null>(null);
+  // Padding, not margin: a margin would collapse into the heading's own and push less than asked.
   const flagBlock = useRef<HTMLElement | null>(null);
   const releasePush = () => {
-    if (pushed.current) pushed.current.element.style.marginTop = pushed.current.inline;
+    if (pushed.current) pushed.current.element.style.paddingTop = pushed.current.inline;
     pushed.current = null;
   };
   const reservePush = (push: number) => {
@@ -184,9 +186,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     if (!element || push <= 0) return releasePush();
     if (pushed.current?.element !== element) {
       releasePush();
-      pushed.current = { element, inline: element.style.marginTop, base: parseFloat(getComputedStyle(element).marginTop) || 0 };
+      pushed.current = { element, inline: element.style.paddingTop, base: parseFloat(getComputedStyle(element).paddingTop) || 0 };
     }
-    element.style.marginTop = `${pushed.current.base + push}px`;
+    element.style.paddingTop = `${pushed.current.base + push}px`;
   };
   useEffect(() => {
     if (flag === null) releasePush();

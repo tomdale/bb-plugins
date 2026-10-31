@@ -134,7 +134,7 @@ describe("page chrome", () => {
       // With no room above, the paragraph moves down and the toolbar takes the room: no line of prose is covered.
       expect(toolbar.getAttribute("data-side")).toBe(side);
       expect(parseFloat(toolbar.style.top)).toBeCloseTo(expected, 1);
-      expect(paragraph.parentElement!.closest<HTMLElement>(".wt-prose > *, .wt-prose p")?.style.marginTop ?? "").toBe(side === "reserve" ? `${34 + 6 + 4}px` : "");
+      expect(paragraph.parentElement!.closest<HTMLElement>(".wt-prose > *, .wt-prose p")?.style.paddingTop ?? "").toBe(side === "reserve" ? `${34 + 6 + 4}px` : "");
       slot.unmount();
       mounted.pop();
     }

@@ -45,11 +45,22 @@ export function FlagPopover({
   const box = useRef<HTMLDivElement>(null);
   // Placed from the box's real size, which changes when the composer opens (see place-flag.ts for the rules).
   const [position, setPosition] = useState<FlagPosition>({ top: geometry.anchor.top, left: geometry.anchor.left, side: "pinned" });
+  // The box's size is measured, and measured again whenever it changes (fonts and styles settle after the first paint), so placement never rests on a stale height.
+  const [size, setSize] = useState({ width: 0, height: 0 });
   useLayoutEffect(() => {
     const element = box.current;
-    const next = placeFlag(geometry, { width: element?.offsetWidth ?? 0, height: element?.offsetHeight ?? 0 });
-    setPosition((held) => (held.top === next.top && held.left === next.left && held.side === next.side ? held : next));
-  }, [geometry, kind, text]);
+    if (!element) return;
+    const measure = () => setSize((held) => (held.width === element.offsetWidth && held.height === element.offsetHeight ? held : { width: element.offsetWidth, height: element.offsetHeight }));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [kind]);
+  useLayoutEffect(() => {
+    const next = placeFlag(geometry, size);
+    setPosition((held) => (held.top === next.top && held.left === next.left && held.side === next.side && held.push === next.push ? held : next));
+  }, [geometry, kind, text, size]);
   useLayoutEffect(() => {
     onReserve?.(position.side === "reserve" ? (position.push ?? 0) : 0);
   }, [position.side, position.push]);

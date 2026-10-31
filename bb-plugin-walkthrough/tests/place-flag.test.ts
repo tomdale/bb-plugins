@@ -210,3 +210,27 @@ describe("making room instead of covering prose", () => {
     expect(placed.push).toBe(100 + 4 + COMPOSER.height + GAP - 114);
   });
 });
+
+describe("geometry measured in a real 480px pane", () => {
+  // Read from headless Chrome (docs/latency.md): page origin 104, heading bottom 165.36, first paragraph 14px under it,
+  // selection on its first line, toolbar 226x29.
+  const measured: FlagGeometry = {
+    anchor: { top: 80.4, bottom: 107.4, left: 20, right: 140 },
+    nextLineBottom: 134.4,
+    visibleTop: 61.36,
+    visibleBottom: 700,
+    hardTop: -10,
+    pageWidth: 480,
+    column: { left: 62, right: 458 },
+    obstacles: [],
+    blockTop: 75.36,
+  };
+
+  it("makes 25px of room, leaving the toolbar a gap above the paragraph's text", () => {
+    const placed = placeFlag(measured, { width: 226, height: 29 });
+    expect(placed.side).toBe("reserve");
+    expect(placed.push).toBeCloseTo(25, 0);
+    // The paragraph's text then starts at its top plus the push; the toolbar's bottom stays GAP above that.
+    expect(75.36 + (placed.push ?? 0) - (placed.top + 29)).toBeCloseTo(GAP, 5);
+  });
+});
