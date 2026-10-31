@@ -158,6 +158,8 @@ describe("tokens in the rows", () => {
   });
 });
 
+const ruleList = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)).map((match) => ({ selectors: match[1]!.split(",").map((selector) => selector.trim()), body: match[2]! }));
+
 describe("tokens with the rest of the figure", () => {
   it("lets the word diff mark words over the colour, with the same marked text", async () => {
     const slot = await open(figure());
@@ -184,6 +186,9 @@ describe("tokens with the rest of the figure", () => {
     // Tokens live in the code column only: no gutter element contains one, and a sign is a pseudo-element.
     expect(slot.container.querySelectorAll(".wt-row b .wt-tk")).toHaveLength(0);
     expect(css).toMatch(/\.wt-add \.wt-text::before[^{]*\{[^}]*content: "\+"/u);
+    const unselectable = ruleList.find((rule) => rule.selectors.includes(".wt-row .wt-sr"))!;
+    expect(unselectable.selectors).toContain(".wt-row b");
+    expect(unselectable.body).toContain("user-select: none");
   });
 
   it("keeps a row's screen-reader text, flag target and line number", async () => {
@@ -197,8 +202,6 @@ describe("tokens with the rest of the figure", () => {
 });
 
 describe("what the colour may change", () => {
-  const ruleList = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/gu)).map((match) => ({ selectors: match[1]!.split(",").map((selector) => selector.trim()), body: match[2]! }));
-
   it("is a colour and, for a heading, a weight: no metric a row's width or height depends on", () => {
     const tokenRules = ruleList.filter((rule) => rule.selectors.some((selector) => /\.wt-tk\b/u.test(selector)));
     expect(tokenRules.length).toBeGreaterThanOrEqual(9);

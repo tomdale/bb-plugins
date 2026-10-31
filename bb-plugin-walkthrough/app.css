@@ -370,6 +370,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 /* With no markers there is nothing for the marker column to hold, so the code starts at the figure's own inset. */
 .wt-figure:not(:has(.wt-mk), .wt-skel-figure) .wt-row { padding-left: var(--wt-fig-l); }
 .wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
+/* A selection or copy across rows holds the code and nothing else: not the numbers, not the screen-reader labels ("Added:"), which assistive technology still reads. */
+.wt-row b, .wt-row .wt-sr { -webkit-user-select: none; user-select: none; }
 /* Note markers have their own column left of the line numbers, so a flagged line keeps its number. */
 /* Three overlapping markers span 40px, which ends before the numbers' digits begin, so a flagged line never touches its number. */
 .wt-mk { position: absolute; left: var(--wt-fig-l); top: 2px; display: flex; }
