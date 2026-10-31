@@ -6,6 +6,22 @@ import { PART, PLAN, setup, settle, THREAD, WORKER } from "./helpers.ts";
 /** The code reads among the host calls; the walkthrough also asks the host for its changed files and hashes. */
 const readCodeCalls = (harness: { experimental_hostRpcCalls: readonly { method: string }[] }) => harness.experimental_hostRpcCalls.filter((call) => call.method === "readCode");
 
+describe("syntax highlighting over RPC", () => {
+  it("tokenizes each text of a figure for its path, and leaves an unknown file plain", async () => {
+    const { rpc } = await setup();
+    const result = await rpc("highlight", { path: "src/a.ts", texts: ["const a = 1;", "/* x\n y */"] });
+    expect(result.language).toBe("typescript");
+    expect(result.texts[0]![0]).toContainEqual([0, 5, "keyword"]);
+    expect(result.texts[1]!.map((line: Array<[number, number, string]>) => line.map(([, , role]) => role))).toEqual([["comment"], ["comment"]]);
+    expect(await rpc("highlight", { path: "notes.xyz", texts: ["const a = 1;"] })).toEqual({ language: null, texts: [null] });
+  });
+
+  it("refuses text beyond the size a figure can be", async () => {
+    const { rpc } = await setup();
+    await expect(rpc("highlight", { path: "a.ts", texts: ["x".repeat(200_001)] })).rejects.toThrow();
+  });
+});
+
 describe("walkthrough code routing", () => {
   const patch = "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new\n";
 

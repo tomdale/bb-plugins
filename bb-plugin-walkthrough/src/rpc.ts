@@ -4,6 +4,8 @@ import { defineRpcContract } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { savedNotesSchema } from "./save-notes.ts";
 import { detectedTargetSchema } from "./detect-target.ts";
+import { MAX_TEXT } from "./syntax/limits.ts";
+import { ROLES } from "./syntax/roles.ts";
 import {
   locationSchema,
   noteKindSchema,
@@ -60,6 +62,15 @@ export const excerptResultSchema = z.discriminatedUnion("outcome", [
   z.object({ outcome: z.literal("unavailable"), message: z.string() }).strict(),
 ]);
 export type ExcerptResult = z.infer<typeof excerptResultSchema>;
+
+/** Role-tagged lines for each text sent for a path; a text that should stay plain comes back null. */
+export const highlightResultSchema = z
+  .object({
+    language: z.string().nullable(),
+    texts: z.array(z.array(z.array(z.tuple([z.number().int().nonnegative(), z.number().int().positive(), z.enum(ROLES)]))).nullable()),
+  })
+  .strict();
+export type HighlightResult = z.infer<typeof highlightResultSchema>;
 
 export const walkthroughSummarySchema = z
   .object({
@@ -202,6 +213,11 @@ export const rpcContract = defineRpcContract({
   excerpt: {
     input: z.object({ ...target, path: z.string().min(1).max(1024), startLine: lineNumber, endLine: lineNumber }).strict(),
     output: excerptResultSchema,
+  },
+  /** Syntax tokens for the texts of one figure (see src/syntax/tokenizer.ts); never an error, a text without tokens stays plain. */
+  highlight: {
+    input: z.object({ path: z.string().min(1).max(1024), texts: z.array(z.string().max(MAX_TEXT)).min(1).max(64) }).strict(),
+    output: highlightResultSchema,
   },
   /** The in-flight request's message text so far, for a client that joined mid-stream; null when nothing is streaming. */
   streamSnapshot: {

@@ -6,6 +6,7 @@ import { deliverView } from "./src/deliver.ts";
 import { rpcContract, type WalkthroughSummary } from "./src/rpc.ts";
 import type { Walkthrough } from "./src/schemas.ts";
 import { saveNotes } from "./src/save-notes.ts";
+import { highlightForFigure } from "./src/syntax/tokenizer.ts";
 import { WalkthroughTabs } from "./src/tabs.ts";
 import { WalkthroughError, WalkthroughService } from "./src/service.ts";
 import { MIGRATIONS, WalkthroughStore } from "./src/store.ts";
@@ -131,6 +132,7 @@ export default function plugin(bb: BbPluginApi) {
     diff: ({ walkthroughId, path, startLine, endLine, withFullFile }) =>
       service.diff(walkthroughId, path, { startLine, endLine }, withFullFile ?? false),
     excerpt: ({ walkthroughId, path, startLine, endLine }) => service.excerpt(walkthroughId, path, startLine, endLine),
+    highlight: ({ path, texts }) => highlightForFigure(path, texts),
     streamSnapshot: ({ walkthroughId }) => handle(async () => ({ snapshot: await service.streamSnapshot(walkthroughId) })),
     requestReviewPost: ({ walkthroughId, event }) => handle(async () => (await service.requestReviewPost(walkthroughId, event), ok)),
   });
