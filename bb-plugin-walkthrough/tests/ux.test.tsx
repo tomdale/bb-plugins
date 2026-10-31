@@ -289,14 +289,14 @@ describe("counting and titles", () => {
     const intro = await mountPage("wt_1", viewOf(walkthrough({ currentPart: null, introduction: "Hi.", parts: [part("A"), part("B"), part("C")] })));
     await intro.findByText("Hi.");
     expect(intro.getByRole("button", { name: "Parts: Introduction" })).toBeTruthy();
-    expect(intro.container.querySelector(".wt-pn")!.textContent).toBe("INTRO");
+    expect(intro.container.querySelector(".wt-pn")).toBeNull();
   });
 
   it("names the wrap-up too", async () => {
     const wrap = await mountPage("wt_1", viewOf(walkthrough({ status: "wrapping-up", parts: [part("A")], wrapUp: part("W", { blocks: [{ kind: "prose", text: "Fin." }] }) })));
     await wrap.findByText("Fin.");
     expect(wrap.getByRole("button", { name: "Parts: Wrap-up" })).toBeTruthy();
-    expect(wrap.container.querySelector(".wt-pn")!.textContent).toBe("WRAP-UP");
+    expect(wrap.container.querySelector(".wt-pn")).toBeNull();
   });
 
   it("stands in the request for a title the plan has not chosen yet, and the plan's title replaces it", async () => {

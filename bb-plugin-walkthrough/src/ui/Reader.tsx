@@ -58,6 +58,8 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+/** The composer's width plus a margin, so it never runs off the page's right edge. */
+const COMPOSER_WIDTH = 320;
 /** How long a second press of Next is ignored if the page never changes (the call failed or the signal was lost). */
 const NAV_LOCK_MS = 1500;
 
@@ -332,7 +334,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     const origin = pageRef.current?.getBoundingClientRect();
     if (!origin) return;
     const above = rect.top - (scrollRef.current?.getBoundingClientRect().top ?? 0) > 56;
-    setFlag({ target, above, top: above ? rect.top - origin.top - 6 : rect.bottom - origin.top + 6, left: Math.max(0, Math.min(rect.left - origin.left, origin.width - 260)) });
+    setFlag({ target, above, top: above ? rect.top - origin.top - 6 : rect.bottom - origin.top + 6, left: Math.max(0, Math.min(rect.left - origin.left, origin.width - COMPOSER_WIDTH)) });
   };
   const onMouseUp = (event: MouseEvent) => {
     if ((event.target as HTMLElement).closest("[data-flag]")) return;
@@ -562,17 +564,12 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 
               <div ref={scrollRef} className="wt-scroll">
                 <div ref={pageRef} className="wt-page" onMouseUp={onMouseUp}>
-                  <div className="wt-pn" aria-hidden>
-                    {page.kind === "part" && !preparing ? (
-                      <>
-                        PART<b>{page.index + 1}</b>
-                      </>
-                    ) : page.kind === "wrap-up" && !preparing ? (
-                      "WRAP-UP"
-                    ) : (
-                      "INTRO"
-                    )}
-                  </div>
+                  {/* Only parts are numbered; the introduction and wrap-up name themselves in their own heading. */}
+                  {page.kind === "part" && !preparing ? (
+                    <div className="wt-pn" aria-hidden>
+                      PART<b>{page.index + 1}</b>
+                    </div>
+                  ) : null}
                   {body}
                   {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
                   <div ref={threadEndRef} />

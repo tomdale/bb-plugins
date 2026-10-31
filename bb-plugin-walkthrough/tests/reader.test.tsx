@@ -368,7 +368,8 @@ describe("skeleton", () => {
     const slot = await mountPage("wt_1", viewOf(walkthrough({ status: "planning", parts: [], currentPart: null, inFlight: { request: { kind: "plan" }, sentAt: 1, afterSeq: 0 } })));
     expect(await slot.findByRole("status", { name: /Reading the change/u })).toBeTruthy();
     expect(slot.container.querySelectorAll(".wt-skel").length).toBeGreaterThan(4);
-    expect(slot.container.querySelector(".wt-pn")).not.toBeNull();
+    // No part number is claimed before there is a part.
+    expect(slot.container.querySelector(".wt-pn")).toBeNull();
   });
 
   it("renders the blocks of a part that is partly written, with a skeleton for the rest", async () => {
