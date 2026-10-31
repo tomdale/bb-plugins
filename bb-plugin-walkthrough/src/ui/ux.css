@@ -120,10 +120,11 @@
 .wt .wt-input input:focus, .wt .wt-input input:focus-visible { outline: none; box-shadow: none; }
 
 /* Next names where it leads; only the title ever shortens, never the word Next. */
-.wt .wt-next-label { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.wt .wt-next-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; min-width: 0; height: 1.4em; line-height: 1.4; overflow: hidden; }
 .wt .wt-next-kicker { flex: none; }
 .wt .wt-next > svg { flex: none; }
-.wt .wt-next-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: 0.85; }
+/* The part's name is shown whole or not at all: when it does not fit beside "Next" it wraps to a second line the label clips, so it is never cut mid-word. */
+.wt .wt-next-title { flex: none; max-width: 100%; white-space: nowrap; font-weight: 400; opacity: 0.85; }
 
 /* Waiting for the helper: what was found, then one live line, above the skeleton. */
 .wt .wt-found { margin: 0 0 6px; font: 13px/1.4 var(--wt-sans); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
