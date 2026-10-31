@@ -34,6 +34,9 @@
   --wt-select: rgba(255, 204, 0, 0.4);
   /* One reading width for prose, contents, ledger, captions and the question thread: 62 to 68 characters at 17px. */
   --wt-measure: 480px;
+  /* The inset every bar, the page and the sheet keep from the window's edge, and the widest they grow. */
+  --wt-inset: 12px;
+  --wt-sheet-w: 1120px;
   --wt-serif: "Newsreader Variable", "Newsreader", "New York", ui-serif, Georgia, serif;
   --wt-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --wt-sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -117,7 +120,8 @@
   align-items: center;
   gap: 8px;
   height: 36px;
-  margin: 10px 10px 0;
+  margin: 10px auto 0;
+  width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w));
   padding: 0 6px 0 14px;
   border-radius: 18px;
   font-size: 12px;
@@ -144,7 +148,8 @@
   position: relative;
   flex: 1;
   min-height: 0;
-  margin: 10px 14px;
+  margin: 10px auto;
+  width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w));
   overflow: auto;
   border-radius: 12px;
   background: var(--wt-page);
@@ -163,13 +168,11 @@
 }
 .wt[data-wide] .wt-page { max-width: 1080px; padding-right: 260px; }
 /*
- * On a window wider than the page, the page stays a sheet of paper centered on
- * the desk, and the bars float over it at the same width, instead of the
- * ruled margin drifting into the middle of a full-width card.
+ * Top bar, page, pager and sheet share one width and one inset. On a window
+ * wider than the page, the page stays a sheet of paper centered on the desk and
+ * the bars float over it at the same width, instead of the ruled margin
+ * drifting into the middle of a full-width card.
  */
-.wt[data-wide] .wt-scroll { width: min(100% - 28px, 1120px); margin-inline: auto; }
-.wt[data-wide] .wt-top { width: min(100% - 20px, 1128px); margin-inline: auto; }
-.wt[data-wide] .wt-pager { width: min(100% - 24px, 1124px); margin-inline: auto; }
 /* Without margin notes the empty margin column would pull the text left: balance the ruled margin instead. */
 .wt[data-wide] .wt-page:not(:has(.wt-margin)) { padding-right: 62px; }
 .wt-pn { position: absolute; left: 6px; width: 40px; top: 34px; text-align: center; font: 600 10px var(--wt-sans); color: var(--wt-mute); letter-spacing: 0.04em; }
@@ -324,7 +327,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-btn-icon { width: 30px; padding: 0; flex: none; }
 
 /* Pager */
-.wt-pager { position: relative; z-index: 5; flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 12px 12px; padding: 8px 10px; border-radius: 22px; }
+.wt-pager { position: relative; z-index: 5; flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 auto var(--wt-inset); width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w)); padding: 8px 10px; border-radius: 22px; }
 .wt-suggest { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 /* Suggestions that run past the pager fade out at the edge, so a clipped chip reads as scrollable. */
 @supports (animation-timeline: scroll()) {
@@ -365,7 +368,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
  * never over the top bar, so glass never sits on glass.
  */
 .wt-sheet {
-  position: absolute; z-index: 4; top: 56px; right: 10px; bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - 20px));
+  position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
   border-radius: 18px;
   background: color-mix(in srgb, var(--wt-glass-solid) 82%, transparent);
   display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px;
@@ -375,7 +378,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02), visibility 0s 0.38s;
 }
 /* In the narrow panel the sheet spans the page. */
-.wt:not([data-wide]) .wt-sheet { left: 10px; width: auto; }
+.wt:not([data-wide]) .wt-sheet { left: calc(var(--wt-inset) + 10px); width: auto; }
 .wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02); }
 @media (prefers-reduced-transparency: reduce) { .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .wt-tabs { display: flex; align-items: center; gap: 16px; padding-bottom: 6px; border-bottom: 0.5px solid var(--wt-hair); }
