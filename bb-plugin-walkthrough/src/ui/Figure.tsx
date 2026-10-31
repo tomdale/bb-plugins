@@ -15,6 +15,9 @@ import { useWalkthroughRpc } from "./hooks.ts";
 import { useNotify } from "./notices.tsx";
 import { LocationLink } from "./parts.tsx";
 import { parsePatchRows, rowIndexForLine, type PatchRow } from "./patch-lines.ts";
+import { languageFor } from "../syntax/languages.ts";
+import type { LineTokens } from "../syntax/roles.ts";
+import { chunksFor, useRowTokens } from "./syntax.ts";
 import { rowEmphasis, type Emphasis } from "./word-diff.ts";
 
 const VIEW_LABEL: Record<ExcerptView, string> = { change: "Diff", after: "After", before: "Before" };
@@ -125,21 +128,46 @@ function marginOffsets(annotations: Annotation[]): number[] {
   });
 }
 
-/** A line of code with the words that changed marked (see word-diff.ts); the text itself is untouched, so selecting and copying it read the same. */
-function EmphasizedText({ text, ranges }: { text: string; ranges: Emphasis | undefined }) {
-  if (!ranges || ranges.length === 0) return <>{text}</>;
+/** The tokens of a line that fall in `[from, to)`, as spans; text between them is left bare. Token spans carry a role class only, so they never change the text or its metrics. */
+function paint(text: string, tokens: LineTokens, from: number, to: number, keyBase: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let at = from;
+  for (const [start, end, role] of tokens) {
+    const s = Math.max(start, from);
+    const e = Math.min(end, to);
+    if (e <= s || s < at) continue;
+    if (s > at) parts.push(text.slice(at, s));
+    parts.push(
+      <span key={`${keyBase}${s}`} className={`wt-tk wt-tk-${role}`}>
+        {text.slice(s, e)}
+      </span>,
+    );
+    at = e;
+  }
+  if (at < to) parts.push(text.slice(at, to));
+  return parts;
+}
+
+/**
+ * A line of code. Syntax tokens (when the figure has them) colour stretches of
+ * it, and the words that changed (see word-diff.ts) are marked over the colour;
+ * the text itself is untouched, so selecting and copying it read the same.
+ */
+function CodeText({ text, ranges, tokens }: { text: string; ranges: Emphasis | undefined; tokens: LineTokens | undefined }) {
+  const colored = tokens ?? [];
+  if (!ranges || ranges.length === 0) return <>{paint(text, colored, 0, text.length, "t")}</>;
   const parts: ReactNode[] = [];
   let at = 0;
   ranges.forEach(([start, end], index) => {
-    if (start > at) parts.push(text.slice(at, start));
+    if (start > at) parts.push(...paint(text, colored, at, start, `p${index}-`));
     parts.push(
       <mark key={index} className="wt-w">
-        {text.slice(start, end)}
+        {paint(text, colored, start, end, `w${index}-`)}
       </mark>,
     );
     at = end;
   });
-  if (at < text.length) parts.push(text.slice(at));
+  if (at < text.length) parts.push(...paint(text, colored, at, text.length, "e"));
   return <>{parts}</>;
 }
 
@@ -199,6 +227,18 @@ export function Figure({
   const copyView: ExcerptView = isCode ? (data?.after ? "after" : "change") : view;
   const rows = useMemo(() => (patch ? parsePatchRows(patch) : []), [patch]);
   const emphasis = useMemo(() => rowEmphasis(rows), [rows]);
+  const chunks = useMemo(() => chunksFor(rows), [rows]);
+  // Rows are plain until the tokens arrive, and a figure still being written stays plain until it is saved.
+  const rpc = useWalkthroughRpc();
+  const tokens = useRowTokens(rpc, {
+    enabled: !loading && !streaming,
+    path: block.path,
+    revision: shortSha(block.snapshot?.headSha) ?? shortSha(block.snapshot?.baseSha),
+    range: `${block.startLine}-${block.endLine}`,
+    view: isCode ? "code" : view,
+    rows,
+    chunks,
+  });
   const annotations = useMemo(() => annotationsFor(block, notes, rows, glyphs), [block, notes, rows, glyphs]);
   const offsets = useMemo(() => marginOffsets(annotations), [annotations]);
   // A note below the clamp stretches it to just past that note; the rest stays folded so flagging never opens the whole figure.
@@ -285,7 +325,7 @@ export function Figure({
     );
 
   return (
-    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-streaming={streaming || undefined} data-hang={hang > 0 || undefined} style={hang > 0 ? ({ "--wt-hang": `${hang}px` } as CSSProperties) : undefined}>
+    <figure data-code-path={block.path} data-code-start={block.startLine} data-code-end={block.endLine} className="wt-figure" data-wide={wide || undefined} data-language={languageFor(block.path) ?? undefined} data-highlighted={tokens !== null || undefined} data-streaming={streaming || undefined} data-hang={hang > 0 || undefined} style={hang > 0 ? ({ "--wt-hang": `${hang}px` } as CSSProperties) : undefined}>
       <figcaption className="wt-cap">{block.caption}</figcaption>
       <div className="wt-fig">
         <div className="wt-fh">
@@ -432,7 +472,7 @@ export function Figure({
                     </b>
                     <span className="wt-text">
                       {row.kind === "add" ? <span className="wt-sr">Added: </span> : row.kind === "del" ? <span className="wt-sr">Removed: </span> : null}
-                      {row.text === "" ? " " : <EmphasizedText text={row.text} ranges={emphasis.get(index)} />}
+                      {row.text === "" ? " " : <CodeText text={row.text} ranges={emphasis.get(index)} tokens={tokens?.get(index)} />}
                     </span>
                   </div>
                 );
