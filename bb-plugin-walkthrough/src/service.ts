@@ -129,6 +129,12 @@ export class WalkthroughService {
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
+  /**
+   * Walkthroughs being or already deleted. Work that began before the delete
+   * (a request being sent, a snapshot being captured) may still try to save its
+   * walkthrough; the store upserts, so without this it would bring the row back.
+   */
+  private readonly deleted = new Set<string>();
   /** Follows the worker's message text while a plan, part, or answer is in flight. */
   readonly tail: StreamTail;
   /** Called when the plan names the walkthrough, so its thread tab can take the name. */
@@ -160,6 +166,7 @@ export class WalkthroughService {
   // -- lookup ---------------------------------------------------------------
 
   get(id: string): Walkthrough {
+    if (this.deleted.has(id)) throw new WalkthroughError(`No walkthrough ${JSON.stringify(id)}.`);
     const walkthrough = this.store.get(id);
     if (walkthrough === null) throw new WalkthroughError(`No walkthrough ${JSON.stringify(id)}.`);
     return walkthrough;
@@ -189,6 +196,7 @@ export class WalkthroughService {
 
   save(walkthrough: Walkthrough, reason: "started" | "changed" = "changed"): Walkthrough {
     const next = { ...walkthrough, updatedAt: this.now() };
+    if (this.deleted.has(next.id)) return next;
     this.store.save(next);
     this.bb.realtime.publish(CHANGED_CHANNEL, { threadId: next.threadId, walkthroughId: next.id, reason });
     this.syncTail(next);
@@ -420,49 +428,56 @@ export class WalkthroughService {
 
   /** Sends the next queued request when the worker is free. */
   pump(id: string): Promise<void> {
-    return this.locked(id, async () => {
-      const ready = (walkthrough: Walkthrough) =>
-        !walkthrough.inFlight &&
-        walkthrough.queue.length > 0 &&
-        walkthrough.workerThreadId !== null &&
-        walkthrough.status !== "done" &&
-        walkthrough.status !== "failed";
-      let walkthrough = this.get(id);
+    return this.locked(id, () =>
+      this.pumpNext(id).catch((cause: unknown) => {
+        // The walkthrough was deleted while a request was being sent: nothing is left to send it for.
+        if (!this.deleted.has(id)) throw cause;
+      }),
+    );
+  }
+
+  private async pumpNext(id: string): Promise<void> {
+    const ready = (walkthrough: Walkthrough) =>
+      !walkthrough.inFlight &&
+      walkthrough.queue.length > 0 &&
+      walkthrough.workerThreadId !== null &&
+      walkthrough.status !== "done" &&
+      walkthrough.status !== "failed";
+    let walkthrough = this.get(id);
+    if (!ready(walkthrough)) return;
+    // The helper cannot see its source thread after the fork, so tell it what
+    // the user said there, and note whether the code moved. The plan request
+    // starts the walkthrough, so there is nothing to catch up on yet.
+    if (walkthrough.queue[0]!.kind !== "plan") {
+      await this.refreshThread(id);
+      walkthrough = this.get(id);
       if (!ready(walkthrough)) return;
-      // The helper cannot see its source thread after the fork, so tell it what
-      // the user said there, and note whether the code moved. The plan request
-      // starts the walkthrough, so there is nothing to catch up on yet.
-      if (walkthrough.queue[0]!.kind !== "plan") {
-        await this.refreshThread(id);
-        walkthrough = this.get(id);
-        if (!ready(walkthrough)) return;
-      }
-      const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
-      const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.takeBrief(id) : null);
-      if (body === null) {
-        this.save({ ...walkthrough, queue: rest });
-        void this.pump(id);
-        return;
-      }
-      const updates = walkthrough.threadUpdates ?? [];
-      const text = updates.length > 0 ? `${threadUpdateMessage(updates)}\n\n${body}` : body;
-      const workerThreadId = walkthrough.workerThreadId!;
-      const afterSeq = await this.latestSeq(workerThreadId);
-      let next: Walkthrough = { ...walkthrough, queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
-      next = this.markStarted(next, request);
-      this.save(next);
-      try {
-        await this.bb.sdk.threads.send({
-          threadId: workerThreadId,
-          mode: "queue-if-active",
-          input: [{ type: "text", text, mentions: [] }],
-        });
-        if (request.kind === "plan") this.mark(id, "planSent");
-      } catch (cause) {
-        if (/archived/iu.test(errorText(cause))) this.helperGone(id);
-        else this.complete(id, `The walkthrough agent could not be reached: ${errorText(cause)}`, true);
-      }
-    });
+    }
+    const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
+    const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.takeBrief(id) : null);
+    if (body === null) {
+      this.save({ ...walkthrough, queue: rest });
+      void this.pump(id);
+      return;
+    }
+    const updates = walkthrough.threadUpdates ?? [];
+    const text = updates.length > 0 ? `${threadUpdateMessage(updates)}\n\n${body}` : body;
+    const workerThreadId = walkthrough.workerThreadId!;
+    const afterSeq = await this.latestSeq(workerThreadId);
+    let next: Walkthrough = { ...walkthrough, queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
+    next = this.markStarted(next, request);
+    this.save(next);
+    try {
+      await this.bb.sdk.threads.send({
+        threadId: workerThreadId,
+        mode: "queue-if-active",
+        input: [{ type: "text", text, mentions: [] }],
+      });
+      if (request.kind === "plan") this.mark(id, "planSent");
+    } catch (cause) {
+      if (/archived/iu.test(errorText(cause))) this.helperGone(id);
+      else this.complete(id, `The walkthrough agent could not be reached: ${errorText(cause)}`, true);
+    }
   }
 
   private messageFor(walkthrough: Walkthrough, request: WorkerRequest, brief: string | null = null): string | null {
@@ -786,6 +801,33 @@ export class WalkthroughService {
       await this.bb.sdk.threads.stop({ threadId: workerThreadId }).catch(() => {});
       await this.bb.sdk.threads.archive({ threadId: workerThreadId }).catch(() => {});
     }
+  }
+
+  /**
+   * Removes a walkthrough: its row, notes and exchanges. A request still being
+   * written is cancelled first (the helper is stopped and the stream follower
+   * ends), then the helper thread is archived. Files saved to the thread's
+   * storage are not touched. Deleting a walkthrough that is gone, or being
+   * deleted, does nothing and returns false.
+   */
+  async delete(id: string): Promise<boolean> {
+    if (this.deleted.has(id)) return false;
+    const found = this.store.get(id);
+    if (found === null) return false;
+    // From here nothing that began earlier can save the walkthrough again.
+    this.deleted.add(id);
+    this.briefs.delete(id);
+    return this.locked(id, async () => {
+      const workerThreadId = found.workerThreadId;
+      const busy = found.inFlight !== null || found.status === "planning" || found.status === "wrapping-up";
+      if (workerThreadId !== null && busy) await this.bb.sdk.threads.stop({ threadId: workerThreadId }).catch(() => {});
+      await this.tail.finish(id, "cancelled");
+      this.store.deleteWalkthrough(id);
+      this.bb.realtime.publish(CHANGED_CHANNEL, { threadId: found.threadId, walkthroughId: id, reason: "deleted" });
+      // A helper that is already gone (archived, or never created) is what deleting wants.
+      if (workerThreadId !== null) await this.bb.sdk.threads.archive({ threadId: workerThreadId }).catch(() => {});
+      return true;
+    });
   }
 
   /**

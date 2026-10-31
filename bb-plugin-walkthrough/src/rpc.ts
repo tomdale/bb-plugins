@@ -118,6 +118,12 @@ export const rpcContract = defineRpcContract({
   wrapUp: { input: z.object(target).strict(), output: ok },
   close: { input: z.object(target).strict(), output: ok },
   /**
+   * Removes the walkthrough with its notes and exchanges, cancels any request
+   * the helper is writing, and archives the helper thread. Notes saved to the
+   * thread's storage stay. `deleted` is false when it was already gone.
+   */
+  delete: { input: z.object(target).strict(), output: z.object({ deleted: z.boolean() }).strict() },
+  /**
    * The message "send open items to the thread" (and "ask the thread to apply
    * it") would send, and the notes it covers. Sends nothing; null when no todo
    * or question is waiting. The pane shows it in an editable field.

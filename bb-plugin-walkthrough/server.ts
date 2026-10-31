@@ -118,6 +118,7 @@ export default function plugin(bb: BbPluginApi) {
     retry: ({ walkthroughId, place }) => handle(async () => (await service.retry(walkthroughId, place), ok)),
     wrapUp: ({ walkthroughId }) => handle(async () => (await service.wrapUp(walkthroughId), ok)),
     close: ({ walkthroughId }) => handle(async () => (await service.close(walkthroughId), ok)),
+    delete: ({ walkthroughId }) => handle(async () => ({ deleted: await service.delete(walkthroughId) })),
     prepareHandOff: ({ walkthroughId }) => handle(() => ({ draft: service.prepareHandOff(walkthroughId) })),
     handOff: ({ walkthroughId, message, noteIds }) => handle(async () => ({ sent: await service.handOff(walkthroughId, message, noteIds) })),
     addNote: ({ walkthroughId, kind, text, groupIndex, location, quote, includeInReview }) =>

@@ -174,6 +174,15 @@ export class WalkthroughStore {
     }
   }
 
+  /** Removes a walkthrough and its notes together; false when it was already gone. */
+  deleteWalkthrough(id: string): boolean {
+    const remove = this.db.transaction((target: string) => {
+      this.db.prepare(`DELETE FROM notes WHERE walkthrough_id = ?`).run(target);
+      return this.db.prepare(`DELETE FROM walkthroughs_v2 WHERE id = ?`).run(target).changes > 0;
+    });
+    return remove(id);
+  }
+
   deleteNote(walkthroughId: string, id: string): boolean {
     return this.db.prepare(`DELETE FROM notes WHERE walkthrough_id = ? AND id = ?`).run(walkthroughId, id).changes > 0;
   }

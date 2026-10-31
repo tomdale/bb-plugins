@@ -17,14 +17,14 @@ export function errorMessage(cause: unknown): string {
 export interface ChangedSignal {
   threadId: string;
   walkthroughId: string;
-  reason: "started" | "changed";
+  reason: "started" | "changed" | "deleted";
 }
 
 function parseSignal(payload: unknown): ChangedSignal | null {
   if (typeof payload !== "object" || payload === null) return null;
   const record = payload as Record<string, unknown>;
   if (typeof record.threadId !== "string" || typeof record.walkthroughId !== "string") return null;
-  return { threadId: record.threadId, walkthroughId: record.walkthroughId, reason: record.reason === "started" ? "started" : "changed" };
+  return { threadId: record.threadId, walkthroughId: record.walkthroughId, reason: record.reason === "started" || record.reason === "deleted" ? record.reason : "changed" };
 }
 
 /** Refetches on change signals and after a realtime reconnect (signals are not replayed). */
