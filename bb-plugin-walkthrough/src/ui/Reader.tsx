@@ -481,6 +481,10 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
               data-wide={wide || undefined}
               data-surface={surface}
             >
+              {/* Page changes and the sheet opening are announced; the visible UI changes silently otherwise. */}
+              <p className="wt-sr" role="status" aria-live="polite">
+                {sheetOpen ? `Concerns open. ${openCount} open ${openCount === 1 ? "item" : "items"}.` : preparing ? "" : `${progressLabel}${page.kind === "part" ? `: ${walkthrough.parts[page.index]!.title}` : ""}`}
+              </p>
               <header className="wt-top wt-glass">
                 <h1 className="wt-title" data-placeholder={title.placeholder || undefined}>
                   {title.text}

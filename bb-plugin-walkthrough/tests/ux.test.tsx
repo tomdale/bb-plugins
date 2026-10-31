@@ -324,6 +324,16 @@ describe("the ask input", () => {
     expect((await closed.findByRole("textbox", { name: "This walkthrough is finished" })).getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("announces the page and the concerns sheet to screen readers", async () => {
+    const slot = await mountPage("wt_1", viewOf(walkthrough({ currentPart: 1, parts: [part("Schema"), part("Store")] }), [note({ id: "n1" })]));
+    await slot.findByText("Store prose.");
+    const status = () => slot.container.querySelector(".wt > .wt-sr[role=status]")!.textContent;
+    expect(status()).toBe("Part 2 of 2: Store");
+    fireEvent.click(slot.getByRole("button", { name: "Concerns · 1" }));
+    expect(status()).toBe("Concerns open. 1 open item.");
+    expect(slot.container.querySelector("aside")!.getAttribute("aria-label")).toBe("Concerns");
+  });
+
   it("takes a question when the part is ready", async () => {
     const live = await mountPage("wt_1", viewOf(walkthrough()));
     expect((await live.findByRole("textbox", { name: "Ask about this part" })).hasAttribute("aria-disabled")).toBe(false);
