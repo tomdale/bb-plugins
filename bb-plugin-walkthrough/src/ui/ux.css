@@ -129,3 +129,8 @@
 .wt .wt-found { margin: 0 0 6px; font: 13px/1.4 var(--wt-sans); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
 .wt .wt-found-k { font-weight: 600; color: var(--wt-ink); margin-right: 6px; }
 .wt .wt-working { margin: 0 0 18px; font: 500 13.5px/1.4 var(--wt-sans); color: var(--wt-ink); }
+
+/* A comment left out of the review reads as set aside: its text recedes, its checkbox stays at full strength. */
+.wt .wt-it-excluded .wt-it-body, .wt .wt-it-excluded .wt-it-loc { opacity: 0.55; }
+.wt .wt-it-excluded .wt-it-text { text-decoration: none; }
+.wt .wt-review-count { margin: 0 0 8px; font: 500 12px var(--wt-sans); color: var(--wt-mute); font-variant-numeric: tabular-nums; }

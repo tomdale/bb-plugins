@@ -122,6 +122,12 @@ export function ConcernsSheet({
         <>
           <div className="wt-sheet-body" role="tabpanel" aria-label="Open items">
             {openItems.length === 0 ? <p className="wt-muted">Nothing flagged yet. Select text or a line of code to flag it.</p> : null}
+            {reviewable && openItems.some((note) => note.kind !== "question") ? (
+              // The same number as the Review draft tab and the wrap-up: what the review will contain right now.
+              <p className="wt-review-count" role="status" data-testid="wt-review-count">
+                {comments.length === 0 ? "Nothing in the review yet" : `${comments.length} in the review`}
+              </p>
+            ) : null}
             <ul className="wt-items">
               {openItems.map((note) => (
                 <ConcernItem key={note.id} walkthrough={walkthrough} note={note} rpc={rpc} onJump={onJump} />
@@ -174,7 +180,7 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
   const glyph = glyphs.get(note.id);
   const jump = () => onJump(note);
   return (
-    <li className={cn("wt-it", note.status === "resolved" && "wt-it-done")} data-note-id={note.id}>
+    <li className={cn("wt-it", note.status === "resolved" && "wt-it-done", reviewable && !included && "wt-it-excluded")} data-note-id={note.id} data-in-review={reviewable ? String(included) : undefined}>
       {editing ? (
         <form
           className="wt-edit"
@@ -216,7 +222,7 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
             {reviewable ? (
               <label className="wt-include">
                 <Checkbox className="wt-check" checked={included} onCheckedChange={(next) => void update({ includeInReview: next === true })} aria-label="Include in review" />
-                In review
+                {included ? "In review" : "Not in review"}
               </label>
             ) : null}
           </div>
