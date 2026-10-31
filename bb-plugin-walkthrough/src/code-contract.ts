@@ -60,6 +60,15 @@ export type ChangedFiles = z.infer<typeof changedFilesSchema>;
 
 export const codeHostContract = defineRpcContract({
   /**
+   * A content hash of each named file as the working tree holds it right now
+   * (null when the file is absent), for noticing that a file a part cites has
+   * changed since the part was written. Paths are relative to the repository.
+   */
+  fileHashes: {
+    input: z.object({ path: z.string().min(1), paths: z.array(z.string().min(1).max(1024)).max(200) }).strict(),
+    output: z.object({ hashes: z.record(z.string(), z.string().nullable()) }).strict(),
+  },
+  /**
    * The files that differ from `baseRef`: committed, staged, unstaged and
    * untracked work alike, with renames detected, plus how much of the working
    * tree is staged, unstaged, and untracked.

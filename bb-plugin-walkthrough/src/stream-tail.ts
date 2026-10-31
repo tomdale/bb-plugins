@@ -11,6 +11,7 @@
 //
 // One timer serves all walkthroughs. Every timer is unref'ed and cleared by
 // dispose(), which the background service calls on reload or shutdown.
+import { stripReplyWrapper } from "./reply-wrapper.ts";
 import type { Place, StreamPayload, StreamRequestKind, StreamState, WorkerRequest } from "./schemas.ts";
 
 export const POLL_BASE_MS = 120;
@@ -105,7 +106,8 @@ class Collector {
   }
 
   get text(): string {
-    return (this.preferMarkup ? (this.markup ?? this.latest) : this.latest)?.text ?? "";
+    // The reply block the helper may wrap its message in is protocol, not content.
+    return stripReplyWrapper((this.preferMarkup ? (this.markup ?? this.latest) : this.latest)?.text ?? "");
   }
 }
 

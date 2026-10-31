@@ -4,13 +4,13 @@ import plugin from "../server.ts";
 export const THREAD = "thr_user";
 export const WORKER = "thr_worker";
 
-export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null } = {}) {
+export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
     experimental_hostEntry: true,
-    experimental_callHostRpc: () => options.readCode?.(),
+    experimental_callHostRpc: (call) => (options.hostRpc ? options.hostRpc(call as { method: string; input: any }) : options.readCode?.()),
     sdk: {
       threads: {
         get: async (args: { threadId: string }) => makeThreadResponse({ id: args.threadId, environmentId: "env_1", status: "idle" }),

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { open, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { open, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import type { ChangedFile, ChangedFiles, ChangedFilesInput, ChangeOrigin, CodeSnapshot } from "./code-contract.ts";
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
@@ -243,4 +244,28 @@ export async function changedFiles(input: ChangedFilesInput, signal: AbortSignal
     truncated: files.length > MAX_LISTED_FILES,
     branch,
   };
+}
+
+const MAX_HASHED_BYTES = 20_000_000;
+
+/** Hashes of the named files' working-tree contents; a missing or unreadable file hashes to null. */
+export async function fileHashes(input: { path: string; paths: string[] }, signal: AbortSignal): Promise<Record<string, string | null>> {
+  if (!isAbsolute(input.path)) throw new Error("Code paths on the host must be absolute.");
+  const root = (await gitRunner(signal)(input.path, ["rev-parse", "--show-toplevel"])).trim();
+  const hashes: Record<string, string | null> = {};
+  for (const path of input.paths) {
+    signal.throwIfAborted();
+    const absolute = join(root, path);
+    if (isAbsolute(path) || relative(root, absolute).startsWith("..")) {
+      hashes[path] = null;
+      continue;
+    }
+    try {
+      const bytes = await readFile(absolute);
+      hashes[path] = bytes.length > MAX_HASHED_BYTES ? `size:${bytes.length}` : createHash("sha1").update(bytes).digest("hex");
+    } catch {
+      hashes[path] = null;
+    }
+  }
+  return hashes;
 }

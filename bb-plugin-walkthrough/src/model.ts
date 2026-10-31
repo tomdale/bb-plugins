@@ -1,7 +1,7 @@
 // Pure walkthrough logic shared by the server and the pane: labels, the
 // review draft derivation, and text handed to the worker agent.
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
-import type { DerivedReviewComment, Intent, Location, Mode, Note, NoteKind, Part, ReviewDraft, Walkthrough, WalkthroughStatus } from "./schemas.ts";
+import type { DerivedReviewComment, Intent, IntentCopy, Location, Mode, Note, NoteKind, Part, ReviewDraft, Walkthrough, WalkthroughStatus } from "./schemas.ts";
 
 export const NOTE_KIND_LABEL: Record<NoteKind, string> = {
   question: "Question",
@@ -37,6 +37,25 @@ export function shortRef(ref: string): string {
 export function comparedWith(walkthrough: Pick<Walkthrough, "baseRef">): string {
   const base = shortRef(walkthrough.baseRef);
   return base === "start of history" ? "everything since the start of history" : `compared with ${base}`;
+}
+
+/**
+ * The words that depend on why the reader is here. Before planning the intent
+ * is only the mode's default, so the copy stays neutral until the worker has
+ * chosen; an explanation of how code works never reads as a review of changes.
+ */
+export function intentCopy(walkthrough: Pick<Walkthrough, "intent" | "mode" | "baseRef" | "status">): IntentCopy {
+  if (walkthrough.status === "planning") {
+    return { subtitle: "Getting ready", skeleton: "Reading the code and deciding how to explain it\u2026", introduction: "Introduction" };
+  }
+  switch (intentOf(walkthrough)) {
+    case "understand":
+      return { subtitle: "How this code works today", skeleton: "Reading the code and deciding how to explain it\u2026", introduction: "Overview" };
+    case "review":
+      return { subtitle: `Changes ${comparedWith(walkthrough)}`, skeleton: "Reading the pull request and deciding how to explain it\u2026", introduction: "Introduction" };
+    case "own-change":
+      return { subtitle: `Your changes ${comparedWith(walkthrough)}`, skeleton: "Reading your changes and deciding how to explain them\u2026", introduction: "Introduction" };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +301,7 @@ export function describeNoteForAgent(walkthrough: Walkthrough, note: Note): stri
   const lines = [`- ${head}: ${JSON.stringify(note.text)}`];
   if (note.quote) lines.push(`  quoted: ${JSON.stringify(note.quote.slice(0, 400))}`);
   if (note.resolution) lines.push(`  outcome: ${JSON.stringify(note.resolution)}`);
+  if (note.status === "open" && note.proposedResolution) lines.push(`  proposed outcome (awaiting the reader): ${JSON.stringify(note.proposedResolution)}`);
   return lines.join("\n");
 }
 

@@ -87,15 +87,18 @@ function modeRules(): string {
   ].join("\n");
 }
 
-export function planMessage(walkthrough: Walkthrough): string {
+export function planMessage(walkthrough: Walkthrough, brief: string | null = null): string {
   return [
     `[Walkthrough ${walkthrough.id}] The user opened a walkthrough from this thread and asked: ${JSON.stringify(walkthrough.request)}`,
+    brief,
     modeRules(),
     "Then call walkthrough_plan once with the mode, intent, a short title, the base ref, the PR (PR mode only), whether uncommitted changes are included, an introduction, and the ordered parts. The intent is review (judging someone else's work, usually a PR), own-change (checking changes they or their agent made), or understand (learning how code works). The introduction is prose (Markdown): how things worked before, what the change does, why it seems to exist, and how the parts connect, in two or three short paragraphs.",
     "Before calling walkthrough_plan, write one streamed message holding the introduction, a ```walkthrough fence with `part: 1`, and part 1 in the streamed markup (see the walkthrough_plan instructions); the reader sees it as you write. Then call walkthrough_plan.",
     "As soon as walkthrough_plan succeeds, in this same turn, call walkthrough_write_part for part 1 with the same content (blocks, views, and suggestions as its instructions describe). Write no other part; the plugin asks for the next one when the reader gets there.",
     "If you truly cannot tell what to walk through, do not call walkthrough_plan; instead end your turn with one short question for the user.",
-  ].join("\n\n");
+  ]
+    .filter((paragraph): paragraph is string => paragraph !== null)
+    .join("\n\n");
 }
 
 export function writeMessage(walkthrough: Walkthrough, index: number): string {

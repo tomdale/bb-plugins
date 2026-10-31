@@ -138,6 +138,10 @@ export const partSchema = z
     discussion: z.array(exchangeSchema),
     /** The workspace's code fingerprint when this part was written; see staleness.ts. */
     writtenAgainst: z.string().nullable().optional(),
+    /** Hash of each cited file's working-tree contents when the part was written; absent for parts that predate per-part staleness. */
+    citedHashes: z.record(z.string(), z.string().nullable()).optional().catch(undefined),
+    /** Cited files whose contents changed since the part was written, as of the last look. Absent in older rows. */
+    staleFiles: z.array(z.string()).optional().catch(undefined),
   })
   .strict();
 export type Part = z.infer<typeof partSchema>;
@@ -211,6 +215,25 @@ export function defaultIntent(mode: Mode): Intent {
   return mode === "pr" ? "review" : "own-change";
 }
 
+/** One changed file in the change a walkthrough explains. */
+export const changeSetFileSchema = z
+  .object({
+    path: z.string(),
+    oldPath: z.string().nullable(),
+    status: z.enum(["added", "modified", "deleted", "renamed"]),
+    additions: z.number().int().nonnegative().nullable(),
+    deletions: z.number().int().nonnegative().nullable(),
+    binary: z.boolean(),
+    origins: z.array(z.enum(["committed", "staged", "unstaged", "untracked"])),
+  })
+  .strict();
+
+/** The files the reviewed change touches as of the last look; the denominator for coverage. */
+export const changeSetSchema = z
+  .object({ files: z.array(changeSetFileSchema), truncated: z.boolean(), capturedAt: z.number() })
+  .strict();
+export type ChangeSet = z.infer<typeof changeSetSchema>;
+
 export const walkthroughStatusSchema = z.enum(["planning", "reading", "wrapping-up", "done", "failed"]);
 export type WalkthroughStatus = z.infer<typeof walkthroughStatusSchema>;
 
@@ -258,6 +281,8 @@ export const walkthroughSchema = z
       .nullable(),
     nextNoteNumber: z.number().int().positive(),
     nextExchangeNumber: z.number().int().positive(),
+    /** Changed files as of the last look (see coverage.ts); absent until the first look and in older rows. */
+    changeSet: changeSetSchema.nullable().optional().catch(undefined),
     /** Fingerprint of the workspace's diff the last time we looked; null in PR mode or when unknown. */
     codeFingerprint: z.string().nullable().optional(),
     /** Last event of the user's thread already considered; null for walkthroughs that predate tracking. */
@@ -292,6 +317,12 @@ export const noteSchema = z
     status: noteStatusSchema,
     resolution: z.string().nullable(),
     author: z.enum(["user", "agent"]),
+    /**
+     * What the helper suggests the outcome is, for the reader to accept or dismiss. The helper
+     * never resolves a note itself; accepting copies this into `resolution` and closes the note.
+     * Absent on notes that predate proposals.
+     */
+    proposedResolution: z.string().max(8000).nullable().optional().catch(undefined),
     /** When the note was handed to the user's own thread; cleared when the note changes. */
     sentAt: z.number().nullable().optional(),
     /** Whether a comment note becomes an inline comment in the review draft; the store backfills comments as true, other kinds as false. */
@@ -315,23 +346,76 @@ const deliveredCodeBlockSchema = codeBlockSchema.extend({
   snapshot: codeSnapshotSchema.nullable(),
   snapshotError: z.string().nullable(),
 });
-const deliveredPartSchema = partSchema.extend({ blocks: z.array(z.discriminatedUnion("kind", [proseBlockSchema, deliveredCodeBlockSchema])) });
+const deliveredPartSchema = partSchema.extend({
+  blocks: z.array(z.discriminatedUnion("kind", [proseBlockSchema, deliveredCodeBlockSchema])),
+  /** Files this part cites whose contents changed after it was written; the server always sends it (empty when none did). */
+  staleFiles: z.array(z.string()).optional(),
+});
 const deliveredWalkthroughSchema = walkthroughSchema.extend({
   intent: intentSchema,
   parts: z.array(deliveredPartSchema),
   wrapUp: deliveredPartSchema.nullable(),
 });
-const deliveredNoteSchema = noteSchema.extend({ includeInReview: z.boolean() });
+const deliveredNoteSchema = noteSchema.extend({ includeInReview: z.boolean(), proposedResolution: z.string().nullable().optional() });
 export type DeliveredCodeBlock = z.infer<typeof deliveredCodeBlockSchema>;
 export type DeliveredPart = z.infer<typeof deliveredPartSchema>;
 export type DeliveredWalkthrough = z.infer<typeof deliveredWalkthroughSchema>;
 export type DeliveredNote = z.infer<typeof deliveredNoteSchema>;
+
+/** How much of the change the walkthrough shows. Computed on the server from the change set and the committed figures and parts. */
+export const coverageFileSchema = z
+  .object({
+    path: z.string(),
+    status: z.enum(["added", "modified", "deleted", "renamed"]),
+    additions: z.number().int().nonnegative().nullable(),
+    deletions: z.number().int().nonnegative().nullable(),
+    /** A committed figure or part cites this file. */
+    covered: z.boolean(),
+    /** Why the file is listed but not expected to be shown; null for ordinary files. */
+    excluded: z.enum(["lockfile", "generated", "binary"]).nullable(),
+    /** The part (0-based) that is planned to cite the file but is not written yet; null otherwise. */
+    plannedIn: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+export const coverageSchema = z
+  .object({
+    files: z.array(coverageFileSchema),
+    /** Paths a committed figure or part cites. */
+    covered: z.array(z.string()),
+    /** Paths nothing cites yet, excluding lockfiles and generated files. */
+    uncovered: z.array(z.string()),
+    /** Lockfiles, generated and binary files: listed, but not counted against coverage. */
+    notShown: z.array(z.string()),
+    /** Every changed file, excluded ones included. */
+    changed: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    capturedAt: z.number(),
+  })
+  .strict();
+export type Coverage = z.infer<typeof coverageSchema>;
+export type CoverageFile = z.infer<typeof coverageFileSchema>;
+
+/** Wording that depends on why the reader is here, so the pane never describes an explanation as a change review. */
+export const intentCopySchema = z
+  .object({
+    /** Under the title: what the walkthrough is measured against, or what it explains. */
+    subtitle: z.string(),
+    /** While the introduction and first part are being planned. */
+    skeleton: z.string(),
+    /** The introduction page's label. */
+    introduction: z.string(),
+  })
+  .strict();
+export type IntentCopy = z.infer<typeof intentCopySchema>;
 
 /** Everything the pane renders for one walkthrough. */
 export const walkthroughViewSchema = z
   .object({
     walkthrough: deliveredWalkthroughSchema,
     notes: z.array(deliveredNoteSchema),
+    /** The server always sends coverage and copy; coverage is null until the changed files are known and for walkthroughs without a workspace. */
+    coverage: coverageSchema.nullable().optional(),
+    copy: intentCopySchema.optional(),
     /**
      * The review as the pane shows it in PR mode: the worker's draft merged with
      * the included comment notes. Null outside PR mode or when nothing is drafted.

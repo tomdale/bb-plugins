@@ -2,6 +2,8 @@
 // store already backfills the fields older rows lack; this narrows the types so
 // the pane can read them without guarding, and fills them again for any row
 // that reached here by another path.
+import { computeCoverage } from "./coverage.ts";
+import { intentCopy } from "./model.ts";
 import {
   defaultIntent,
   type Block,
@@ -22,7 +24,7 @@ function deliverBlock(block: Block): DeliveredBlock {
 }
 
 function deliverPart(part: Part): DeliveredPart {
-  return { ...part, blocks: part.blocks.map(deliverBlock) };
+  return { ...part, blocks: part.blocks.map(deliverBlock), staleFiles: part.staleFiles ?? [] };
 }
 
 export function deliverWalkthrough(walkthrough: Walkthrough): DeliveredWalkthrough {
@@ -35,9 +37,16 @@ export function deliverWalkthrough(walkthrough: Walkthrough): DeliveredWalkthrou
 }
 
 export function deliverNote(note: Note): DeliveredNote {
-  return { ...note, includeInReview: note.includeInReview ?? note.kind === "comment" };
+  return { ...note, includeInReview: note.includeInReview ?? note.kind === "comment", proposedResolution: note.proposedResolution ?? null };
 }
 
 export function deliverView(view: { walkthrough: Walkthrough; notes: Note[]; reviewDraft: WalkthroughView["reviewDraft"] }): WalkthroughView {
-  return { walkthrough: deliverWalkthrough(view.walkthrough), notes: view.notes.map(deliverNote), reviewDraft: view.reviewDraft };
+  const walkthrough = deliverWalkthrough(view.walkthrough);
+  return {
+    walkthrough,
+    notes: view.notes.map(deliverNote),
+    coverage: computeCoverage(view.walkthrough, view.walkthrough.changeSet),
+    copy: intentCopy(walkthrough),
+    reviewDraft: view.reviewDraft,
+  };
 }

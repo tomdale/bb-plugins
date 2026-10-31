@@ -95,7 +95,7 @@ export default function plugin(bb: BbPluginApi) {
     },
     detectTarget: async ({ threadId }) => {
       try {
-        return { target: await detectTarget(bb.sdk, threadId) };
+        return { target: await detectTarget(bb.sdk, threadId, (where) => service.workingTreeChanges(where)) };
       } catch (cause) {
         bb.log.debug(`target detection failed for ${threadId}: ${cause instanceof Error ? cause.message : String(cause)}`);
         return { target: null };

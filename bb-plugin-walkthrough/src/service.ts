@@ -11,12 +11,14 @@
 // blocks' snapshots are captured; a streaming layer can show partial text
 // before that, but only the commit makes a part ready.
 import { createHash, randomUUID } from "node:crypto";
-import { codeHostContract, type CodeSnapshot } from "./code-contract.ts";
+import { codeHostContract, type ChangedFiles, type CodeSnapshot } from "./code-contract.ts";
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 import { isAbsolutePath, workspaceRelativePath } from "./files.ts";
 import type { BbPluginApi, ExperimentalHostClient } from "@get-bb/plugin-sdk";
 import { describeNoteForAgent, mergedReviewDraft } from "./model.ts";
+import { citedPaths } from "./coverage.ts";
 import { filterPatchToRange } from "./patch.ts";
+import { stripReplyWrapper } from "./reply-wrapper.ts";
 import type { DiffResult, ExcerptResult } from "./rpc.ts";
 import {
   CHANGED_CHANNEL,
@@ -299,7 +301,7 @@ export class WalkthroughService {
         const worker = await this.bb.sdk.threads.spawn({
           projectId: thread.projectId,
           environment: thread.environmentId ? { type: "reuse", environmentId: thread.environmentId } : { type: "project-default" },
-          prompt: planMessage(walkthrough),
+          prompt: planMessage(walkthrough, await this.workspaceBrief(walkthrough)),
           parentThreadId: threadId,
           lifecycleOwnerThreadId: threadId,
           visibility: "hidden",
@@ -353,7 +355,7 @@ export class WalkthroughService {
         if (!ready(walkthrough)) return;
       }
       const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
-      const body = this.messageFor(walkthrough, request);
+      const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.workspaceBrief(walkthrough) : null);
       if (body === null) {
         this.save({ ...walkthrough, queue: rest });
         void this.pump(id);
@@ -379,10 +381,10 @@ export class WalkthroughService {
     });
   }
 
-  private messageFor(walkthrough: Walkthrough, request: WorkerRequest): string | null {
+  private messageFor(walkthrough: Walkthrough, request: WorkerRequest, brief: string | null = null): string | null {
     switch (request.kind) {
       case "plan":
-        return planMessage(walkthrough);
+        return planMessage(walkthrough, brief);
       case "write":
         return walkthrough.parts[request.part]?.status === "ready" ? null : writeMessage(walkthrough, request.part);
       case "ask": {
@@ -507,7 +509,7 @@ export class WalkthroughService {
     const walkthrough = this.get(id);
     const inFlight = walkthrough.inFlight;
     if (inFlight === null) return;
-    const message = text?.trim() || null;
+    const message = stripReplyWrapper(text?.trim() ?? "").trim() || null;
     void this.tail.finish(id, failed ? (message === INTERRUPTED || message === HELPER_GONE ? "cancelled" : "failed") : "done");
     let next: Walkthrough = { ...walkthrough, inFlight: null };
     const request = inFlight.request;
@@ -635,6 +637,7 @@ export class WalkthroughService {
   }
 
   async openPart(id: string, index: number | null): Promise<void> {
+    void this.refreshStale(id);
     this.update(id, (walkthrough) => {
       if (index !== null && (index < 0 || index >= walkthrough.parts.length)) throw new WalkthroughError("No such part.");
       const opened = { ...walkthrough, currentPart: index };
@@ -779,6 +782,7 @@ export class WalkthroughService {
     }
     next = this.scheduleWrites(next);
     const saved = this.save(next);
+    void this.refreshChangeSet(saved.id);
     if (saved.inFlight === null) void this.pump(saved.id);
     return saved;
   }
@@ -792,17 +796,32 @@ export class WalkthroughService {
   async writePart(workerThreadId: string, index: number, blocks: BlockInput[], suggestions: string[]): Promise<{ walkthrough: Walkthrough; unreadable: CodeBlock[] }> {
     const before = this.requireForWorker(workerThreadId);
     if (index < 0 || index >= before.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
-    const captured = await this.captureBlocks(before, blocks);
-    const walkthrough = this.commitPart(workerThreadId, index, captured, suggestions);
+    const [captured, hashes] = await Promise.all([
+      this.captureBlocks(before, blocks),
+      this.hashFiles(before, citedPaths(before, { blocks: blocks as Block[], locations: before.parts[index]!.locations })),
+    ]);
+    const walkthrough = this.commitPart(workerThreadId, index, captured, suggestions, hashes);
     return { walkthrough, unreadable: captured.filter((block): block is CodeBlock => block.kind === "code" && block.snapshot === null) };
   }
 
   /** The authoritative step that makes a part ready; blocks arrive complete, with snapshots. */
-  commitPart(workerThreadId: string, index: number, blocks: Block[], suggestions: string[]): Walkthrough {
+  commitPart(workerThreadId: string, index: number, blocks: Block[], suggestions: string[], citedHashes?: Record<string, string | null>): Walkthrough {
     const walkthrough = this.requireForWorker(workerThreadId);
     if (index < 0 || index >= walkthrough.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
     const parts = walkthrough.parts.map((part, candidate) =>
-      candidate === index ? { ...part, blocks, suggestions, status: "ready" as const, message: null, writtenAgainst: walkthrough.codeFingerprint ?? null } : part,
+      candidate === index
+        ? {
+            ...part,
+            blocks,
+            suggestions,
+            status: "ready" as const,
+            message: null,
+            writtenAgainst: walkthrough.codeFingerprint ?? null,
+            staleFiles: [],
+            // Empty when the host cannot hash (no workspace, or a pinned PR): such a part is never marked stale.
+            ...(citedHashes !== undefined && Object.keys(citedHashes).length > 0 ? { citedHashes } : { citedHashes: undefined }),
+          }
+        : part,
     );
     return this.save({ ...walkthrough, parts });
   }
@@ -966,29 +985,47 @@ export class WalkthroughService {
 
   // -- code -----------------------------------------------------------------
 
+  /**
+   * A file's patch and both sides. The host reads git directly, so staged,
+   * unstaged and untracked work, renames and unchanged files (an explanation
+   * of code that has no diff) all read the same way; BB's diff APIs are the
+   * fallback where the host entry cannot answer.
+   */
   private async loadCode(walkthrough: Walkthrough, path: string, withFullFile: boolean): Promise<CodeSnapshot> {
     const relative = workspaceRelativePath(path, walkthrough.workspacePath);
     const headRef = walkthrough.pr?.headRef ?? undefined;
-    // A PR's code lives at its head commit, which the checkout may not be on;
-    // reading the checkout instead would show another revision's code under
-    // this PR's prose. The host entry reads the commit itself.
-    // The empty tree (a whole-history walkthrough) is a base BB's diff APIs cannot take either.
-    const onHost =
-      (headRef !== undefined || walkthrough.baseRef.trim().toLowerCase() === EMPTY_TREE_SHA) && walkthrough.hostId !== null && walkthrough.workspacePath !== null;
-    if (relative === null || onHost) {
-      const hostPath = relative !== null ? `${walkthrough.workspacePath}/${relative}` : path;
-      if (!isAbsolutePath(hostPath) || walkthrough.hostId === null) throw new WalkthroughError("This code path has no known workspace or host.");
-      return this.codeHost.call(
-        "readCode",
-        { path: hostPath, baseRef: walkthrough.baseRef, ...(headRef ? { headRef } : {}), includeUncommitted: walkthrough.includeUncommitted, withFullFile },
-        { hostId: walkthrough.hostId },
-      );
+    const hostPath = relative !== null && walkthrough.workspacePath !== null ? `${walkthrough.workspacePath}/${relative}` : path;
+    const hostable = isAbsolutePath(hostPath) && walkthrough.hostId !== null;
+    // A PR's code lives at its head commit, which the checkout may not be on, and
+    // BB's diff APIs cannot take the empty tree; only the host can read those.
+    const hostOnly = relative === null || headRef !== undefined || walkthrough.baseRef.trim().toLowerCase() === EMPTY_TREE_SHA;
+    let hostFailure: unknown = null;
+    if (hostable) {
+      try {
+        return await this.codeHost.call(
+          "readCode",
+          { path: hostPath, baseRef: walkthrough.baseRef, ...(headRef ? { headRef } : {}), includeUncommitted: walkthrough.includeUncommitted, withFullFile },
+          { hostId: walkthrough.hostId! },
+        );
+      } catch (cause) {
+        hostFailure = cause;
+      }
     }
-    const file = await this.filePatch(walkthrough, relative);
-    const patch = typeof file === "string" ? "" : file.patch;
-    const sides = withFullFile ? await this.fullFile(walkthrough, relative, patch) : null;
-    if (typeof file === "string" && sides === null) throw new WalkthroughError(file);
-    return { path: relative, patch, truncated: typeof file !== "string" && file.truncated, sides };
+    if (hostOnly || relative === null) {
+      if (hostFailure !== null) throw hostFailure;
+      throw new WalkthroughError("This code path has no known workspace or host.");
+    }
+    try {
+      const file = await this.filePatch(walkthrough, relative);
+      const patch = typeof file === "string" ? "" : file.patch;
+      const sides = withFullFile ? await this.fullFile(walkthrough, relative, patch) : null;
+      if (typeof file === "string" && sides === null) throw new WalkthroughError(file);
+      return { path: relative, patch, truncated: typeof file !== "string" && file.truncated, sides };
+    } catch (cause) {
+      // The host's reason (binary, too large, not in the revisions) says more than the fallback's.
+      if (hostFailure !== null && /binary|exceeds|no file at/iu.test(errorText(hostFailure))) throw hostFailure;
+      throw cause;
+    }
   }
 
   private diffTarget(walkthrough: Walkthrough) {
@@ -1123,6 +1160,116 @@ export class WalkthroughService {
 
   // -- workspace --------------------------------------------------------------
 
+  /** Where the host can run git for this walkthrough, or null when there is no workspace on a host. */
+  private hostWorkspace(walkthrough: Pick<Walkthrough, "hostId" | "workspacePath">): { hostId: string; path: string } | null {
+    return walkthrough.hostId !== null && walkthrough.workspacePath !== null && isAbsolutePath(walkthrough.workspacePath)
+      ? { hostId: walkthrough.hostId, path: walkthrough.workspacePath }
+      : null;
+  }
+
+  /** The files differing from the walkthrough's base right now, staged and untracked work included; null when the host cannot say. */
+  async changedFiles(walkthrough: Pick<Walkthrough, "hostId" | "workspacePath" | "baseRef" | "includeUncommitted" | "pr">): Promise<ChangedFiles | null> {
+    const where = this.hostWorkspace(walkthrough);
+    if (where === null) return null;
+    try {
+      return await this.codeHost.call(
+        "changedFiles",
+        { path: where.path, baseRef: walkthrough.baseRef, ...(walkthrough.pr?.headRef ? { headRef: walkthrough.pr.headRef } : {}), includeUncommitted: walkthrough.includeUncommitted },
+        { hostId: where.hostId },
+      );
+    } catch (cause) {
+      this.bb.log.debug(`changed files unavailable: ${errorText(cause)}`);
+      return null;
+    }
+  }
+
+  /** The working tree against HEAD, for the starter's target detection. */
+  workingTreeChanges(where: { hostId: string; path: string }): Promise<ChangedFiles | null> {
+    return this.changedFiles({ hostId: where.hostId, workspacePath: where.path, baseRef: "HEAD", includeUncommitted: true, pr: null });
+  }
+
+  /**
+   * Records the change the walkthrough explains, the denominator for coverage.
+   * A PR's change is pinned to its head, so it is read once; a local change moves
+   * with the working tree and is read again whenever the thread works.
+   */
+  async refreshChangeSet(id: string): Promise<void> {
+    const walkthrough = this.store.get(id);
+    if (walkthrough === null || walkthrough.status === "planning" || walkthrough.status === "failed") return;
+    if (walkthrough.pr?.headRef && walkthrough.changeSet) return;
+    const found = await this.changedFiles(walkthrough);
+    if (found === null) return;
+    const latest = this.store.get(id);
+    if (latest === null) return;
+    const files = found.files.map(({ path, oldPath, status, additions, deletions, binary, origins }) => ({ path, oldPath, status, additions, deletions, binary, origins }));
+    const previous = latest.changeSet;
+    if (previous && previous.truncated === found.truncated && JSON.stringify(previous.files) === JSON.stringify(files)) return;
+    this.save({ ...latest, changeSet: { files, truncated: found.truncated, capturedAt: this.now() } });
+  }
+
+  /** Content hashes of workspace files, for noticing that a cited file changed; empty when unknown (a PR is pinned and never goes stale). */
+  private async hashFiles(walkthrough: Walkthrough, paths: string[]): Promise<Record<string, string | null>> {
+    const where = this.hostWorkspace(walkthrough);
+    if (where === null || walkthrough.pr?.headRef || paths.length === 0) return {};
+    try {
+      return (await this.codeHost.call("fileHashes", { path: where.path, paths: paths.slice(0, 200) }, { hostId: where.hostId })).hashes;
+    } catch (cause) {
+      this.bb.log.debug(`file hashes unavailable: ${errorText(cause)}`);
+      return {};
+    }
+  }
+
+  /**
+   * Marks each written part stale for the files it cites that changed since it
+   * was written. A part is only as stale as its own files: work in an unrelated
+   * file leaves it alone, and a part without recorded hashes (written before
+   * they existed) is never marked.
+   */
+  async refreshStale(id: string): Promise<void> {
+    const walkthrough = this.store.get(id);
+    if (walkthrough === null || walkthrough.status === "done" || walkthrough.status === "failed") return;
+    const tracked = walkthrough.parts.filter((part) => part.status === "ready" && part.citedHashes !== undefined);
+    if (tracked.length === 0) return;
+    const paths = [...new Set(tracked.flatMap((part) => Object.keys(part.citedHashes!)))];
+    const current = await this.hashFiles(walkthrough, paths);
+    if (Object.keys(current).length === 0) return;
+    const latest = this.store.get(id);
+    if (latest === null) return;
+    let changed = false;
+    const parts = latest.parts.map((part) => {
+      if (part.status !== "ready" || part.citedHashes === undefined) return part;
+      const stale = Object.entries(part.citedHashes)
+        .filter(([path, hash]) => path in current && current[path] !== hash)
+        .map(([path]) => path)
+        .sort();
+      if (JSON.stringify(stale) === JSON.stringify(part.staleFiles ?? [])) return part;
+      changed = true;
+      return { ...part, staleFiles: stale };
+    });
+    if (changed) this.save({ ...latest, parts });
+  }
+
+  /** What the working tree holds right now, for the plan request: the helper cannot see staged or untracked work in a plain diff. */
+  private async workspaceBrief(walkthrough: Walkthrough): Promise<string | null> {
+    const found = await this.changedFiles({ ...walkthrough, baseRef: "HEAD", includeUncommitted: true, pr: null });
+    if (found === null) return null;
+    if (found.files.length === 0) return "Working tree right now: clean, with no staged, unstaged, or untracked changes.";
+    const counts = [`${found.staged} staged`, `${found.unstaged} unstaged`, `${found.untracked} untracked`].join(", ");
+    const listed = found.files.slice(0, 20).map((file) => {
+      const flag = file.binary ? "binary" : `+${file.additions ?? "?"} -${file.deletions ?? "?"}`;
+      return `- ${file.status}${file.oldPath ? ` from ${file.oldPath}` : ""}: ${file.path} (${flag}; ${file.origins.join(", ")})`;
+    });
+    return [
+      `Working tree right now, against HEAD: ${counts}.`,
+      ...listed,
+      found.files.length > 20 ? `…and ${found.files.length - 20} more.` : null,
+      "Staged changes are uncommitted work like any other: `git diff HEAD` shows staged and unstaged edits together, `git diff --cached` only the staged ones, and `git status --porcelain` lists renames and untracked files, which no diff shows (read those files directly).",
+    ]
+      .filter((line): line is string => line !== null)
+      .join("\n");
+  }
+
+
   /**
    * Hash of the change in the files the walkthrough points at; null where the
    * checkout is not what the parts describe (a PR is read at its head) or there
@@ -1162,7 +1309,10 @@ export class WalkthroughService {
    */
   async refreshThread(id: string): Promise<void> {
     const walkthrough = this.store.get(id);
-    if (walkthrough === null || walkthrough.status === "done" || walkthrough.status === "failed" || walkthrough.threadSeq == null) return;
+    if (walkthrough === null || walkthrough.status === "done" || walkthrough.status === "failed") return;
+    // The thread's agent may have changed files a part cites or added files to the change.
+    await Promise.all([this.refreshStale(id), this.refreshChangeSet(id)]);
+    if (walkthrough.threadSeq == null) return;
     const [rows, codeFingerprint] = await Promise.all([
       this.bb.sdk.threads.events
         .list({ threadId: walkthrough.threadId, afterSeq: String(walkthrough.threadSeq), types: ["client/turn/requested"], limit: "50" })

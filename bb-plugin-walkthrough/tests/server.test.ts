@@ -3,6 +3,9 @@ import { makePluginAgentConfigurationContext, makeThreadResponse } from "@get-bb
 import { isOutdated } from "../src/staleness.ts";
 import { PART, PLAN, setup, settle, THREAD, WORKER } from "./helpers.ts";
 
+/** The code reads among the host calls; the walkthrough also asks the host for its changed files and hashes. */
+const readCodeCalls = (harness: { experimental_hostRpcCalls: Array<{ method: string }> }) => harness.experimental_hostRpcCalls.filter((call) => call.method === "readCode");
+
 describe("walkthrough code routing", () => {
   const patch = "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old\n+new\n";
 
@@ -17,7 +20,7 @@ describe("walkthrough code routing", () => {
     const result = await rpc("excerpt", { walkthroughId, path: "/work/other/src/file.ts", startLine: 1, endLine: 1 });
     expect(result).toMatchObject({ outcome: "available", path: "src/file.ts", change: patch, after: expect.stringContaining(" new"), before: expect.stringContaining(" old") });
     expect(harness.inspection.sdk.callsTo("environments.diffPatch")).toHaveLength(0);
-    expect(harness.experimental_hostRpcCalls).toMatchObject([{ hostId: "host_1", method: "readCode", input: { path: "/work/other/src/file.ts", baseRef: "origin/main", includeUncommitted: true, withFullFile: true } }]);
+    expect(readCodeCalls(harness)).toMatchObject([{ hostId: "host_1", method: "readCode", input: { path: "/work/other/src/file.ts", baseRef: "origin/main", includeUncommitted: true, withFullFile: true } }]);
   });
 
   it("reads a PR walkthrough's code at its head commit through the host, not the checkout", async () => {
@@ -28,7 +31,7 @@ describe("walkthrough code routing", () => {
     await tool("walkthrough_plan", { ...PLAN, mode: "pr", baseRef: "abc1234", pr: { number: 7, title: "Real title", headRef: "def5678" } });
     await rpc("excerpt", { walkthroughId, path: "src/file.ts", startLine: 1, endLine: 1 });
     expect(harness.inspection.sdk.callsTo("environments.diffPatch")).toHaveLength(0);
-    expect(harness.experimental_hostRpcCalls).toMatchObject([
+    expect(readCodeCalls(harness)).toMatchObject([
       { method: "readCode", input: { path: "/work/repo/src/file.ts", baseRef: "abc1234", headRef: "def5678", includeUncommitted: false } },
     ]);
   });
@@ -39,7 +42,7 @@ describe("walkthrough code routing", () => {
     await expect(tool("walkthrough_plan", { ...PLAN, baseRef: "c884aad (PR base on main)" })).rejects.toThrow(/bare git ref/u);
   });
 
-  it("normalizes an absolute in-workspace path for the environment diff API", async () => {
+  it("falls back to the environment diff API, with a workspace-relative path, when the host cannot read the code", async () => {
     const { rpc, tool, harness } = await setup();
     harness.inspection.sdk.stub("environments.diffPatch", async () => ({ outcome: "available", patches: [{ path: "src/file.ts", patch, truncated: false }] }));
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "Explain this repo" });
@@ -47,7 +50,7 @@ describe("walkthrough code routing", () => {
     await tool("walkthrough_plan", PLAN);
     expect(await rpc("diff", { walkthroughId, path: "/work/repo/src/file.ts" })).toMatchObject({ outcome: "available", path: "src/file.ts", patch });
     expect(harness.inspection.sdk.callsTo("environments.diffPatch")[0]?.[0]).toMatchObject({ paths: ["src/file.ts"] });
-    expect(harness.experimental_hostRpcCalls).toHaveLength(0);
+    expect(readCodeCalls(harness)).toMatchObject([{ method: "readCode", input: { path: "/work/repo/src/file.ts" } }]);
   });
 });
 
@@ -203,6 +206,7 @@ describe("walkthrough orchestration", () => {
   it("falls back to a fresh hidden worker when forking is unavailable", async () => {
     const { rpc, view, harness } = await setup({ forkFails: true });
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
     const current = await view(walkthroughId);
     expect(current.walkthrough.workerThreadId).toBe(WORKER);
     expect(current.walkthrough.inFlight.request).toEqual({ kind: "plan" });
