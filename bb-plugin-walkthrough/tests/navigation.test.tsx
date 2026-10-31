@@ -25,7 +25,7 @@ describe("walkthrough file navigation", () => {
     const slot = mountLinks();
     fireEvent.click(slot.getByRole("link", { name: "objective" }));
     fireEvent.click(slot.getByRole("link", { name: "analysis" }));
-    fireEvent.click(slot.getByRole("link", { name: "/work/toolbelt/src/identity.ts:3-14" }));
+    fireEvent.click(slot.getByRole("link", { name: "…/toolbelt/src/identity.ts:3-14" }));
     expect(slot.inspection.navigateCalls).toEqual([
       { method: "experimental_openFilePreview", options: { target: { kind: "host", hostId: "host_1", path: "/work/toolbelt/src/identity.ts" }, location: { kind: "range", startLine: 4, endLine: 7 } } },
       { method: "experimental_openFilePreview", options: { target: { kind: "host", hostId: "host_1", path: "/work/toolbelt/src/analysis.ts" }, location: { kind: "range", startLine: 57, endLine: 77 } } },
@@ -35,7 +35,7 @@ describe("walkthrough file navigation", () => {
 
   it("normalizes absolute paths inside the workspace before opening them", () => {
     const slot = mountLinks();
-    fireEvent.click(slot.getByRole("link", { name: "/work/notes/local.ts:2" }));
+    fireEvent.click(slot.getByRole("link", { name: "local.ts:2" }));
     expect(slot.inspection.navigateCalls).toEqual([
       { method: "experimental_openFilePreview", options: { target: { kind: "workspace", environmentId: "env_notes", path: "local.ts" }, location: { kind: "line", line: 2, column: null } } },
     ]);

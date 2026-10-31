@@ -33,6 +33,8 @@ import { partPreview, previewFor, StreamContext, useStreamedView } from "./strea
 
 /** The width from which notes hang in the right margin instead of stacking under the figure. */
 const WIDE_FROM = 900;
+/** Below this the pane is a side panel: the ruled margin collapses to a slim edge and the top bar gives the title the room (see figure.css). */
+export const NARROW_BELOW = 640;
 
 /** Whether the wrap-up (rather than a part) is what the reader is looking at. */
 function showsWrapUp(walkthrough: Walkthrough, leftWrapUp: boolean): boolean {
@@ -152,6 +154,8 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const fail = useCallback((cause: unknown) => notify(errorMessage(cause), "error"), [notify]);
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const wide = width >= WIDE_FROM;
+  // Width is 0 until the first measure; a reader that has not been measured is laid out as a panel, the narrowest case, so nothing shifts when it is.
+  const narrow = width < NARROW_BELOW;
   // Overlays that portal out of the reader stay inside it (see BoundaryContext).
   const [boundary, setBoundary] = useState<Element[]>([]);
   useEffect(() => setBoundary(rootRef.current ? [rootRef.current] : []), [rootRef]);
@@ -579,6 +583,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
               onKeyDown={onKeyDown}
               className={cn("wt", surface === "page" ? "wt-surface-page flex-1" : "wt-surface-panel")}
               data-wide={wide || undefined}
+              data-narrow={narrow || undefined}
               data-surface={surface}
             >
               {/* Page changes and the sheet opening are announced; the visible UI changes silently otherwise. */}
@@ -600,7 +605,14 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                   <PopoverTrigger asChild>
                     <button type="button" className="wt-chip" aria-label={`Parts: ${progressLabel}`} disabled={preparing}>
                       {walkthrough.inFlight ? <span className="wt-live" aria-hidden /> : null}
-                      {progressLabel}
+                      {page.kind === "part" && !preparing ? (
+                        <span>
+                          <span className="wt-chip-kicker">Part </span>
+                          {page.index + 1} of {partCount}
+                        </span>
+                      ) : (
+                        progressLabel
+                      )}
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" sideOffset={14} collisionPadding={8} collisionBoundary={boundary} autoFocusRef={currentPartRef} className="wt-portal wt-picker" mobileTitle="Parts">

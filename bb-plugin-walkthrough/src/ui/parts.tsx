@@ -3,7 +3,7 @@ import { experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { formatLocation, summaryDetail, summaryTitle } from "../model.ts";
-import { fileTarget, type FileContext } from "../files.ts";
+import { displayPath, fileTarget, type FileContext } from "../files.ts";
 import type { WalkthroughSummary } from "../rpc.ts";
 import type { Location } from "../schemas.ts";
 import { Hint } from "./Hint.tsx";
@@ -13,12 +13,15 @@ export function LocationLink({
   files,
   location,
   className,
+  label: custom,
 }: {
   files: FileContext;
   location: Location;
   className?: string;
+  /** What the link shows in place of the path and lines, for a caller that sets them apart. */
+  label?: ReactNode;
 }) {
-  const label = formatLocation(location) ?? location.path;
+  const label = custom ?? formatLocation({ ...location, path: displayPath(location.path, files) }) ?? location.path;
   const target = fileTarget(files, location.path);
   if (target === null) return <code className={cn("wt-loc", className)}><bdi>{label}</bdi></code>;
   const fileLocation =

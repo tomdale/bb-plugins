@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mountPage, mounted, note, part, stubWidth, viewOf, walkthrough } from "./helpers.tsx";
 
 const css = readFileSync("app.css", "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
+const figureCss = readFileSync("src/ui/figure.css", "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
 /** The declarations of every rule whose selector list names `selector` exactly. */
 function rule(selector: string): string {
   const found = Array.from(css.matchAll(/([^{}]+)\{([^{}]*)\}/gu))
@@ -94,9 +95,10 @@ describe("the concerns sheet, pager and shared controls", () => {
     expect(css).toMatch(/\.wt-suggest \{[^}]*animation-timeline: scroll\(self inline\)/u);
   });
 
-  it("fades the code at an edge a long line runs past", () => {
-    expect(css).toMatch(/\.wt-code \{[^}]*animation-timeline: scroll\(self inline\)/u);
-    expect(css).toContain("--wt-fade-r");
+  it("fades the code at an edge a long line runs past, driven by the scroll cue and not by the browser's scroll timeline", () => {
+    expect(figureCss).toMatch(/\.wt \.wt-code\[data-more-right\] \{ --wt-fade-r: 44px; \}/u);
+    expect(figureCss).toMatch(/\.wt \.wt-code\[data-more-left\], \.wt \.wt-code\[data-more-right\] \{[^}]*mask-image: linear-gradient/u);
+    expect(css).not.toContain("animation-timeline: scroll(self inline)\n");
   });
 });
 
@@ -233,9 +235,12 @@ describe("round two: geometry, stacking and focus", () => {
     expect(rule(".wt-sheet")).toContain("blur(40px) saturate(1.1)");
   });
 
-  it("gives the figure header its own line up to 540px, and clips a long path at its start", () => {
-    expect(css).toMatch(/@container wt \(max-width: 540px\) \{\s*\.wt-fh \{ flex-wrap: wrap/u);
-    expect(rule(".wt-fh-loc")).toContain("direction: rtl");
+  it("keeps the figure header on one line at every width, and a long directory gives way before the file name", () => {
+    expect(css).not.toMatch(/\.wt-fh \{ flex-wrap: wrap/u);
+    expect(figureCss).toMatch(/\.wt \.wt-fh \{ flex-wrap: nowrap;/u);
+    expect(figureCss).toMatch(/\.wt \.wt-fh-dir \{[^}]*text-overflow: ellipsis[^}]*direction: rtl/u);
+    expect(figureCss).toMatch(/\.wt \.wt-fh-name \{ flex: none;/u);
+    expect(figureCss).toMatch(/\.wt \.wt-fh > :not\(\.wt-fh-where\) \{ flex: none; \}/u);
   });
 });
 

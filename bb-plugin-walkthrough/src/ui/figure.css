@@ -1,0 +1,107 @@
+/*
+ * Figures and the narrow page. A figure is one unit: its caption, a lightly
+ * filled block holding the header, the code and the notes, and the white
+ * space after it. The caption sits 6px above its own block and 28px below the
+ * block before it, so it can only read as belonging to what it introduces.
+ *
+ * `.wt[data-narrow]` (Reader.tsx, under 640px) is a side panel: the ruled
+ * margin collapses to a 24px edge that carries the part number, and the figure
+ * runs from that rule to the page's right edge, so the code gets the room.
+ * Rules are prefixed `.wt` so they win over app.css whatever the load order.
+ */
+
+.wt {
+  --wt-fig-fill: color-mix(in srgb, var(--wt-ink) 3.5%, transparent);
+}
+.dark .wt { --wt-fig-fill: color-mix(in srgb, var(--wt-ink) 4.5%, transparent); }
+
+/* The unit */
+.wt .wt-figure { margin-block: 28px; }
+.wt .wt-cap { padding-bottom: 6px; color: color-mix(in srgb, var(--wt-ink) 72%, var(--wt-page)); }
+.wt .wt-fig { border-radius: 8px; background: var(--wt-fig-fill); box-shadow: inset 0 0 0 0.5px var(--wt-hair); }
+.wt .wt-fh { flex-wrap: nowrap; height: 32px; gap: 8px; box-shadow: inset 0 -0.5px 0 var(--wt-hair); }
+.wt .wt-row b { width: calc(var(--wt-digits, 3) * 1ch + 6px); }
+
+/* Header: the path gives way at its directory, never its file name; the line range is a quiet second voice. */
+.wt .wt-fh-where { flex: 1 1 auto; min-width: 0; align-items: baseline; gap: 6px; }
+.wt .wt-fh-loc { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; direction: ltr; text-decoration: none; }
+.wt .wt-fh-loc > bdi { display: flex; min-width: 0; }
+.wt .wt-fh-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.wt .wt-fh-name { flex: none; white-space: nowrap; color: var(--wt-ink); font-weight: 500; }
+.wt a.wt-fh-loc:hover .wt-fh-name { text-decoration: underline; text-underline-offset: 2px; }
+.wt .wt-fh-lines { flex: none; font: 11px var(--wt-mono); color: var(--wt-mute); opacity: 0.8; font-variant-numeric: tabular-nums; }
+.wt .wt-fh-rev { opacity: 0.8; }
+.wt .wt-fh .wt-sp { flex: 0 0 0; }
+.wt .wt-fh > :not(.wt-fh-where) { flex: none; }
+.wt .wt-icon-btn { width: 26px; height: 26px; }
+
+/* A long line says it goes on: its edge fades where there is more, and a thin bar shows how much. */
+.wt .wt-code { --wt-fade-l: 0px; --wt-fade-r: 0px; animation: none; scrollbar-width: none; overscroll-behavior-x: contain; }
+.wt .wt-code::-webkit-scrollbar { display: none; }
+.wt .wt-code[data-more-left] { --wt-fade-l: 28px; }
+.wt .wt-code[data-more-right] { --wt-fade-r: 44px; }
+.wt .wt-code[data-more-left], .wt .wt-code[data-more-right] {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+}
+.wt .wt-scrollwrap { position: relative; }
+.wt .wt-hbar { position: absolute; left: var(--wt-fig-l); right: var(--wt-fig-pad); bottom: 2px; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--wt-ink) 9%, transparent); pointer-events: none; }
+.wt .wt-hbar i { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: color-mix(in srgb, var(--wt-ink) 38%, transparent); min-width: 14px; }
+
+/* The fold: whole lines, then a row of its own. The last visible line is never cut. */
+.wt .wt-more {
+  position: static; display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; border: 0; border-top: 0.5px solid var(--wt-hair);
+  background: none; padding: 0 var(--wt-fig-pad) 0 var(--wt-fig-l); text-align: left; font: 500 12px var(--wt-sans); color: var(--wt-mute);
+}
+.wt .wt-more:hover { color: var(--wt-ink); background: var(--wt-fill); }
+
+/* Notes under the figure: part of its block, separated by one hairline. */
+.wt .wt-notes-stack { border-top: 0.5px solid var(--wt-hair); padding-block: 9px 10px; gap: 8px; }
+.wt .wt-notes-collapsed { border-top: 0.5px solid var(--wt-hair); }
+
+/* ---- Panel width ---- */
+.wt[data-narrow] .wt-page {
+  padding: 24px 14px 52px 40px;
+  background-image: linear-gradient(90deg, transparent 23px, var(--wt-rule) 23px, var(--wt-rule) 24px, transparent 24px);
+}
+/* The margin's only content is the number, centered on the 24px edge; the introduction and wrap-up name themselves in their headings. */
+.wt[data-narrow] .wt-pn { left: 0; width: 23px; top: 28px; font-size: 0; letter-spacing: 0; }
+.wt[data-narrow] .wt-pn b { font: 500 15px/1 var(--wt-serif); }
+.wt[data-narrow] .wt-pn:not(:has(b)) { display: none; }
+.wt[data-narrow] .wt-head h2 { font-size: 24px; }
+
+/* From the rule to the page's right edge. */
+.wt[data-narrow] .wt-figure { --wt-fig-pad: 10px; --wt-fig-l: 9px; margin-inline: -16px -14px; max-width: none; }
+.wt[data-narrow] .wt-cap { padding-inline: 16px 14px; font-size: 14.5px; line-height: 1.38; }
+.wt[data-narrow] .wt-fig { border-radius: 0; box-shadow: inset 0 0.5px 0 var(--wt-hair), inset 0 -0.5px 0 var(--wt-hair); }
+.wt[data-narrow] .wt-fh { padding-inline: 12px 6px; gap: 6px; }
+.wt[data-narrow] .wt-fh-rev, .wt[data-narrow] .wt-fh-link { display: none; }
+.wt[data-narrow] .wt-seg { font-size: 10.5px; }
+.wt[data-narrow] .wt-seg button { padding: 0 7px; }
+/* Markers take their own 18px only in a figure that has them; numbers take only the digits they need. */
+.wt[data-narrow] .wt-row { gap: 12px; padding-left: var(--wt-fig-l); }
+.wt[data-narrow] .wt-figure:has(.wt-mk) .wt-row { padding-left: calc(var(--wt-fig-l) + 18px); }
+.wt[data-narrow] .wt-mk { left: var(--wt-fig-l); top: 2px; }
+.wt[data-narrow] .wt-m { width: 15px; height: 15px; }
+.wt[data-narrow] .wt-hbar { left: 12px; right: 12px; }
+.wt[data-narrow] .wt-more { padding-left: 12px; }
+
+/* Notes at panel width: compact, one hairline above, the marker on the first line. */
+.wt[data-narrow] .wt-notes-stack { padding: 8px 12px 9px; gap: 6px; }
+.wt[data-narrow] .wt-mn { padding-left: 21px; font-size: 13.5px; line-height: 1.38; opacity: 0.9; }
+.wt[data-narrow] .wt-mn > .wt-m-inline { top: 1.5px; }
+.wt[data-narrow] .wt-mn-kind { font-size: 10.5px; }
+.wt[data-narrow] .wt-notes-collapsed { padding-inline: 12px; }
+.wt[data-narrow] .wt-fig-empty { padding-inline: 12px; }
+
+/* Top bar at panel width: the title gets the room; the dots and the word "Part" are what give way. */
+.wt[data-narrow] .wt-top { gap: 6px; padding-left: 12px; }
+.wt[data-narrow] .wt-dots { display: none; }
+.wt[data-narrow] .wt-top > .wt-sp { display: none; }
+/* Two lines of title fit the bar's 36px, so a long name is read rather than cut. */
+.wt[data-narrow] .wt-title { flex: 1 1 auto; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.17; text-wrap: balance; }
+@container wt (max-width: 460px) {
+  .wt .wt-chip-kicker { display: none; }
+  .wt[data-narrow] .wt-top { gap: 4px; }
+  .wt[data-narrow] .wt-chip { padding: 0 8px; }
+}

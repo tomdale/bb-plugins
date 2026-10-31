@@ -214,6 +214,6 @@ describe("what the colour may change", () => {
     }
     // Weight is only on the heading, and rows stay a fixed height whatever they hold.
     expect(tokenRules.filter((rule) => rule.body.includes("font-weight")).flatMap((rule) => rule.selectors)).toEqual([".wt-tk-heading"]);
-    expect(ruleList.find((rule) => rule.selectors.includes(".wt-row"))!.body).toContain("height: 20px");
+    expect(ruleList.find((rule) => rule.selectors.includes(".wt-row"))!.body).toContain("height: var(--wt-row-h)");
   });
 });

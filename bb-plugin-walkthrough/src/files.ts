@@ -1,7 +1,7 @@
 import type { ExperimentalLiveFileTarget } from "@get-bb/plugin-sdk/app";
 import type { Walkthrough } from "./schemas.ts";
 
-export type FileContext = Pick<Walkthrough, "environmentId" | "hostId" | "workspacePath">;
+export type FileContext = Pick<Walkthrough, "environmentId" | "hostId" | "workspacePath"> & { repoRoots?: readonly string[] | undefined };
 
 export function isAbsolutePath(path: string): boolean {
   return path.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(path);

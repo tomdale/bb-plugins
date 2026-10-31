@@ -44,6 +44,9 @@
   --wt-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --wt-pulse: 1.6s;
   --wt-select: rgba(255, 204, 0, 0.4);
+  /* Code in a figure: 12px type on 19px lines (about 1.58). ROW_HEIGHT in Figure.tsx is the same number: note offsets, tints and the fold are arithmetic on it. */
+  --wt-code-size: 12px;
+  --wt-row-h: 19px;
   /*
    * Code inks. Eight roles on a page that is mostly ink: a hue each for what a
    * line is made of, none of them the yellow accent, all at 4.5:1 or better on
@@ -189,7 +192,6 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 .wt-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-hair); }
 .wt-dots i.wt-past { background: var(--wt-mute); }
 .wt-dots i.wt-on { background: var(--wt-y); width: 16px; }
-@media (max-width: 420px) { .wt-dots { display: none; } }
 .wt-chip {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   height: 24px; padding: 0 10px; border: 0; border-radius: 12px;
@@ -329,7 +331,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 /* Margin notes hang past the figure's bottom rule instead of stretching it; a figure right after one makes room for them. */
 .wt-figure[data-hang] + .wt-figure { margin-top: calc(var(--wt-hang) + 12px); }
 .wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px var(--wt-fig-l); max-width: calc(var(--wt-measure) + 30px); font-variant-numeric: proportional-nums; }
-.wt-fig { position: relative; font: 11.5px/20px var(--wt-mono); border-block: 0.5px solid var(--wt-hair); }
+.wt-fig { position: relative; font: var(--wt-code-size) / var(--wt-row-h) var(--wt-mono); }
 .wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad) 0 var(--wt-fig-l); color: var(--wt-mute); font-size: 11px; }
 /* A path too long for its line loses its start, not its file name: the box reads right to left, the path itself stays left to right (see the bdi in LocationLink). */
 .wt-fh-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; direction: rtl; text-align: left; }
@@ -342,31 +344,15 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-icon-btn:hover:not(:disabled) { background: var(--wt-fill); color: var(--wt-ink); }
 .wt-codebox { position: relative; }
 .wt-code { position: relative; padding: 6px 0; overflow-x: auto; }
-/* Line tints live in their own layer under the scroller (one 20px strip per row), so the edge fade never reaches them. */
+/* Line tints live in their own layer under the scroller (one strip per row), so the edge fade never reaches them. */
 .wt-tints { position: absolute; inset: 6px 0; overflow: hidden; pointer-events: none; }
-.wt-tints i { display: block; height: 20px; }
-/*
- * A line longer than the figure scrolls sideways. Where it does, the code
- * fades out at that edge (and at the left edge once scrolled). The fade is
- * driven by the scroll position, so a figure that fits shows none.
- */
-@property --wt-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
-@property --wt-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
-@keyframes wt-code-fade { 0% { --wt-fade-l: 0px; --wt-fade-r: 36px; } 4% { --wt-fade-l: 24px; } 96% { --wt-fade-r: 36px; } 100% { --wt-fade-l: 24px; --wt-fade-r: 0px; } }
-@supports (animation-timeline: scroll()) {
-  .wt-code {
-    animation: wt-code-fade linear both;
-    animation-timeline: scroll(self inline);
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
-  }
-}
+.wt-tints i { display: block; height: var(--wt-row-h); }
 .wt-code:focus-visible { outline-offset: -2px; }
 .wt-code-rows { min-width: max-content; }
 /* Switching between Diff, After and Before fades the new lines in instead of cutting. */
 .wt-swap { animation: wt-swap var(--wt-dur-2) var(--wt-ease-out); }
 @keyframes wt-swap { from { opacity: 0.15; } }
-.wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
+.wt-row { display: flex; gap: 14px; height: var(--wt-row-h); padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
 /* With no markers there is nothing for the marker column to hold, so the code starts at the figure's own inset. */
 .wt-figure:not(:has(.wt-mk), .wt-skel-figure) .wt-row { padding-left: var(--wt-fig-l); }
 .wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
@@ -516,9 +502,6 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   .wt .wt-pager .wt-pager-actions .wt-btn { flex: 1; }
   /* With Prev and Next sharing a row, the finished line has no room to be one line. */
   .wt-pager-row:has(.wt-next) .wt-finished { display: none; }
-  /* A narrow code gutter: markers and numbers keep their order in less room. */
-  .wt-figure:has(.wt-mk) .wt-row { padding-left: calc(var(--wt-fig-l) + 18px); }
-  .wt-row b { width: 26px; }
 }
 @container wt (max-width: 420px) {
   .wt .wt-next-title { display: none; }
@@ -641,11 +624,6 @@ button.wt-it-loc:hover { text-decoration: underline; }
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
 .wt:not([data-wide]) .wt-figure { margin-inline: -16px -8px; --wt-fig-pad: 8px; }
-/* The figure header gives the location its own line, so a long path is never squeezed to a letter. */
-@container wt (max-width: 540px) {
-  .wt-fh { flex-wrap: wrap; height: auto; min-height: 32px; padding-block: 5px; row-gap: 4px; }
-  .wt .wt-fh .wt-fh-where { flex: 1 0 100%; }
-}
 
 /* A figure being written: it fades in once and carries a small pulsing dot until the part is saved. */
 .wt-figure[data-streaming] { animation: wt-in var(--wt-dur-2) var(--wt-ease-out); }

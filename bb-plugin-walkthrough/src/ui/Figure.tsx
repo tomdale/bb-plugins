@@ -2,10 +2,11 @@
 // note markers, with each note hanging in the right margin on wide pages and
 // stacked under the code on narrow ones. Rows have a fixed height, so a note's
 // offset is arithmetic instead of measurement and nothing reflows after paint.
-import { useContext, useEffect, useId, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { displayPath } from "../files.ts";
 import { defaultExcerptView, excerptCode, NOTE_KIND_LABEL, type ExcerptView } from "../model.ts";
 import type { DeliveredCodeBlock as CodeBlock, DeliveredNote as Note, DeliveredWalkthrough as Walkthrough, Location } from "../schemas.ts";
 import { ReaderContext } from "./context.ts";
@@ -22,10 +23,12 @@ import { rowEmphasis, type Emphasis } from "./word-diff.ts";
 
 const VIEW_LABEL: Record<ExcerptView, string> = { change: "Diff", after: "After", before: "Before" };
 const VIEWS: ExcerptView[] = ["change", "after", "before"];
-export const ROW_HEIGHT = 20;
+/** One line of code, in pixels: 12px type at about 1.58. app.css and figure.css take it from --wt-row-h, which sets the same number. */
+export const ROW_HEIGHT = 19;
 const HEADER_HEIGHT = 32;
 const CODE_PAD = 6;
-const CLAMP_ROWS = 30;
+/** A figure longer than this shows this many whole lines and a "Show all" row; see `clampedRows`. */
+export const CLAMP_ROWS = 30;
 const MARGIN_NOTE_GAP = 8;
 /** Said when a figure has no code to show (a walkthrough saved before excerpts were kept, or code that is gone). */
 export const NO_SAVED_COPY = "No saved copy of this code";
@@ -79,6 +82,81 @@ export function figureSelection(range: Range): FlagTarget | null {
   const startLine = Math.min(first, last);
   const endLine = Math.max(first, last);
   return { location: { path, startLine, ...(endLine > startLine ? { endLine } : {}) }, quote: range.toString().trim().slice(0, 2000) || null };
+}
+
+/** What a code scroller hides past its edges: whether there is more to the left and right, and the share of the line it shows. */
+export interface ScrollCue {
+  left: boolean;
+  right: boolean;
+  /** Fraction of the scrollable width the viewport covers (1 when nothing scrolls). */
+  ratio: number;
+  /** 0 at the left end, 1 at the right end. */
+  progress: number;
+}
+const NO_CUE: ScrollCue = { left: false, right: false, ratio: 1, progress: 0 };
+
+/**
+ * Tracks a code scroller's horizontal position so a long line says it goes on:
+ * the edges fade where there is more, and a thin bar shows how much. `watch`
+ * names what changes the content's width (the view, the rows) without the
+ * element resizing.
+ */
+export function useScrollCue(ref: RefObject<HTMLElement | null>, watch: unknown): ScrollCue {
+  const [cue, setCue] = useState<ScrollCue>(NO_CUE);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => {
+      const room = element.scrollWidth - element.clientWidth;
+      if (room <= 1) return setCue((previous) => (previous === NO_CUE ? previous : NO_CUE));
+      const progress = Math.min(1, Math.max(0, element.scrollLeft / room));
+      const next: ScrollCue = { left: element.scrollLeft > 1, right: element.scrollLeft < room - 1, ratio: element.clientWidth / element.scrollWidth, progress };
+      setCue((previous) => (previous.left === next.left && previous.right === next.right && Math.abs(previous.progress - next.progress) < 0.002 && Math.abs(previous.ratio - next.ratio) < 0.002 ? previous : next));
+    };
+    measure();
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    if (element.firstElementChild) observer?.observe(element.firstElementChild);
+    return () => {
+      element.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [ref, watch]);
+  return cue;
+}
+
+/** How many lines a figure of `total` shows folded: whole lines only, at least `CLAMP_ROWS`, and enough to include its last note. */
+export function clampedRows(total: number, lastNoteRow: number): number | null {
+  const rows = Math.max(CLAMP_ROWS, lastNoteRow + 2);
+  return total > rows ? rows : null;
+}
+
+/** The digits the widest line number needs, so the number column is as narrow as the figure allows. */
+export function numberDigits(rows: PatchRow[]): number {
+  let widest = 2;
+  for (const row of rows) widest = Math.max(widest, String(row.newNo ?? row.oldNo ?? 0).length);
+  return widest;
+}
+
+/** The figure's file as a reader names it: its directory (which gives way first) and its file name (which never does). */
+function PathName({ path }: { path: string }) {
+  const cut = path.lastIndexOf("/");
+  return (
+    <>
+      {cut > 0 ? (
+        <span className="wt-fh-dir">
+          <bdi>{path.slice(0, cut + 1)}</bdi>
+        </span>
+      ) : null}
+      <span className="wt-fh-name">{cut >= 0 ? path.slice(cut + 1) : path}</span>
+    </>
+  );
+}
+
+/** "107–127", or "107" for one line: the quiet part of a figure's header. */
+export function lineRange(block: Pick<CodeBlock, "startLine" | "endLine">): string {
+  return block.endLine > block.startLine ? `${block.startLine}\u2013${block.endLine}` : String(block.startLine);
 }
 
 function useSnapshot(walkthrough: Walkthrough, block: CodeBlock): { data: Snapshot | null; loading: boolean } {
@@ -243,8 +321,12 @@ export function Figure({
   const offsets = useMemo(() => marginOffsets(annotations), [annotations]);
   // A note below the clamp stretches it to just past that note; the rest stays folded so flagging never opens the whole figure.
   const lastNoteRow = annotations.reduce((max, annotation) => Math.max(max, annotation.row), -1);
-  const clampRows = Math.max(CLAMP_ROWS, lastNoteRow + 2);
-  const clamped = rows.length > clampRows && !expanded;
+  const foldedRows = clampedRows(rows.length, lastNoteRow);
+  const clamped = foldedRows !== null && !expanded;
+  const clampRows = foldedRows ?? rows.length;
+  const scroller = useRef<HTMLDivElement>(null);
+  const cue = useScrollCue(scroller, patch);
+  const shownPath = displayPath(block.displayPath, { workspacePath: walkthrough.workspacePath, repoRoots: walkthrough.repoRoots });
   const markerRows = new Map<number, Annotation[]>();
   annotations.forEach((annotation) => markerRows.set(annotation.row, [...(markerRows.get(annotation.row) ?? []), annotation]));
   // A figure with nothing to show has no rows for notes to point at: they collapse under it instead.
@@ -330,7 +412,15 @@ export function Figure({
       <div className="wt-fig">
         <div className="wt-fh">
           <span className="wt-fh-where">
-            <LocationLink files={walkthrough} location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }} className="wt-fh-loc" />
+            <LocationLink
+              files={walkthrough}
+              location={{ path: block.path, startLine: block.startLine, endLine: block.endLine }}
+              className="wt-fh-loc"
+              label={<PathName path={shownPath} />}
+            />
+            <span className="wt-fh-lines" aria-label={block.endLine > block.startLine ? `Lines ${block.startLine} to ${block.endLine}` : `Line ${block.startLine}`}>
+              {lineRange(block)}
+            </span>
             {revision ? (
               <span className="wt-fh-rev" aria-label={`Read at revision ${revision}`}>
                 @ {revision}
@@ -382,7 +472,7 @@ export function Figure({
         ) : empty ? (
           <p className="wt-fig-empty">{block.snapshotError ?? NO_SAVED_COPY}</p>
         ) : (
-          <div className="wt-codebox">
+          <div className="wt-codebox" style={{ "--wt-digits": numberDigits(rows) } as CSSProperties}>
           {/* The tints of added, removed and gap lines sit under the scroller, not in it: a long line's fade then masks only its glyphs and the colour stays a clean band. */}
           <div className="wt-tints" aria-hidden style={clamped ? { bottom: "auto", height: clampRows * ROW_HEIGHT } : undefined}>
             <div key={view} className={cn(chosen !== null && "wt-swap")}>
@@ -391,19 +481,23 @@ export function Figure({
               ))}
             </div>
           </div>
+          <div className="wt-scrollwrap">
           <div
+            ref={scroller}
             className="wt-code"
+            data-more-left={cue.left || undefined}
+            data-more-right={cue.right || undefined}
             role="region"
             tabIndex={0}
             aria-label={`Code from ${block.path}, lines ${block.startLine} to ${block.endLine}. Up and Down move between lines, C flags the line.`}
-            style={clamped ? { maxHeight: clampRows * ROW_HEIGHT + CODE_PAD * 2, overflow: "hidden" } : undefined}
             onKeyDown={onCodeKeyDown}
             onBlur={() => setCursor(null)}
           >
             <span className="wt-sr" role="status" aria-live="polite">
               {cursorLine === null ? "" : `Line ${cursorLine}. Press C to flag it.`}
             </span>
-            <div key={view} className={cn("wt-code-rows", chosen !== null && "wt-swap")}>
+            {/* Folded, the rows are cut at a line boundary here, not on the scroller, which must stay free to scroll sideways. */}
+            <div key={view} className={cn("wt-code-rows", chosen !== null && "wt-swap")} style={clamped ? { maxHeight: clampRows * ROW_HEIGHT, overflow: "hidden" } : undefined}>
               {rows.map((row, index) => {
                 const line = row.newNo ?? row.oldNo;
                 const markers = markerRows.get(index) ?? [];
@@ -478,12 +572,18 @@ export function Figure({
                 );
               })}
             </div>
-            {clamped ? (
-              <button type="button" className="wt-more" onClick={() => setExpanded(true)}>
-                Show all {rows.length} lines
-              </button>
-            ) : null}
           </div>
+          {cue.left || cue.right ? (
+            <div className="wt-hbar" aria-hidden>
+              <i style={{ width: `${cue.ratio * 100}%`, left: `${cue.progress * (1 - cue.ratio) * 100}%` }} />
+            </div>
+          ) : null}
+          </div>
+          {clamped ? (
+            <button type="button" className="wt-more" onClick={() => setExpanded(true)}>
+              <span aria-hidden>{"\u22EF"}</span> Show all {rows.length} lines
+            </button>
+          ) : null}
           </div>
         )}
         {marginNotes}
