@@ -87,11 +87,26 @@ describe("header and subject", () => {
 
 describe("out-of-date parts", () => {
   it("offers a rewrite when the code changed after the part was written", async () => {
-    const stale = walkthrough({ codeFingerprint: "new", parts: [part("Schema", { writtenAgainst: "old" })] });
+    const stale = walkthrough({ codeFingerprint: "new", parts: [part("Schema", { writtenAgainst: "old", staleFiles: ["src/schema.ts"] })] });
     const slot = await mountPage("wt_1", { ...viewOf(stale), retry: () => ({ ok: true }) });
-    await slot.findByText(/code changed after this part was written/u);
+    await slot.findByText(/schema\.ts changed after this part was written/u);
     fireEvent.click(slot.getByRole("button", { name: "Rewrite this part" }));
     expect(slot.inspection.rpcCalls.at(-1)?.input).toEqual({ walkthroughId: "wt_1", place: 0 });
+  });
+
+  it("stays quiet when the change moved but not in files this part cites", async () => {
+    const elsewhere = walkthrough({ codeFingerprint: "new", parts: [part("Schema", { writtenAgainst: "old", staleFiles: [], blocks: [{ kind: "prose", text: "The schema comes first." }] })] });
+    const slot = await mountPage("wt_1", viewOf(elsewhere));
+    await slot.findByText("The schema comes first.");
+    expect(slot.queryByText(/changed after/u)).toBeNull();
+    expect(slot.queryByRole("button", { name: "Rewrite this part" })).toBeNull();
+  });
+
+  it("falls back to the whole-change fingerprint for parts that do not say which files changed", async () => {
+    const legacy = walkthrough({ codeFingerprint: "new", parts: [part("Schema", { writtenAgainst: "old" })] });
+    const w = { ...legacy, parts: legacy.parts.map((entry) => { const { staleFiles: _drop, ...rest } = entry as typeof entry & { staleFiles?: string[] }; return rest as typeof entry; }) };
+    const slot = await mountPage("wt_1", viewOf(w));
+    await slot.findByText(/The code changed after this part was written/u);
   });
 
   it("stays quiet when the part matches the code", async () => {

@@ -114,7 +114,8 @@ function ProseFlags({ pageRef, notes, glyphs, onOpen }: { pageRef: React.RefObje
   );
 }
 
-export function Reader({ threadId, view, rpc, surface }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc; surface: "panel" | "page" }) {
+/** `retitle` keeps the thread tab's title in step with the walkthrough; a reader shown inside the starter's tab has no params of its own to retitle. */
+export function Reader({ threadId, view, rpc, surface, retitle = true }: { threadId: string; view: WalkthroughView; rpc: WalkthroughRpc; surface: "panel" | "page"; retitle?: boolean }) {
   void threadId;
   const { walkthrough, notes } = view;
   const navigate = useBbNavigate();
@@ -164,10 +165,10 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
   // Keep the tab title in step with the walkthrough once it has one.
   const titled = useRef<string | null>(null);
   useEffect(() => {
-    if (surface !== "panel" || walkthrough.title === "Walkthrough" || titled.current === walkthrough.title) return;
+    if (surface !== "panel" || !retitle || walkthrough.title === "Walkthrough" || titled.current === walkthrough.title) return;
     titled.current = walkthrough.title;
     navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title: walkthrough.title, params: { walkthroughId: walkthrough.id } });
-  }, [navigate, surface, walkthrough.id, walkthrough.title]);
+  }, [navigate, surface, retitle, walkthrough.id, walkthrough.title]);
 
   useEffect(() => {
     if (walkthrough.status === "wrapping-up") setLeftWrapUp(false);

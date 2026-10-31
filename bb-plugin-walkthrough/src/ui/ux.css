@@ -108,3 +108,5 @@
 @media (prefers-reduced-motion: reduce) {
   .wt .wt-toast, .wt [data-flash] { animation: none; }
 }
+.wt .wt-it-proposal { margin-top: 4px; padding: 6px 8px; border-radius: 8px; background: var(--wt-yhi); }
+.wt .wt-it-proposal .wt-it-res { margin: 0; color: var(--wt-ink); }

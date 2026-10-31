@@ -1,4 +1,5 @@
 // The Walkthrough thread panel: the starter until a walkthrough exists, then the reader.
+import { useState } from "react";
 import type { PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
 import { useWalkthrough } from "./hooks.ts";
 import { Skeleton } from "./Pages.tsx";
@@ -30,10 +31,13 @@ export function LoadingPage({ message }: { message?: string | null }) {
 }
 
 export function WalkthroughPane({ threadId, params }: PluginThreadPanelProps) {
-  const walkthroughId = paneParams(params);
+  const paramId = paneParams(params);
+  // The starter hands its tab to the walkthrough it starts; the tab's own params stay empty.
+  const [startedId, setStartedId] = useState<string | null>(null);
+  const walkthroughId = paramId ?? startedId;
   const { view, loaded, error, rpc } = useWalkthrough(walkthroughId);
-  if (walkthroughId === null) return <Starter threadId={threadId} />;
+  if (walkthroughId === null) return <Starter threadId={threadId} onOpen={setStartedId} />;
   if (!loaded) return <LoadingPage message={error} />;
   if (view === null) return <LoadingPage message="This walkthrough no longer exists." />;
-  return <Reader threadId={threadId} view={view} rpc={rpc} surface="panel" />;
+  return <Reader threadId={threadId} view={view} rpc={rpc} surface="panel" retitle={paramId !== null} />;
 }

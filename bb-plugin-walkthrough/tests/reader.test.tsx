@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { fireEvent, waitFor } from "@testing-library/react";
+import { act, fireEvent, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePatchRows, rowIndexForLine } from "../src/ui/patch-lines.ts";
-import { mountPage, mountPanel, mounted, note, part, stubWidth, viewOf, walkthrough } from "./helpers.tsx";
+import { mountPage, mountPanel, mounted, note, pagedView, part, stubWidth, viewOf, walkthrough } from "./helpers.tsx";
 
 beforeEach(() => {
   stubWidth(480);
@@ -81,8 +81,11 @@ describe("figures", () => {
       ...viewOf(codeWalkthrough(code())),
       excerpt: () => ({ outcome: "unavailable", message: "fatal: bad object deadbeef" }),
     });
-    await slot.findByText("This code is no longer on disk.");
+    await slot.findByText("No saved copy of this code");
     expect(slot.queryByText(/fatal/u)).toBeNull();
+    // Nothing to switch or copy, and no margin to hang notes in.
+    expect(slot.queryByRole("group", { name: "Show the code as" })).toBeNull();
+    expect(slot.queryByRole("button", { name: "Copy the code" })).toBeNull();
   });
 
   it("numbers margin notes in the gutter and lights the line and note together on hover", async () => {
@@ -114,8 +117,10 @@ describe("figures", () => {
     const slot = await mountPage("wt_1", { ...viewOf(codeWalkthrough(code({ snapshot }))), addNote: () => note({ id: "n2", kind: "todo" }) });
     fireEvent.click(await slot.findByRole("button", { name: "Flag line 4" }));
     const toolbar = await slot.findByRole("toolbar", { name: "Flag this" });
-    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Note", "Todo", "Ask"]);
+    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => [button.textContent, button.disabled])).toEqual([["Note", false], ["Todo", false], ["Comment", true], ["Ask", false]]);
+    expect(toolbar.textContent).toContain("Comments are for pull requests");
     fireEvent.click(slot.getByRole("button", { name: "Todo" }));
+    expect(slot.getByRole("dialog", { name: "New todo" }).textContent).toContain("New todo");
     fireEvent.change(await slot.findByRole("textbox", { name: "Todo text" }), { target: { value: "Check ids" } });
     fireEvent.click(slot.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "addNote")).toHaveLength(1));
@@ -126,7 +131,7 @@ describe("figures", () => {
     const slot = await mountPage("wt_1", viewOf(codeWalkthrough(code({ snapshot }), { mode: "pr", pr: { number: 2, url: null, title: "T" } })));
     fireEvent.click(await slot.findByRole("button", { name: "Flag line 4" }));
     const toolbar = await slot.findByRole("toolbar", { name: "Flag this" });
-    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Note", "Todo", "Comment", "Ask"]);
+    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => [button.textContent, button.disabled])).toEqual([["Note", false], ["Todo", false], ["Comment", false], ["Ask", false]]);
     fireEvent.click(slot.getByRole("button", { name: "Ask" }));
     await slot.findByText(/About “two added”/u);
   });
@@ -203,7 +208,7 @@ describe("concerns", () => {
   it("jumps to the part a concern belongs to", async () => {
     const slot = await mountPage("wt_1", { ...viewOf(base(), notes), openPart: () => ({ ok: true }) });
     fireEvent.click(await slot.findByRole("button", { name: /Concerns/u }));
-    fireEvent.click(slot.getByRole("button", { name: "Part 2" }));
+    fireEvent.click(slot.getByRole("button", { name: "Go to Part 2" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "openPart")?.input).toEqual({ walkthroughId: "wt_1", index: 1 }));
   });
 });
@@ -212,13 +217,64 @@ describe("pager and keyboard", () => {
   const two = (extra: Record<string, unknown> = {}) => walkthrough({ parts: [part("Schema", { suggestions: ["Is this tested?", "Why a map?"] }), part("Store")], ...extra });
 
   it("names the next part and pages with Prev and Next", async () => {
-    const slot = await mountPage("wt_1", { ...viewOf(two()), openPart: () => ({ ok: true }) });
+    const paged = pagedView(two());
+    const slot = await mountPage("wt_1", paged.rpc);
     fireEvent.click(await slot.findByRole("button", { name: /Next: Store/u }));
-    fireEvent.click(slot.getByRole("button", { name: "Previous" }));
+    await paged.changed(slot);
+    await slot.findByText("Store prose.");
+    fireEvent.click(slot.getByRole("button", { name: "Previous: Schema" }));
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart").map((call) => call.input)).toEqual([
       { walkthroughId: "wt_1", index: 1 },
-      { walkthroughId: "wt_1", index: null },
+      { walkthroughId: "wt_1", index: 0 },
     ]);
+  });
+
+  it("serializes rapid Next so a double click cannot skip a part", async () => {
+    const paged = pagedView(walkthrough({ parts: [part("One"), part("Two"), part("Three")] }));
+    const slot = await mountPage("wt_1", paged.rpc);
+    const next = await slot.findByRole("button", { name: /Next: Two/u });
+    fireEvent.click(next);
+    fireEvent.click(next);
+    fireEvent.keyDown(slot.container.querySelector(".wt")!, { key: "ArrowRight" });
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart").map((call) => call.input)).toEqual([{ walkthroughId: "wt_1", index: 1 }]);
+    // Once the page has moved, the next press is a new move from the new page.
+    await paged.changed(slot);
+    fireEvent.click(await slot.findByRole("button", { name: /Next: Three/u }));
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart").map((call) => call.input)).toEqual([{ walkthroughId: "wt_1", index: 1 }, { walkthroughId: "wt_1", index: 2 }]);
+  });
+
+  it("lifts the lock after a moment when the page never changes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const slot = await mountPage("wt_1", { ...viewOf(two()), openPart: () => ({ ok: true }) });
+      const next = await vi.waitFor(() => slot.getByRole("button", { name: /Next: Store/u }));
+      fireEvent.click(next);
+      expect((slot.getByRole("button", { name: /Writing…|Next: Store/u }) as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1600);
+      });
+      expect((slot.getByRole("button", { name: /Next: Store/u }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("disables Next with 'Writing…' while the next part is being written, and Wrap up while the last part is", async () => {
+    const writingNext = walkthrough({ parts: [part("Schema"), part("Store", { status: "writing", blocks: [] })] });
+    const slot = await mountPage("wt_1", viewOf(writingNext));
+    const waiting = await slot.findByRole("button", { name: "Writing…" });
+    expect((waiting as HTMLButtonElement).disabled).toBe(true);
+    const lastWriting = walkthrough({ currentPart: 1, parts: [part("Schema"), part("Store", { status: "writing", blocks: [] })] });
+    const second = await mountPage("wt_1", viewOf(lastWriting));
+    const [, wrap] = await second.findAllByRole("button", { name: "Writing…" });
+    expect((wrap ?? waiting) as HTMLButtonElement).toHaveProperty("disabled", true);
+    expect(second.queryByRole("button", { name: "Wrap up" })).toBeNull();
+  });
+
+  it("does not skip into a part that has not been started while the current one is still writing", async () => {
+    const w = walkthrough({ parts: [part("One", { status: "writing", blocks: [] }), part("Two", { status: "pending", blocks: [] })] });
+    const slot = await mountPage("wt_1", viewOf(w));
+    expect(((await slot.findByRole("button", { name: "Writing…" })) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("wraps up from the last part", async () => {
@@ -246,26 +302,48 @@ describe("pager and keyboard", () => {
   });
 
   it("pages with the arrow keys and j/k, and / focuses the input, but not while typing", async () => {
-    const slot = await mountPage("wt_1", { ...viewOf(two()), openPart: () => ({ ok: true }) });
-    await slot.findByText("Schema prose.");
+    const paged = pagedView(walkthrough({ currentPart: 1, parts: [part("A"), part("B"), part("C"), part("D")] }));
+    const slot = await mountPage("wt_1", paged.rpc);
+    await slot.findByText("B prose.");
     const root = slot.container.querySelector<HTMLElement>(".wt")!;
+    const calls = () => slot.inspection.rpcCalls.filter((call) => call.method === "openPart").map((call) => (call.input as { index: number | null }).index);
     fireEvent.keyDown(root, { key: "ArrowRight" });
+    expect(calls()).toEqual([2]);
+    await paged.changed(slot);
+    await slot.findByText("C prose.");
     fireEvent.keyDown(root, { key: "j" });
+    await paged.changed(slot);
+    await slot.findByText("D prose.");
     fireEvent.keyDown(root, { key: "k" });
+    await paged.changed(slot);
+    await slot.findByText("C prose.");
     fireEvent.keyDown(root, { key: "ArrowLeft" });
-    await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart")).toHaveLength(4));
+    expect(calls()).toEqual([2, 3, 2, 1]);
     const input = slot.getByRole("textbox", { name: "Ask about this part" });
     fireEvent.keyDown(root, { key: "/" });
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(input, { key: "j" });
-    expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart")).toHaveLength(4);
+    expect(calls()).toHaveLength(4);
+  });
+
+  it("pages with the keys from inside a code figure, where Up and Down move between lines", async () => {
+    const paged = pagedView(codeWalkthrough(code({ snapshot })));
+    const slot = await mountPage("wt_1", paged.rpc);
+    const region = await slot.findByRole("region", { name: /src\/a\.ts, lines 3 to 9/u });
+    region.focus();
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "openPart")).toHaveLength(0);
+    expect(region.getAttribute("tabindex")).toBe("0");
   });
 
   it("hides the question input on the introduction", async () => {
     const slot = await mountPage("wt_1", viewOf(two({ currentPart: null, introduction: "Hello." })));
     await slot.findByText("Hello.");
-    expect(slot.queryByRole("textbox")).toBeNull();
-    expect(slot.getByRole("button", { name: "Previous" }).hasAttribute("disabled")).toBe(true);
+    // The input stays put, saying why it cannot take a question here.
+    const input = slot.getByRole("textbox", { name: "Open a part to ask about it" });
+    expect(input.getAttribute("aria-disabled")).toBe("true");
+    expect((input as HTMLInputElement).readOnly).toBe(true);
+    expect(slot.getByRole("button", { name: "Previous part" }).hasAttribute("disabled")).toBe(true);
   });
 });
 
@@ -273,11 +351,11 @@ describe("part picker", () => {
   it("lists every page with its status", async () => {
     const w = walkthrough({
       codeFingerprint: "new",
-      parts: [part("Schema", { writtenAgainst: "old" }), part("Store", { status: "writing" }), part("Cache", { status: "pending" }), part("Retry", { status: "failed" })],
+      parts: [part("Schema", { writtenAgainst: "old", staleFiles: ["src/a.ts"] }), part("Store", { status: "writing" }), part("Cache", { status: "pending" }), part("Retry", { status: "failed" })],
       currentPart: 0,
     });
     const slot = await mountPage("wt_1", viewOf(w));
-    const chip = await slot.findByRole("button", { name: "Parts: 2 of 6" });
+    const chip = await slot.findByRole("button", { name: "Parts: Part 1 of 4" });
     fireEvent.click(chip);
     const list = await slot.findByRole("list", { name: "Parts" });
     const rows = Array.from(list.querySelectorAll("li")).map((row) => row.textContent);
@@ -353,7 +431,7 @@ describe("wrap-up", () => {
     const slot = await mountPage("wt_1", { ...viewOf(wrapped(), notes), handOff: () => ({ sent: true }) });
     await slot.findByText("That is the change.");
     expect(slot.queryByRole("button", { name: "Post review" })).toBeNull();
-    fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-actions .wt-btn-primary")!);
+    fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-pager .wt-pager-actions .wt-btn-primary")!);
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
     expect(slot.queryByRole("button", { name: /^Finish/u })).toBeNull();
   });
@@ -362,8 +440,8 @@ describe("wrap-up", () => {
     const review = { body: "Ok.", event: "COMMENT", comments: [], status: "draft", url: null, updatedAt: 1 };
     const slot = await mountPage("wt_1", viewOf(wrapped({ mode: "pr", pr: { number: 2, url: null, title: "T" }, review }), notes));
     await slot.findByText("That is the change.");
-    fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-actions .wt-btn-primary")!);
-    await slot.findByText(/Post review to PR #2/u);
+    fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-pager .wt-pager-actions .wt-btn-primary")!);
+    await slot.findByText(/Post review to GitHub as Comment/u);
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "requestReviewPost")).toEqual([]);
   });
 
@@ -375,13 +453,21 @@ describe("wrap-up", () => {
     await slot.findByText("walkthrough-notes/branch-feature-1.md");
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "saveNotes")).toHaveLength(1);
     fireEvent.click(slot.getByRole("button", { name: "Ask the thread to apply it" }));
+    // The message is shown, prefilled and editable, and nothing is sent until the reader presses Send.
+    const message = (await slot.findByRole("textbox", { name: "Message to your thread" })) as HTMLTextAreaElement;
+    expect(message.value).toContain("These are notes I recorded while reading");
+    expect(message.value).toContain("Check this");
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toEqual([]);
+    fireEvent.change(message, { target: { value: `${message.value}\n\nOnly do the first one.` } });
+    fireEvent.click(slot.getByRole("button", { name: "Send to thread" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
+    expect((slot.inspection.rpcCalls.find((call) => call.method === "handOff")!.input as { message: string }).message).toContain("Only do the first one.");
   });
 
   it("lets the reader go back to the parts from the wrap-up and return", async () => {
     const slot = await mountPage("wt_1", { ...viewOf(wrapped(), notes), openPart: () => ({ ok: true }) });
     await slot.findByText("That is the change.");
-    fireEvent.click(slot.getByRole("button", { name: "Previous" }));
+    fireEvent.click(slot.getByRole("button", { name: /^Previous/u }));
     await slot.findByText("Store").catch(() => undefined);
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "openPart")?.input).toEqual({ walkthroughId: "wt_1", index: 1 }));
     await waitFor(() => expect(slot.queryByText("That is the change.")).toBeNull());
@@ -398,17 +484,47 @@ describe("starter", () => {
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "start")?.input).toEqual({ threadId: "thr_1", request: "the retry logic" }));
   });
 
-  it("recognizes the thread's pull request and lists earlier walkthroughs", async () => {
-    const earlier = { id: "wt_1", title: "Earlier one", request: "r", status: "done", partCount: 3, currentPart: 2, openNotes: 0, createdAt: 1 };
-    const slot = await mountPanel({}, {
-      list: () => ({ walkthroughs: [earlier] }),
-      detectTarget: () => ({ target: { kind: "pr", number: 12, title: "Add the thing", url: "https://github.com/o/r/pull/12", draft: false } }),
-      start: () => ({ walkthroughId: "wt_9" }),
-    });
+  const earlier = { id: "wt_1", title: "Earlier one", request: "r", status: "done", partCount: 3, currentPart: 2, openNotes: 0, createdAt: 1 };
+  const prTarget = { kind: "pr", number: 12, title: "Add the thing", url: "https://github.com/o/r/pull/12", draft: false };
+
+  it("recognizes the thread's pull request and starts it in this same tab", async () => {
+    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [earlier] }), detectTarget: () => ({ target: prTarget }), start: () => ({ walkthroughId: "wt_9" }), ...viewOf(walkthrough({ id: "wt_9" })) });
     await slot.findByText("PR #12 \u00b7 Add the thing");
     fireEvent.click(slot.getByRole("button", { name: "Walk me through this PR" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.find((call) => call.method === "start")?.input).toEqual({ threadId: "thr_1", request: "This PR, for review" }));
+    // The walkthrough replaces the starter in its own tab; no second tab is opened, even as it retitles.
+    await slot.findByText("The schema comes first.");
+    expect(slot.inspection.navigateCalls.some((call) => call.method === "openThreadPanel")).toBe(false);
+  });
+
+  it("opens an earlier walkthrough in this same tab", async () => {
+    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [earlier] }), detectTarget: () => ({ target: null }), ...viewOf(walkthrough()) });
     fireEvent.click(await slot.findByRole("button", { name: /Earlier one/u }));
-    expect(slot.inspection.navigateCalls.some((call) => call.method === "openThreadPanel")).toBe(true);
+    await slot.findByText("The schema comes first.");
+    expect(slot.inspection.navigateCalls.some((call) => call.method === "openThreadPanel")).toBe(false);
+  });
+
+  it("has a top bar and a labelled focus field", async () => {
+    const slot = await mountPanel({}, { list: () => ({ walkthroughs: [] }), detectTarget: () => ({ target: null }) });
+    expect(slot.container.querySelector("header.wt-top")).not.toBeNull();
+    expect(slot.container.textContent).toContain("Focus (optional)");
+  });
+
+  it("looks for changes again while it is open, keeping what it found meanwhile", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let target: unknown = null;
+      const slot = await mountPanel({}, { list: () => ({ walkthroughs: [] }), detectTarget: () => ({ target }) });
+      await slot.findByText("No changes found");
+      target = { kind: "uncommitted", files: 5, additions: 20, deletions: 2, staged: 3, unstaged: 2, untracked: 0 };
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4100);
+      });
+      await slot.findByText("Uncommitted changes · 5 files, +20 \u22122");
+      expect(slot.container.textContent).toContain("3 staged · 2 not staged");
+      expect(slot.inspection.rpcCalls.filter((call) => call.method === "detectTarget").length).toBeGreaterThanOrEqual(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -240,6 +240,22 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
               <Markdown content={`**${note.kind === "todo" ? "Outcome" : "Answer"}:** ${note.resolution}`} />
             </div>
           ) : null}
+          {note.status === "open" && note.proposedResolution ? (
+            <div className="wt-it-proposal" role="group" aria-label="Suggested outcome">
+              <p className="wt-it-res">
+                <strong>Suggested {note.kind === "todo" ? "outcome" : "answer"}:</strong> {note.proposedResolution}
+              </p>
+              <div className="wt-it-actions">
+                <button type="button" className="wt-act" onClick={() => void rpc.call("acceptResolution", { walkthroughId: walkthrough.id, noteId: note.id }).catch(fail)}>
+                  <Icon name="Check" className="size-3" aria-hidden />
+                  Accept and resolve
+                </button>
+                <button type="button" className="wt-act" onClick={() => void rpc.call("dismissResolution", { walkthroughId: walkthrough.id, noteId: note.id }).catch(fail)}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
           {confirmingDelete ? (
             <div className="wt-it-actions wt-it-confirm" role="group" aria-label="Confirm delete">
               <span>Delete this {KIND_WORD[note.kind].toLowerCase()}?</span>

@@ -98,3 +98,20 @@ export function openMenu(trigger: HTMLElement) {
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: "mouse" });
   });
 }
+
+/**
+ * A walkthrough whose `openPart` moves the page the way the server does: the
+ * call updates currentPart, and the next `get` (after a "changed" signal) shows it.
+ */
+export function pagedView(initial: Walkthrough, notes: Note[] = []) {
+  const state = { current: initial };
+  const rpc = {
+    get: () => ({ view: { walkthrough: state.current, notes, reviewDraft: mergedReviewDraft(state.current, notes) } }),
+    openPart: ({ index }: { index: number | null }) => {
+      state.current = { ...state.current, currentPart: index } as Walkthrough;
+      return { ok: true };
+    },
+  };
+  const changed = (slot: { emitRealtime: (channel: string, payload: unknown) => Promise<unknown> | unknown }) => slot.emitRealtime("walkthrough-changed", { threadId: "thr_1", walkthroughId: "wt_1", reason: "changed" });
+  return { state, rpc, changed };
+}
