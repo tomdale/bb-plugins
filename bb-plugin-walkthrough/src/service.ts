@@ -93,6 +93,12 @@ const MESSAGE_WAIT_ATTEMPTS = 8;
 const MESSAGE_WAIT_MS = 250;
 /** Longest the plan request waits for the working-tree summary. */
 const BRIEF_WAIT_MS = 1500;
+/**
+ * The helper reads and writes prose; it does not need the deepest reasoning
+ * the user's thread may be set to. On a real model, medium cut the time to the
+ * finished first message by about half against xhigh (docs/latency.md).
+ */
+export const HELPER_REASONING = "medium" as const;
 /** Pause before the one retry of an excerpt that failed for a passing reason. */
 const SNAPSHOT_RETRY_MS = 400;
 const INTERRUPTED = "The helper was stopped before it finished.";
@@ -372,7 +378,7 @@ export class WalkthroughService {
   private async launch(id: string, threadId: string): Promise<void> {
     let walkthrough = this.get(id);
     // Read the working tree while the fork provisions, so the plan request never waits on git.
-    this.briefs.set(id, this.workspaceBrief(walkthrough).catch(() => null));
+    this.briefs.set(id, this.workspaceBrief(walkthrough, id).catch(() => null));
     try {
       const worker = await this.bb.sdk.threads.fork({
         sourceThreadId: threadId,
@@ -419,10 +425,10 @@ export class WalkthroughService {
    * sent earlier waits in BB's queue. Waits briefly for the fork to settle.
    */
   private async waitUntilReady(threadId: string): Promise<void> {
-    for (let attempt = 0; attempt < 60; attempt += 1) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
       const thread = await this.bb.sdk.threads.get({ threadId }).catch(() => null);
       if (thread === null || thread.status === "idle" || thread.status === "error") return;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
   }
 
@@ -468,10 +474,11 @@ export class WalkthroughService {
     next = this.markStarted(next, request);
     this.save(next);
     try {
-      await this.bb.sdk.threads.send({
-        threadId: workerThreadId,
-        mode: "queue-if-active",
-        input: [{ type: "text", text, mentions: [] }],
+      const message = { threadId: workerThreadId, mode: "queue-if-active" as const, input: [{ type: "text" as const, text, mentions: [] }] };
+      // A model that does not list the level rejects it; the request still goes out at the thread's own level.
+      await this.bb.sdk.threads.send({ ...message, reasoningLevel: HELPER_REASONING }).catch((cause: unknown) => {
+        if (/archived/iu.test(errorText(cause)) || !/reasoning|level|effort/iu.test(errorText(cause))) throw cause;
+        return this.bb.sdk.threads.send(message);
       });
       if (request.kind === "plan") this.mark(id, "planSent");
     } catch (cause) {
@@ -1489,10 +1496,26 @@ export class WalkthroughService {
     return Promise.race([pending, late]).finally(() => clearTimeout(timer));
   }
 
+  /** Keeps what the first look found on the record, for the pane's waiting state. */
+  private recordDetected(id: string, found: ChangedFiles): void {
+    try {
+      const walkthrough = this.get(id);
+      if (walkthrough.detected !== undefined) return;
+      const sum = (pick: (file: ChangedFiles["files"][number]) => number | null | undefined) => found.files.reduce((total, file) => total + (pick(file) ?? 0), 0);
+      this.save({
+        ...walkthrough,
+        detected: { files: found.files.length, staged: found.staged, unstaged: found.unstaged, untracked: found.untracked, additions: sum((file) => file.additions), deletions: sum((file) => file.deletions) },
+      });
+    } catch (cause) {
+      this.bb.log.debug(`detected summary skipped: ${errorText(cause)}`);
+    }
+  }
+
   /** What the working tree holds right now, for the plan request: the helper cannot see staged or untracked work in a plain diff. */
-  private async workspaceBrief(walkthrough: Walkthrough): Promise<string | null> {
+  private async workspaceBrief(walkthrough: Walkthrough, id: string): Promise<string | null> {
     const found = await this.changedFiles({ ...walkthrough, baseRef: "HEAD", includeUncommitted: true, pr: null });
     if (found === null) return null;
+    this.recordDetected(id, found);
     if (found.files.length === 0) return "Working tree right now: clean, with no staged, unstaged, or untracked changes.";
     const counts = [`${found.staged} staged`, `${found.unstaged} unstaged`, `${found.untracked} untracked`].join(", ");
     const listed = found.files.slice(0, 20).map((file) => {

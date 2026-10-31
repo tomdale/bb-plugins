@@ -287,6 +287,22 @@ export const walkthroughSchema = z
      * for older rows. Measurements for a real run, not something the pane needs.
      */
     timing: z.record(z.string(), z.number()).optional().catch(undefined),
+    /**
+     * What the working tree held when the walkthrough launched, so the pane can say what was found
+     * while the helper is still reading; absent until the first look and in older rows.
+     */
+    detected: z
+      .object({
+        files: z.number().int().nonnegative(),
+        staged: z.number().int().nonnegative(),
+        unstaged: z.number().int().nonnegative(),
+        untracked: z.number().int().nonnegative(),
+        additions: z.number().int().nonnegative(),
+        deletions: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional()
+      .catch(undefined),
     /** Changed files as of the last look (see coverage.ts); absent until the first look and in older rows. */
     changeSet: changeSetSchema.nullable().optional().catch(undefined),
     /** Fingerprint of the workspace's diff the last time we looked; null in PR mode or when unknown. */

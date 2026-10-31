@@ -24,6 +24,7 @@ import { Hint } from "./Hint.tsx";
 import { OpenMargin, ReadingMargin } from "./Marginalia.tsx";
 import { errorMessage, useStreams, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { NoticeContext, useNotices } from "./notices.tsx";
+import { PreparingLive } from "./live.tsx";
 import { Introduction, PartPage, pageTitle, Skeleton, Thread, useSendToThread, workingLine, WrapUpActions, WrapUpPage } from "./Pages.tsx";
 import { Pager } from "./Pager.tsx";
 import { Prose } from "./prose.tsx";
@@ -531,7 +532,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     if (preparing && introPreview && introPreview.intro !== "") {
       return <Introduction walkthrough={{ ...walkthrough, introduction: introPreview.intro }} onOpen={openPart} streaming={introPreview.introOpen} working={working} label={view.copy?.introduction ?? "Introduction"} />;
     }
-    if (preparing) return <Preparing walkthrough={walkthrough} skeleton={working ?? view.copy?.skeleton} />;
+    if (preparing) return <Preparing walkthrough={walkthrough} steps={planStream?.steps} />;
     if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} coverage={view.coverage} rpc={rpc} wide={wide} onFlag={anchorFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
     if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} coverage={view.coverage} label={view.copy?.introduction ?? "Introduction"} subject={<Subject walkthrough={walkthrough} subtitle={view.copy?.subtitle} />} />;
     return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={anchorFlag} />;
@@ -729,7 +730,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 }
 
 /** Before part 1 exists: the worker's question for the reader if it has one, else the shape of the page to come. */
-function Preparing({ walkthrough, skeleton }: { walkthrough: Walkthrough; skeleton?: string | undefined }) {
+function Preparing({ walkthrough, steps }: { walkthrough: Walkthrough; steps?: number | undefined }) {
   const waiting = walkthrough.inFlight !== null;
   if (walkthrough.message && !waiting) {
     return (
@@ -743,9 +744,5 @@ function Preparing({ walkthrough, skeleton }: { walkthrough: Walkthrough; skelet
     );
   }
   if (walkthrough.status === "failed") return <p className="wt-muted">The walkthrough could not be started.</p>;
-  return (
-    <article aria-busy>
-      <Skeleton label={skeleton ?? "Reading the change and deciding how to explain it…"} />
-    </article>
-  );
+  return <PreparingLive walkthrough={walkthrough} steps={steps} />;
 }

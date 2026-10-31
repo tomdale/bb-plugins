@@ -124,3 +124,8 @@
 .wt .wt-next-kicker { flex: none; }
 .wt .wt-next > svg { flex: none; }
 .wt .wt-next-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: 0.85; }
+
+/* Waiting for the helper: what was found, then one live line, above the skeleton. */
+.wt .wt-found { margin: 0 0 6px; font: 13px/1.4 var(--wt-sans); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
+.wt .wt-found-k { font-weight: 600; color: var(--wt-ink); margin-right: 6px; }
+.wt .wt-working { margin: 0 0 18px; font: 500 13.5px/1.4 var(--wt-sans); color: var(--wt-ink); }
