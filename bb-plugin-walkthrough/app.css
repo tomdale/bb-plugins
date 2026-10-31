@@ -44,6 +44,24 @@
   --wt-ease-in: cubic-bezier(0.4, 0, 1, 1);
   --wt-pulse: 1.6s;
   --wt-select: rgba(255, 204, 0, 0.4);
+  /*
+   * Code inks. Eight roles on a page that is mostly ink: a hue each for what a
+   * line is made of, none of them the yellow accent, all at 4.5:1 or better on
+   * the page and on every row tint (tests/syntax-palette.test.ts measures this
+   * file's values). Inside a changed word, whose tint is deeper, an ink is
+   * drawn toward the page's own ink by --wt-tk-word.
+   */
+  --wt-tk-keyword: #8d356d;
+  --wt-tk-string: #206050;
+  --wt-tk-number: #265597;
+  --wt-tk-comment: #56534d;
+  --wt-tk-function: #6041aa;
+  --wt-tk-type: #80421e;
+  --wt-tk-property: #1b5c74;
+  --wt-tk-punctuation: #3f3e3a;
+  --wt-tk-strength: 100%;
+  --wt-tk-word: 65%;
+  --wt-yhi-row: var(--wt-yhi);
   /* One reading width for prose, contents, ledger, captions and the question thread: 62 to 68 characters at 17px. */
   --wt-measure: 480px;
   /* The inset every bar, the page and the sheet keep from the window's edge, and the widest they grow. */
@@ -81,6 +99,17 @@
   --wt-danger-ink: #ff6961;
   color-scheme: dark;
   --wt-select: rgba(255, 204, 0, 0.34);
+  --wt-tk-keyword: #dca3c7;
+  --wt-tk-string: #57c7ab;
+  --wt-tk-number: #95b6e4;
+  --wt-tk-comment: #b7b4ae;
+  --wt-tk-function: #bdaee0;
+  --wt-tk-type: #e2a683;
+  --wt-tk-property: #6ec0dd;
+  --wt-tk-punctuation: #cfccc2;
+  --wt-tk-word: 45%;
+  /* A lighter wash on a hovered row: the added and removed tints under it already lift the ground. */
+  --wt-yhi-row: rgba(255, 204, 0, 0.12);
 }
 
 .wt {
@@ -357,7 +386,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-tints .wt-del { background: var(--wt-del); box-shadow: inset 2px 0 0 var(--wt-del-edge); }
 /* A file that is added whole is not a change among unchanged lines; the tint would only make a slab, so its edge and signs carry it. */
 .wt-tints:where(:not(:has(.wt-del, i:not(.wt-add)))) .wt-add { background: none; }
-.wt-del .wt-text { opacity: 0.72; }
+/* Removed lines recede, but only so far: their syntax inks must still read on the red tint. */
+.wt-del .wt-text { opacity: 0.88; }
 .wt-add .wt-text::before, .wt-del .wt-text::before { position: absolute; left: -12px; width: 10px; text-align: center; font-weight: 600; }
 .wt-add .wt-text::before { content: "+"; color: var(--wt-add-ink); }
 .wt-del .wt-text::before { content: "\2212"; color: var(--wt-del-ink); }
@@ -365,8 +395,25 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-w { color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px var(--wt-w-bg); background: var(--wt-w-bg); }
 .wt-add .wt-w { --wt-w-bg: var(--wt-add-word); }
 .wt-del .wt-w { --wt-w-bg: var(--wt-del-word); }
+/*
+ * Syntax inks. Spans carry a colour and nothing else (no weight, style or
+ * padding that could change a glyph's advance), so a row's text, width and
+ * height are the same with and without them.
+ */
+.wt-tk { color: color-mix(in srgb, var(--tk) var(--wt-tk-strength), var(--wt-ink)); }
+.wt-tk-keyword { --tk: var(--wt-tk-keyword); }
+.wt-tk-string { --tk: var(--wt-tk-string); }
+.wt-tk-number { --tk: var(--wt-tk-number); }
+.wt-tk-comment { --tk: var(--wt-tk-comment); }
+.wt-tk-function { --tk: var(--wt-tk-function); }
+.wt-tk-type { --tk: var(--wt-tk-type); }
+.wt-tk-property { --tk: var(--wt-tk-property); }
+.wt-tk-punctuation { --tk: var(--wt-tk-punctuation); }
+.wt-tk-heading { --tk: var(--wt-tk-type); font-weight: 600; }
+.wt-w .wt-tk { --wt-tk-strength: var(--wt-tk-word); }
 .wt-gap { color: var(--wt-mute); }
 .wt-hot, .wt-row.wt-hot { background: var(--wt-yhi); }
+.wt-row.wt-hot { background: var(--wt-yhi-row); }
 .wt-ln { border: 0; background: none; padding: 0 2px; font: inherit; color: var(--wt-mute); }
 .wt-ln:hover { color: var(--wt-ink); text-decoration: underline; }
 .wt-m {
@@ -672,8 +719,9 @@ button.wt-it-loc:hover { text-decoration: underline; }
   .wt-glass, .wt-flag.wt-glass, .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 @media (prefers-contrast: more) {
+  .wt, .wt-portal { --wt-tk-strength: 35%; --wt-tk-word: 25%; }
   .wt, .wt-portal { --wt-hair: rgba(0, 0, 0, 0.34); --wt-mute: rgba(0, 0, 0, 0.78); --wt-rule: rgba(255, 59, 48, 0.55); --wt-ring: #1d1d1f; }
-  .dark .wt, .dark .wt-portal { --wt-hair: rgba(255, 255, 255, 0.4); --wt-mute: rgba(255, 255, 255, 0.84); --wt-rule: rgba(255, 159, 10, 0.65); --wt-ring: #ffd60a; }
+  .dark .wt, .dark .wt-portal { --wt-tk-word: 10%; --wt-hair: rgba(255, 255, 255, 0.4); --wt-mute: rgba(255, 255, 255, 0.84); --wt-rule: rgba(255, 159, 10, 0.65); --wt-ring: #ffd60a; }
 }
 /* Portaled surfaces are outside .wt, so the reader's reduced-motion rule does not reach them. */
 @media (prefers-reduced-motion: reduce) {
