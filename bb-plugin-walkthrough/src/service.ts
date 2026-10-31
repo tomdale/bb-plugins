@@ -43,6 +43,8 @@ import {
   type Walkthrough,
   type WorkerRequest,
 } from "./schemas.ts";
+import { committedMessage, type CommittedMessage } from "./stream-commit.ts";
+import { hasStreamMarkup } from "./stream-markup.ts";
 import { streamTarget, StreamTail, type DeltaRow, type TailTarget } from "./stream-tail.ts";
 import type { WalkthroughStore } from "./store.ts";
 import { askMessage, planMessage, postReviewMessage, replyMessage, wrapUpMessage, writeMessage } from "./worker.ts";
@@ -86,8 +88,13 @@ const MERGE_BASE_TTL_MS = 60_000;
 const WRITE_AHEAD = 1;
 /** Longest the snapshots of one part may take; a block still unread then is saved without code. */
 const SNAPSHOT_BUDGET_MS = 25_000;
+/** How long a write tool waits for the message it was told to read: attempts times interval. */
+const MESSAGE_WAIT_ATTEMPTS = 8;
+const MESSAGE_WAIT_MS = 250;
 /** Longest the plan request waits for the working-tree summary. */
 const BRIEF_WAIT_MS = 1500;
+/** Pause before the one retry of an excerpt that failed for a passing reason. */
+const SNAPSHOT_RETRY_MS = 400;
 const INTERRUPTED = "The helper was stopped before it finished.";
 const HELPER_GONE = "The helper for this walkthrough is no longer running, so it can't write or answer any more.";
 
@@ -212,6 +219,29 @@ export class WalkthroughService {
     } catch (cause) {
       this.bb.log.debug(`answer streaming skipped: ${errorText(cause)}`);
     }
+  }
+
+  /**
+   * What the helper said in its streamed message for the plan or part write in
+   * flight, ready to commit: the worker may omit tool arguments it already wrote
+   * there. The message precedes the tool call, but BB stores events a moment
+   * later than the call can arrive, so this waits briefly for it. Null when the
+   * request streams no markup or the message never showed up.
+   */
+  async committedFromMessage(workerThreadId: string): Promise<CommittedMessage | null> {
+    for (let attempt = 0; attempt < MESSAGE_WAIT_ATTEMPTS; attempt += 1) {
+      const walkthrough = this.requireForWorker(workerThreadId);
+      const target = this.tailTarget(walkthrough);
+      const kind = target === null ? null : streamTarget(target.request)?.kind;
+      if (target === null || (kind !== "plan" && kind !== "write")) return null;
+      const snapshot = await this.tail.snapshot(target).catch(() => null);
+      if (snapshot !== null && hasStreamMarkup(snapshot.text)) {
+        const message = committedMessage(snapshot.text);
+        if (message.blocks.length > 0 || message.introduction !== "") return message;
+      }
+      await new Promise((resolve) => setTimeout(resolve, MESSAGE_WAIT_MS));
+    }
+    return null;
   }
 
   /** The in-flight request's text so far, for a client that joined mid-stream. */
@@ -646,6 +676,7 @@ export class WalkthroughService {
 
   async openPart(id: string, index: number | null): Promise<void> {
     void this.refreshStale(id);
+    void this.repairSnapshots(id);
     this.update(id, (walkthrough) => {
       if (index !== null && (index < 0 || index >= walkthrough.parts.length)) throw new WalkthroughError("No such part.");
       const opened = { ...walkthrough, currentPart: index };
@@ -856,7 +887,51 @@ export class WalkthroughService {
     return this.save(this.withExchange(walkthrough, request.place, request.exchangeId, (exchange) => ({ ...exchange, suggestions })));
   }
 
+  /**
+   * Captures every code block, then once more for the blocks a passing failure
+   * left without code (a timeout, a read that raced the thread's own edit), so
+   * a part is not committed with empty figures for a hiccup.
+   */
   private async captureBlocks(walkthrough: Walkthrough, blocks: BlockInput[]): Promise<Block[]> {
+    const first = await this.captureOnce(walkthrough, blocks);
+    const failed = first.flatMap((block, index) => (block.kind === "code" && block.snapshot === null && isPassingFailure(block.snapshotError) ? [index] : []));
+    if (failed.length === 0) return first;
+    await new Promise((resolve) => setTimeout(resolve, SNAPSHOT_RETRY_MS));
+    const second = await this.captureOnce(walkthrough, failed.map((index) => first[index] as BlockInput));
+    return first.map((block, index) => (failed.includes(index) ? second[failed.indexOf(index)]! : block));
+  }
+
+  /**
+   * Gives the figures of written parts the code they lack, for as long as the
+   * walkthrough is open: a part whose first write could not read a file (the
+   * thread had not saved it yet, a host hiccup) shows real code once it can.
+   * Binary and oversized files are permanent and left alone.
+   */
+  async repairSnapshots(id: string): Promise<void> {
+    const walkthrough = this.store.get(id);
+    if (walkthrough === null || walkthrough.status === "failed") return;
+    const needsCode = (block: Block) => block.kind === "code" && block.snapshot === null && isRepairable(block.snapshotError);
+    const places: Array<{ part: Part; index: Place }> = [
+      ...walkthrough.parts.map((part, index) => ({ part, index })),
+      ...(walkthrough.wrapUp ? [{ part: walkthrough.wrapUp, index: "wrap-up" as const }] : []),
+    ];
+    for (const { part, index } of places) {
+      if (part.status !== "ready" || !part.blocks.some(needsCode)) continue;
+      const repaired = await this.captureOnce(walkthrough, part.blocks as unknown as BlockInput[], needsCode);
+      const gained = repaired.map((block, position) => (needsCode(part.blocks[position]!) && block.kind === "code" && block.snapshot !== null ? block : null));
+      if (gained.every((block) => block === null)) continue;
+      const latest = this.store.get(id);
+      if (latest === null) return;
+      this.save(
+        this.withPart(latest, index, (current) => ({
+          ...current,
+          blocks: current.blocks.map((block, position) => (gained[position] && block.kind === "code" && block.snapshot === null ? gained[position]! : block)),
+        })),
+      );
+    }
+  }
+
+  private async captureOnce(walkthrough: Walkthrough, blocks: BlockInput[], only: (block: Block) => boolean = () => true): Promise<Block[]> {
     if (!blocks.some((block) => block.kind === "code")) return blocks as Block[];
     const files = new Map<string, Promise<CodeSnapshot>>();
     const shas = this.captureShas(walkthrough);
@@ -866,7 +941,7 @@ export class WalkthroughService {
     });
     return Promise.all(
       blocks.map(async (block): Promise<Block> => {
-        if (block.kind !== "code") return block;
+        if (block.kind !== "code" || !only(block as Block)) return block as Block;
         const view = block.view ?? "diff";
         const base = { ...block, view, snapshot: null, snapshotError: null };
         try {
@@ -1081,8 +1156,8 @@ export class WalkthroughService {
       if (typeof file === "string" && sides === null) throw new WalkthroughError(file);
       return { path: relative, patch, truncated: typeof file !== "string" && file.truncated, sides };
     } catch (cause) {
-      // The host's reason (binary, too large, not in the revisions) says more than the fallback's.
-      if (hostFailure !== null && /binary|exceeds|no file at/iu.test(errorText(hostFailure))) throw hostFailure;
+      // The fallback only knows "nothing to diff"; the host's reason (binary, too large, not in the revisions, a git error) says more.
+      if (hostFailure !== null && cause instanceof WalkthroughError) throw hostFailure;
       throw cause;
     }
   }
@@ -1102,7 +1177,7 @@ export class WalkthroughService {
       return response.outcome === "not_applicable" ? response.message : response.failure.message;
     }
     const file = response.patches.find((candidate) => candidate.path === path) ?? response.patches[0];
-    if (file === undefined || file.patch.trim() === "") return `${path} has no changes against ${walkthrough.baseRef}.`;
+    if (file === undefined || file.patch.trim() === "") return `${path} has no changes to show.`;
     return { patch: file.patch, truncated: file.truncated };
   }
 
@@ -1115,7 +1190,7 @@ export class WalkthroughService {
     try {
       const walkthrough = this.get(walkthroughId);
       const file = await this.loadCode(walkthrough, path, withFullFile);
-      if (!file.patch) return { outcome: "unavailable", message: `${path} has no changes against ${walkthrough.baseRef}.` };
+      if (!file.patch) return { outcome: "unavailable", message: `${path} has no changes to show.` };
       const start = range.startLine;
       const narrowed = start === undefined ? { patch: file.patch, filtered: false } : filterPatchToRange(file.patch, start, range.endLine ?? start);
       const fullFileContents = !narrowed.filtered ? file.sides : null;
@@ -1382,7 +1457,7 @@ export class WalkthroughService {
     const walkthrough = this.store.get(id);
     if (walkthrough === null || walkthrough.status === "done" || walkthrough.status === "failed") return;
     // The thread's agent may have changed files a part cites or added files to the change.
-    await Promise.all([this.refreshStale(id), this.refreshChangeSet(id)]);
+    await Promise.all([this.refreshStale(id), this.refreshChangeSet(id), this.repairSnapshots(id)]);
     if (walkthrough.threadSeq == null) return;
     const [rows, codeFingerprint] = await Promise.all([
       this.bb.sdk.threads.events
@@ -1430,6 +1505,16 @@ export class WalkthroughService {
       return { environmentId: null, hostId: null, path: null };
     }
   }
+}
+
+/** A failure that may not repeat: a timeout or an unreadable file, as opposed to a wrong path or a binary file. */
+function isPassingFailure(reason: string | null | undefined): boolean {
+  return reason === "This code couldn't be read." || reason === "Reading this code took too long.";
+}
+
+/** Whether a figure left without code may gain it later: everything except permanent properties of the file. */
+function isRepairable(reason: string | null | undefined): boolean {
+  return reason !== "Binary files can't be shown as code." && reason !== "This file is too large to show.";
 }
 
 /**

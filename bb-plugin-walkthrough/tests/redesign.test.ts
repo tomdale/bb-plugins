@@ -151,7 +151,7 @@ describe("pacing and first paint", () => {
     const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
     await settle();
     expect(sent[0]!.text).toContain("walkthrough_plan");
-    expect(sent[0]!.text).toContain("same turn, call walkthrough_write_part for part 1");
+    expect(sent[0]!.text).toContain("walkthrough_write_part with only part: 1, both in this same turn");
     await tool("walkthrough_plan", PLAN);
     let current = (await view(walkthroughId)).walkthrough;
     expect(current.parts[0].status).toBe("writing");

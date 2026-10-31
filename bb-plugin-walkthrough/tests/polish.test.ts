@@ -233,3 +233,49 @@ describe("per-part staleness", () => {
     expect((await view(walkthroughId)).walkthrough.parts[0].staleFiles).toEqual([]);
   });
 });
+
+describe("figures that could not be read are repaired", () => {
+  const code = (path: string) => ({ kind: "code", caption: path, path, startLine: 1, endLine: 1 });
+
+  it("retries once, within the write, a read that failed for a passing reason", async () => {
+    const { root, hostRpc } = await workspace(async (dir, git) => {
+      await writeFile(join(dir, "src", "a.ts"), "a\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+    });
+    let reads = 0;
+    const flaky = (call: { method: string; input: any }) => {
+      if (call.method === "readCode" && (reads += 1) === 1) throw new Error("spawn EAGAIN");
+      return hostRpc(call);
+    };
+    const { rpc, tool, view, sent } = await boot(root, flaky);
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "x" });
+    await until(() => sent.length > 0, "the plan request");
+    await tool("walkthrough_plan", { ...PLAN, baseRef: "HEAD" });
+    expect(await tool("walkthrough_write_part", { part: 1, blocks: [code("src/a.ts")], suggestions: [] })).toBe("Part 1 is on the page.");
+    expect((await view(walkthroughId)).walkthrough.parts[0].blocks[0].snapshot.after).toContain("a");
+    expect(reads).toBe(2);
+  });
+
+  it("gives a figure its code once the file exists, when the reader opens the part", async () => {
+    const { root, hostRpc } = await workspace(async (dir, git) => {
+      await writeFile(join(dir, "src", "a.ts"), "a\n");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+    });
+    const { rpc, tool, view, sent } = await boot(root, hostRpc);
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "x" });
+    await until(() => sent.length > 0, "the plan request");
+    await tool("walkthrough_plan", { ...PLAN, baseRef: "HEAD" });
+    const text = await tool("walkthrough_write_part", { part: 1, blocks: [{ kind: "prose", text: "Here." }, code("src/late.ts")], suggestions: [] });
+    expect(JSON.stringify(text)).toContain("src/late.ts");
+    let figure = (await view(walkthroughId)).walkthrough.parts[0].blocks[1];
+    expect(figure).toMatchObject({ snapshot: null, snapshotError: expect.stringContaining("isn't in the reviewed revisions") });
+    await writeFile(join(root, "src", "late.ts"), "late\n");
+    await rpc("openPart", { walkthroughId, index: 0 });
+    await until(async () => (await view(walkthroughId)).walkthrough.parts[0].blocks[1].snapshot !== null, "the repaired figure");
+    figure = (await view(walkthroughId)).walkthrough.parts[0].blocks[1];
+    expect(figure.snapshot.after).toContain("late");
+    expect(figure.snapshotError).toBeNull();
+  });
+});

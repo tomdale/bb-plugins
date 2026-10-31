@@ -130,7 +130,13 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService, pane
           .strict()
           .optional()
           .describe("PR mode only."),
-        introduction: z.string().trim().min(1).max(8000).describe("Two or three short paragraphs of Markdown prose."),
+        introduction: z
+          .string()
+          .trim()
+          .min(1)
+          .max(8000)
+          .optional()
+          .describe("Leave it out when your streamed message already holds the introduction before its part: 1 fence: the plugin takes it from there. Otherwise two or three short paragraphs of Markdown prose."),
         parts: z
           .array(
             z
@@ -146,9 +152,14 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService, pane
       })
       .strict(),
     execute: (input, ctx) =>
-      guard(() => {
-        const walkthrough = service.plan(ctx.threadId, input);
-        return `Planned ${walkthrough.parts.length} parts. Now call walkthrough_write_part for part 1 in this turn, and write no later part until asked.`;
+      guard(async () => {
+        let introduction = input.introduction;
+        if (introduction === undefined) {
+          introduction = (await service.committedFromMessage(ctx.threadId))?.introduction;
+          if (!introduction) return failure("I could not find an introduction: write it in your streamed message before the part: 1 fence, or pass introduction here.");
+        }
+        const walkthrough = service.plan(ctx.threadId, { ...input, introduction });
+        return `Planned ${walkthrough.parts.length} parts. Now call walkthrough_write_part with just part: 1 in this turn (it saves what your message said), and write no later part until asked.`;
       }),
   });
 
@@ -160,13 +171,31 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService, pane
     parameters: z
       .object({
         part: z.number().int().positive().describe("1-based part number."),
-        blocks: z.array(blockInputSchema).min(1).max(40),
-        suggestions: suggestionsSchema,
+        blocks: z
+          .array(blockInputSchema)
+          .min(1)
+          .max(40)
+          .optional()
+          .describe("Leave blocks and suggestions out to save the part exactly as your streamed message wrote it. Pass them only when you did not stream the part."),
+        suggestions: z.array(z.string().trim().min(1).max(200)).max(4).optional().describe("Omit with blocks left out: they come from your message."),
       })
       .strict(),
-    execute: ({ part, blocks, suggestions }, ctx) =>
+    execute: ({ part, blocks: given, suggestions: askedFor }, ctx) =>
       guard(async () => {
+        let blocks = given;
+        let suggestions = askedFor ?? [];
+        let dropped: string[] = [];
+        if (blocks === undefined) {
+          const written = await service.committedFromMessage(ctx.threadId);
+          if (written === null || written.blocks.length === 0) {
+            return failure("I could not find the part in your streamed message. Write it as one message in the walkthrough markup before this call, or pass blocks here.");
+          }
+          blocks = written.blocks;
+          if (askedFor === undefined) suggestions = written.suggestions;
+          dropped = written.dropped;
+        }
         const { unreadable } = await service.writePart(ctx.threadId, part - 1, blocks, suggestions);
+        if (dropped.length > 0) return `Part ${part} is on the page, but ${dropped.join("; ")} in your message, so ${dropped.length === 1 ? "it was" : "they were"} left out. Call walkthrough_write_part for this part again with the fix.`;
         const missing = unreadable.map((block) => `${block.path}:${block.startLine}-${block.endLine} (${block.snapshotError ?? "unreadable"})`);
         return missing.length === 0
           ? `Part ${part} is on the page.`

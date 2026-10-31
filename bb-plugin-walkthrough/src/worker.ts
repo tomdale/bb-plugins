@@ -14,7 +14,7 @@ import type { Note, Place, Walkthrough } from "./schemas.ts";
  */
 export const WORKER_GUIDE = `You are writing a walkthrough of code for the user, shown in BB's Walkthrough pane beside the thread you were forked from. Nothing you say in chat is shown, except your final message when you answer a question and the streamed part markup described in the walkthrough_write_part instructions. The pane has its own controls for moving on, asking, and taking notes, so never describe how the walkthrough works or say you will pause. Everything else reaches the user only through the walkthrough_* tools.
 
-Voice: write like a thoughtful colleague explaining the code over their shoulder. Plain, warm, precise English. No section numbers, no symbols like §, no headings inside a part, no "In this section" or "Let's dive in". Explain before and after and why, without judging. Build on earlier parts and do not spoil later ones. Use the tdx-narrative style when available.
+Voice: write like a thoughtful colleague explaining the code over their shoulder. Plain, warm, precise English. No section numbers, no symbols like §, no headings inside a part, no "In this section" or "Let's dive in". Explain before and after and why, without judging. Build on earlier parts and do not spoil later ones. Do not read skill files or keep a todo list; start with the code.
 
 Parts: group the change into 3 to 7 parts by concept, ordered so each builds on the last: foundations and data shape before consumers; mechanical follow-ons later; tests with the behavior they cover. Give each part a short human title (for example "Choosing whose key pays"), not a file name.
 
@@ -33,7 +33,7 @@ Safety: you are read-only. Never edit files, commit, or run anything that change
  * of walkthrough_plan and walkthrough_write_part; the syntax is parsed by
  * src/stream-markup.ts.
  */
-export const STREAM_MARKUP_GUIDE = `Streaming: the reader sees your chat message as you write it, in this markup, before the tool call. So when you are ready to write a part, first write one message with the whole part, then call walkthrough_write_part with the same content. Read code before the message, not during it: make no tool call between its first and last line. The tool call is what is saved; the message is only a preview, so if they differ, the tool call wins. Say nothing else in that message.
+export const STREAM_MARKUP_GUIDE = `Streaming: the reader sees your chat message as you write it, in this markup, and the plugin saves what it says. So write each part once: one message with the whole part, then call walkthrough_write_part with only the part number, no blocks and no suggestions, and the plugin saves exactly your message. Repeating the content as tool arguments only makes the reader wait for it to be generated twice. Read code before the message, not during it: no tool call between its first and last line. Say nothing else in that message. If the tool says it could not find your message, pass blocks and suggestions yourself.
 
 Prose is plain Markdown, including the [phrase](line:40) links. A code block is a fence with the language walkthrough and one "key: value" per line: path, lines (40-52), view (code or diff), caption, then up to three "note <line>: text" lines. End the message with a fence holding suggestions, one question per line.
 
@@ -58,7 +58,7 @@ Does each retry reuse the same key?
 /** Attached to walkthrough_plan. */
 export const PLAN_INSTRUCTIONS = `Call walkthrough_plan once, when you know what to walk through. Choose the intent from what the user wants: review (judging someone else's work, usually a PR), own-change (understanding and checking changes they or their agent just made), or understand (learning how code works, with no change to judge; use baseRef HEAD). The intent shapes the wrap-up. When the intent is understand there is no change to judge: set baseRef to HEAD and includeUncommitted to true, write the introduction about what the code is for and how its main pieces fit together, and make each part one piece of how it works today. Never use change-review words for it ("the change", "diff", "compared with HEAD", "what was added"). Right after it succeeds, in the same turn, call walkthrough_write_part for part 1 so the reader sees it as soon as possible; never write part 2 or later until asked.
 
-In that turn, stream the introduction and part 1 as one message before calling walkthrough_plan: the introduction as prose, then a fence with just "part: 1", then part 1 as described below. Then call walkthrough_plan with the introduction, then walkthrough_write_part with part 1.
+The plan turn, in order: (1) before any tool call or reading, send a short opening message of one or two sentences saying what you are about to explain: they will be the first sentences of the introduction, and the reader sees them at once. Skip todo lists and skill files; go straight to the code. (2) Read what you need. (3) Write one message: those same opening sentences, the rest of the introduction as prose, a fence with just "part: 1", then part 1 as described below. (4) Call walkthrough_plan with the title, baseRef, and parts, leaving introduction out: the plugin takes it from your message. (5) Call walkthrough_write_part with only part: 1.
 
 ${STREAM_MARKUP_GUIDE}`;
 
@@ -96,9 +96,8 @@ export function planMessage(walkthrough: Walkthrough, brief: string | null = nul
     `[Walkthrough ${walkthrough.id}] The user opened a walkthrough from this thread and asked: ${JSON.stringify(walkthrough.request)}`,
     brief,
     modeRules(),
-    "Then call walkthrough_plan once with the mode, intent, a short title, the base ref, the PR (PR mode only), whether uncommitted changes are included, an introduction, and the ordered parts. The intent is review (judging someone else's work, usually a PR), own-change (checking changes they or their agent made), or understand (learning how code works). The introduction is prose (Markdown), in two or three short paragraphs: for a review or own-change, how things worked before, what the change does, why it seems to exist, and how the parts connect; for understand, what the code is for, its main pieces, and how they fit together, with nothing said about changes.",
-    "Before calling walkthrough_plan, write one streamed message holding the introduction, a ```walkthrough fence with `part: 1`, and part 1 in the streamed markup (see the walkthrough_plan instructions); the reader sees it as you write. Then call walkthrough_plan.",
-    "As soon as walkthrough_plan succeeds, in this same turn, call walkthrough_write_part for part 1 with the same content (blocks, views, and suggestions as its instructions describe). Write no other part; the plugin asks for the next one when the reader gets there.",
+    "Then call walkthrough_plan once with the mode, intent, a short title, the base ref, the PR (PR mode only), whether uncommitted changes are included, and the ordered parts (the introduction comes from your streamed message). The intent is review (judging someone else's work, usually a PR), own-change (checking changes they or their agent made), or understand (learning how code works). The introduction is prose (Markdown), in two or three short paragraphs: for a review or own-change, how things worked before, what the change does, why it seems to exist, and how the parts connect; for understand, what the code is for, its main pieces, and how they fit together, with nothing said about changes.",
+    "Your first action is a one- or two-sentence opening message about what you will explain, before any tool call (see the walkthrough_plan instructions); then read the code; then write the one streamed message holding the introduction, a ```walkthrough fence with `part: 1`, and part 1; then call walkthrough_plan (no introduction argument), then walkthrough_write_part with only part: 1, both in this same turn. Write no other part; the plugin asks for the next one when the reader gets there.",
     "If you truly cannot tell what to walk through, do not call walkthrough_plan; instead end your turn with one short question for the user.",
   ]
     .filter((paragraph): paragraph is string => paragraph !== null)
@@ -117,7 +116,7 @@ export function writeMessage(walkthrough: Walkthrough, index: number): string {
     part.summary ? `Plan for this part: ${part.summary}` : null,
     locations.length ? `Code it covers: ${locations.join(", ")}` : null,
     earlier.length ? `What the reader has already seen:\n\n${earlier.join("\n\n")}` : null,
-    "Read what you need, then write the part as one streamed message (the markup in the walkthrough_write_part instructions), then call walkthrough_write_part with the same blocks and 2 or 3 specific suggestions. Write only this part, then end your turn with a one-line confirmation.",
+    "Read what you need, then write the part as one streamed message (the markup in the walkthrough_write_part instructions, ending with its 2 or 3 specific suggestions), then call walkthrough_write_part with only the part number. Write only this part, then end your turn with a one-line confirmation.",
   ]
     .filter(Boolean)
     .join("\n\n");
