@@ -321,6 +321,12 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   SVG under the name the UI uses.
 - **Possible API:** a development warning for an unregistered name, or
   `isIconName()` so a plugin can check.
+- **Rechecked:** BB 0.48.0, Plugin SDK 0.6.5. Still silent, and the names
+  aren't published: Workstreams' queue asked for `Reply` (fallback
+  `CornerUpLeft`) and drew a bolt; neither exists. The usable names
+  (`ArrowTurnBackward`, `ChevronLeft`, `MoreHorizontal`) came from reading the
+  running app's JavaScript bundles. An `experimental_iconNames()` list would
+  also do.
 
 ## Select newly registered projects after catalog propagation
 
@@ -805,3 +811,22 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Limit and evidence:** `item/started` events carry an `item.type` (`commandExecution`, `reasoning`, `agentMessage`, ...) whose set and fields differ by provider; there is no provider-neutral "the agent read this file" event, so a plugin can count steps but not name files.
 - **Workaround:** the tail counts `item/started` events that are not reasoning, messages or this plugin's own tools, and the pane says "Looking through the code · N steps so far". It does not claim a number of files.
 - **Possible API:** a normalized `thread.activity` event (`read`, `search`, `run`, with a path when there is one) that is the same on every provider.
+
+## Reply to a thread with BB's composer alone
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0, Plugin SDK 0.6.5
+- **Use case:** the Workstreams page shows one thread at a time as its recap
+  card; Reply opens a composer in place of the card's actions, so the user
+  answers without opening the thread.
+- **Limit:** `ThreadChat` ships the composer only with the transcript
+  (`variant: "full" | "compact"`); `"timeline"` is the transcript without it.
+  There is no composer-only variant, and no standalone thread composer
+  component, so a plugin can't offer BB's composer (model and permission
+  pickers, attachments, mentions, drafts) without the whole conversation.
+- **Workaround:** a plain textarea that sends through the plugin server's
+  `threadSend` RPC. It has no model picker, attachments, mentions, or saved
+  draft, and its look is only an approximation of BB's composer.
+- **Possible API:** `variant: "composer"` on `ThreadChat`, or a
+  `ThreadComposer` component taking `threadId`, `initialText`, `onSent`, and
+  `onCancel`.
