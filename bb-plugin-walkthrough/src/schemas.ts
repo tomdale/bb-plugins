@@ -281,6 +281,12 @@ export const walkthroughSchema = z
       .nullable(),
     nextNoteNumber: z.number().int().positive(),
     nextExchangeNumber: z.number().int().positive(),
+    /**
+     * Milliseconds after `createdAt` at which each stage of the first paint was reached (forked,
+     * workerReady, planSent, firstText, planned, part1Ready); absent for stages not reached and
+     * for older rows. Measurements for a real run, not something the pane needs.
+     */
+    timing: z.record(z.string(), z.number()).optional().catch(undefined),
     /** Changed files as of the last look (see coverage.ts); absent until the first look and in older rows. */
     changeSet: changeSetSchema.nullable().optional().catch(undefined),
     /** Fingerprint of the workspace's diff the last time we looked; null in PR mode or when unknown. */

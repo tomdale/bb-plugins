@@ -134,7 +134,10 @@ export class WalkthroughService {
     this.tail = new StreamTail(
       {
         readDeltas: (threadId, afterSeq) => this.readDeltas(threadId, afterSeq),
-        publish: (payload) => bb.realtime.publish(STREAM_CHANNEL, payload),
+        publish: (payload) => {
+          if (payload.requestKind === "plan" && payload.text !== "") this.mark(payload.walkthroughId, "firstText");
+          bb.realtime.publish(STREAM_CHANNEL, payload);
+        },
         persist: (target, text) => this.persistAnswer(target, text),
         log: (message) => bb.log.debug(message),
       },
@@ -205,6 +208,17 @@ export class WalkthroughService {
       types: ["item/agentMessage/delta"],
     })) as unknown as Array<{ seq: number; data: { itemId?: string; delta?: string } }>;
     return rows.map((row) => ({ seq: row.seq, itemId: row.data.itemId ?? null, delta: typeof row.data.delta === "string" ? row.data.delta : "" }));
+  }
+
+  /** Records when a first-paint stage was first reached, in ms after the walkthrough began; a later reach of the same stage is ignored. */
+  private mark(id: string, stage: string): void {
+    try {
+      const walkthrough = this.store.get(id);
+      if (walkthrough === null || walkthrough.timing?.[stage] !== undefined) return;
+      this.store.save({ ...walkthrough, timing: { ...walkthrough.timing, [stage]: Math.max(0, this.now() - walkthrough.createdAt) } });
+    } catch (cause) {
+      this.bb.log.debug(`timing mark skipped: ${errorText(cause)}`);
+    }
   }
 
   /** Saves an answer in progress so a reload shows it; the commit at the end of the request stays authoritative. */
@@ -331,7 +345,9 @@ export class WalkthroughService {
         pluginMetadata: { role: WORKER_ROLE, walkthroughId: id },
       });
       walkthrough = this.save({ ...this.get(id), workerThreadId: worker.id });
+      this.mark(id, "forked");
       await this.waitUntilReady(worker.id);
+      this.mark(id, "workerReady");
     } catch (cause) {
       this.bb.log.warn(`fork failed for ${threadId}; starting a fresh worker: ${errorText(cause)}`);
       try {
@@ -412,6 +428,7 @@ export class WalkthroughService {
           mode: "queue-if-active",
           input: [{ type: "text", text, mentions: [] }],
         });
+        if (request.kind === "plan") this.mark(id, "planSent");
       } catch (cause) {
         if (/archived/iu.test(errorText(cause))) this.helperGone(id);
         else this.complete(id, `The walkthrough agent could not be reached: ${errorText(cause)}`, true);
@@ -835,6 +852,7 @@ export class WalkthroughService {
     }
     next = this.scheduleWrites(next);
     const saved = this.save(next);
+    this.mark(saved.id, "planned");
     void this.refreshChangeSet(saved.id);
     if (saved.inFlight === null) void this.pump(saved.id);
     return saved;
@@ -876,7 +894,9 @@ export class WalkthroughService {
           }
         : part,
     );
-    return this.save({ ...walkthrough, parts });
+    const saved = this.save({ ...walkthrough, parts });
+    if (index === 0) this.mark(saved.id, "part1Ready");
+    return saved;
   }
 
   /** Refreshes the follow-up questions offered with the answer being written. */

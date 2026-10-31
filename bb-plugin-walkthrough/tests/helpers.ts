@@ -4,7 +4,7 @@ import plugin from "../server.ts";
 export const THREAD = "thr_user";
 export const WORKER = "thr_worker";
 
-export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null } = {}) {
+export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }> } = {}) {
   const sent: Array<{ threadId: string; text: string }> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
@@ -29,13 +29,15 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
         stop: async () => ({}) as never,
         archive: async () => ({}) as never,
         events: {
-          list: async (args: { types?: readonly string[] }) =>
+          list: async (args: { types?: readonly string[]; afterSeq?: string }) =>
             (args.types?.includes("turn/completed")
               ? [{ seq: 99, type: "turn/completed", data: { status: options.turnStatus?.() } }]
               : args.types?.includes("client/turn/requested")
                 ? (options.userTurns?.() ?? [])
                 : args.types?.includes("item/agentMessage/delta")
-                  ? ((options.agentText?.() ?? null) === null ? [] : [{ seq: 100, type: "item/agentMessage/delta", data: { itemId: "i1", delta: options.agentText!() } }])
+                  ? options.deltas
+                    ? options.deltas().filter((row) => row.seq > Number(args.afterSeq ?? 0)).slice(0, 100).map((row) => ({ seq: row.seq, type: "item/agentMessage/delta", data: { itemId: row.itemId, delta: row.delta } }))
+                    : (options.agentText?.() ?? null) === null ? [] : [{ seq: 100, type: "item/agentMessage/delta", data: { itemId: "i1", delta: options.agentText!() } }]
                   : []) as never,
         },
         queuedMessages: { list: async () => [] as never, send: async () => ({}) as never },

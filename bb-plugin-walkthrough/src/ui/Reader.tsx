@@ -461,7 +461,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     }
     if (preparing) return <Preparing walkthrough={walkthrough} skeleton={view.copy?.skeleton} />;
     if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} coverage={view.coverage} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
-    if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} coverage={view.coverage} label={view.copy?.introduction ?? "Introduction"} />;
+    if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} coverage={view.coverage} label={view.copy?.introduction ?? "Introduction"} subject={<Subject walkthrough={walkthrough} subtitle={view.copy?.subtitle} />} />;
     return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} />;
   })();
   // One counting scheme everywhere: parts are numbered 1…N; the introduction and wrap-up are named, never numbered.
@@ -573,9 +573,6 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       "INTRO"
                     )}
                   </div>
-                  {page.kind === "intro" && (!preparing || introPreview !== null) ? (
-                    <p className="wt-subject">{preparing ? "\u00a0" : <Subject walkthrough={walkthrough} subtitle={view.copy?.subtitle} />}</p>
-                  ) : null}
                   {body}
                   {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
                   <div ref={threadEndRef} />
