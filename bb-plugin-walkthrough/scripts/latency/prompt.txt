@@ -1,0 +1,5 @@
+[Walkthrough wt_x] The user opened a walkthrough from this thread and asked: "Give me a walkthrough of my uncommitted changes in this repo (staged and unstaged)."
+
+Working tree right now, against HEAD: 1 staged, 1 unstaged, 0 untracked. Use `git diff HEAD` to read it.
+
+Your first action is a one- or two-sentence opening message about what you will explain, before any tool call. Then read the code you need. Then write ONE message holding: those same opening sentences, the rest of the introduction in two short paragraphs, a line "part: 1", and part 1 (150 to 300 words of plain prose about the first conceptual group of the change). Do not call any walkthrough_* tool; end your turn right after that message.

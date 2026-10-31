@@ -218,6 +218,14 @@ Not measured on a real model: whether the worker follows the new order (opening 
 - One send flow: `useSendToThread` (Pages.tsx) owns the previewed, editable message; the sheet's duplicate button hides while the same action is pinned on the wrap-up.
 - The flag toolbar and composer place themselves from their measured height (`src/ui/place-flag.ts`): above the selection when it fits, else below, else pinned inside the visible area.
 
+## First paint and review state (round 4)
+
+- `walkthrough.detected?: { files, staged, unstaged, untracked, additions, deletions }`: the working tree as the first look found it at launch. The planning pane shows it with the request and a live line (`src/ui/live.tsx`). Absent in older rows and when the workspace cannot be read.
+- The helper receives every request at `HELPER_REASONING` (medium); see docs/latency.md for the measurements and what they do not cover.
+- The selection toolbar's fourth placement, "reserve" (place-flag.ts): at the top of a page, with no room above the selection, the selection's block gets padding-top (`push`) and the toolbar sits in that room, so no prose is covered. The padding is removed when the toolbar closes.
+- A comment excluded from the review reads "Not in review" and recedes (`.wt-it-excluded`); the Open items tab states the same count as the Review draft tab. Save notes is in every wrap-up.
+- The Next button shows the next part's name whole or not at all.
+
 ## Polish requests
 
 ### From UX (answered by Backend; see "Backend API: polish pass")
