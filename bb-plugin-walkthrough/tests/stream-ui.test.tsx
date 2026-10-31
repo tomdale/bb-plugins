@@ -173,7 +173,7 @@ describe("answers in the margin thread", () => {
 describe("reduced motion", () => {
   it("stops every streaming animation through the stylesheet's reduced-motion rule", () => {
     const css = readFileSync("app.css", "utf8");
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.wt \*, \.wt \*::before, \.wt \*::after \{ animation: none !important/u);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.wt \*(?::not\([^)]*\))?, \.wt \*::before, \.wt \*::after \{ animation: none !important/u);
     expect(css).toContain(".wt-figure[data-streaming]");
   });
 });

@@ -447,7 +447,7 @@ describe("wrap-up", () => {
 
   it("understand: Save notes writes a file and says where, and the thread can be asked to apply them", async () => {
     const saved = { threadId: "thr_1", path: "walkthrough-notes/branch-feature-1.md", absolutePath: "/s/thr_1/walkthrough-notes/branch-feature-1.md", notes: 1 };
-    const slot = await mountPage("wt_1", { ...viewOf(wrapped({ intent: "understand" }), notes), saveNotes: () => saved, handOff: () => ({ sent: true }) });
+    const slot = await mountPage("wt_1", { ...viewOf(wrapped({ intent: "understand" }), notes), saveNotes: () => saved, prepareHandOff: () => ({ draft: { message: "From my walkthrough of Branch feature. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n- n1 todo: \"Check this\"", noteIds: ["n1", "n2"] } }), handOff: () => ({ sent: true }) });
     await slot.findByText("That is the change.");
     fireEvent.click(slot.getByRole("button", { name: "Save notes" }));
     await slot.findByText("walkthrough-notes/branch-feature-1.md");
@@ -461,7 +461,7 @@ describe("wrap-up", () => {
     fireEvent.change(message, { target: { value: `${message.value}\n\nOnly do the first one.` } });
     fireEvent.click(slot.getByRole("button", { name: "Send to thread" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
-    expect((slot.inspection.rpcCalls.find((call) => call.method === "handOff")!.input as { message: string }).message).toContain("Only do the first one.");
+    expect(slot.inspection.rpcCalls.find((call) => call.method === "handOff")!.input).toMatchObject({ noteIds: ["n1", "n2"], message: expect.stringContaining("Only do the first one.") });
   });
 
   it("lets the reader go back to the parts from the wrap-up and return", async () => {

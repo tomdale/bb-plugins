@@ -1,6 +1,6 @@
 // The pages of the reader: the introduction, one part, the wrap-up, and the
 // skeleton shown before anything is written.
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,7 +10,7 @@ import type { Coverage, Place, DeliveredCodeBlock, DeliveredNote as Note, Delive
 import { Figure, type FlagTarget } from "./Figure.tsx";
 import { countedOpen, openConcerns, PostReviewControl, type ReviewDraftView } from "./Concerns.tsx";
 import { partState } from "./fields.ts";
-import { handOffMessage, unsentItems } from "./hand-off.ts";
+import { unsentItems } from "./hand-off.ts";
 import { type WalkthroughRpc } from "./hooks.ts";
 import { useFail, useNotify } from "./notices.tsx";
 import { stripReplyWrapper } from "./reply.ts";
@@ -361,10 +361,10 @@ export function WrapUpActions({ walkthrough, notes, draft, rpc }: { walkthrough:
   const unsent = unsentItems(notes).length;
   const sentBefore = notes.some((note) => note.sentAt);
   const sentLabel = sentBefore ? "Sent to thread" : null;
-  const handOff = async (message?: string) => {
+  const handOff = async (draft?: { message: string; noteIds: string[] }) => {
     setSending(true);
     try {
-      const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id, ...(message === undefined ? {} : { message }) } as never);
+      const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id, ...(draft ?? {}) });
       notify(sent ? "Sent to your thread" : "Nothing new to send", sent ? "success" : "info");
       setApplying(false);
     } catch (cause) {
@@ -404,35 +404,70 @@ export function WrapUpActions({ walkthrough, notes, draft, rpc }: { walkthrough:
           </FileLink>
         </span>
       ) : null}
-      <ApplyDialog open={applying} onOpenChange={setApplying} walkthrough={walkthrough} notes={notes} sending={sending} onSend={(message, edited) => void handOff(edited ? message : undefined)} />
+      <ApplyDialog open={applying} onOpenChange={setApplying} walkthroughId={walkthrough.id} rpc={rpc} sending={sending} onSend={(draft) => void handOff(draft)} />
     </>
   );
 }
 
-/** The message "Ask the thread to apply it" will send, prefilled and editable; nothing is sent until the reader presses Send. */
-function ApplyDialog({ open, onOpenChange, walkthrough, notes, sending, onSend }: { open: boolean; onOpenChange: (open: boolean) => void; walkthrough: Walkthrough; notes: Note[]; sending: boolean; onSend: (message: string, edited: boolean) => void }) {
-  const generated = handOffMessage(walkthrough, notes);
-  const [draft, setDraft] = useState<string | null>(null);
-  const text = draft ?? generated;
+/** The message "Ask the thread to apply it" will send, as the plugin prepared it: editable, and sent only when the reader presses Send. */
+function ApplyDialog({
+  open,
+  onOpenChange,
+  walkthroughId,
+  rpc,
+  sending,
+  onSend,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  walkthroughId: string;
+  rpc: WalkthroughRpc;
+  sending: boolean;
+  onSend: (draft: { message: string; noteIds: string[] }) => void;
+}) {
+  const fail = useFail();
+  // undefined while preparing; null when nothing is waiting.
+  const [prepared, setPrepared] = useState<{ message: string; noteIds: string[] } | null | undefined>(undefined);
+  const [edited, setEdited] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    setPrepared(undefined);
+    setEdited(null);
+    rpc.call("prepareHandOff", { walkthroughId }).then(
+      (result) => live && setPrepared(result.draft),
+      (cause: unknown) => {
+        if (!live) return;
+        setPrepared(null);
+        fail(cause);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, rpc, walkthroughId, fail]);
+  const text = edited ?? prepared?.message ?? "";
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) setDraft(null);
-        onOpenChange(next);
-      }}
-    >
-      <DialogContent className="wt-portal wt-dialog">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Ask the thread to apply it</DialogTitle>
           <DialogDescription>This is the message your thread will receive. Edit it, then send it. Nothing is sent until you press Send.</DialogDescription>
         </DialogHeader>
-        <textarea className="wt-apply-text" aria-label="Message to your thread" rows={10} value={text} onChange={(event) => setDraft(event.target.value)} />
-        <DialogFooter className="wt-dialog-actions">
-          <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" onClick={() => onOpenChange(false)}>
+        <textarea
+          className="wt-apply-text"
+          aria-label="Message to your thread"
+          rows={10}
+          value={text}
+          disabled={prepared === undefined || prepared === null}
+          placeholder={prepared === undefined ? "Preparing the message…" : "Nothing is waiting to be sent."}
+          onChange={(event) => setEdited(event.target.value)}
+        />
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" className="wt-btn wt-btn-primary" disabled={sending || text.trim() === ""} onClick={() => onSend(text, text !== generated)}>
+          <Button type="button" disabled={sending || !prepared || text.trim() === ""} onClick={() => prepared && onSend({ message: text, noteIds: prepared.noteIds })}>
             Send to thread
           </Button>
         </DialogFooter>
