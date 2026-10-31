@@ -1,7 +1,8 @@
 // How much of the change a walkthrough shows: the changed files against the
 // files its committed figures and parts cite. Pure, so the server can compute
 // it on every delivery from the stored change set.
-import { workspaceRelativePath } from "./files.ts";
+import { displayPath, workspaceRelativePath } from "./files.ts";
+import { repoRootsOf } from "./figure-paths.ts";
 import type { ChangeSet, Coverage, CoverageFile, Part, Walkthrough } from "./schemas.ts";
 
 const LOCKFILE_NAMES = new Set([
@@ -45,8 +46,9 @@ export function exclusionReason(file: { path: string; binary: boolean }): "lockf
 }
 
 /** The files a part cites: its code figures and its planned locations. Figures only count once the part is written. */
-function citedBy(walkthrough: Pick<Walkthrough, "workspacePath">, part: Pick<Part, "blocks" | "locations" | "status">): { shown: Set<string>; planned: Set<string> } {
-  const normalize = (path: string) => workspaceRelativePath(path, walkthrough.workspacePath) ?? path;
+function citedBy(walkthrough: Pick<Walkthrough, "workspacePath">, part: Pick<Part, "blocks" | "locations" | "status">, repoRoots: readonly string[] = []): { shown: Set<string>; planned: Set<string> } {
+  // A file outside the workspace is named inside its own repository, the way its figure is.
+  const normalize = (path: string) => workspaceRelativePath(path, walkthrough.workspacePath) ?? displayPath(path, { workspacePath: walkthrough.workspacePath, repoRoots });
   const shown = new Set<string>();
   const planned = new Set<string>();
   if (part.status === "ready") {
@@ -100,6 +102,7 @@ export function citedPaths(walkthrough: Pick<Walkthrough, "workspacePath">, part
 export function filesRead(walkthrough: Pick<Walkthrough, "workspacePath" | "parts" | "wrapUp">): string[] {
   const read = new Set<string>();
   const parts = walkthrough.wrapUp ? [...walkthrough.parts, walkthrough.wrapUp] : walkthrough.parts;
-  for (const part of parts) citedBy(walkthrough, part).shown.forEach((path) => read.add(path));
+  const repoRoots = repoRootsOf(walkthrough);
+  for (const part of parts) citedBy(walkthrough, part, repoRoots).shown.forEach((path) => read.add(path));
   return [...read].sort();
 }

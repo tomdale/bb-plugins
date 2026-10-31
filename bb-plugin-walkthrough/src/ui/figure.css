@@ -105,3 +105,6 @@
   .wt[data-narrow] .wt-top { gap: 4px; }
   .wt[data-narrow] .wt-chip { padding: 0 8px; }
 }
+
+/* Real prose carries unbreakable strings (a 40-character SHA, a machine path in a list): they wrap instead of widening the page. */
+.wt .wt-page :is(p, li, h2, h3, td, th, .wt-inline-code, .wt-toc-s, .wt-toc-t) { overflow-wrap: anywhere; }

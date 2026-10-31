@@ -1,6 +1,8 @@
 // A figure names its file inside its repository, never a machine path, even when the worker wrote an absolute one and the code lives outside the thread's workspace.
 import { describe, expect, it } from "vitest";
-import { blockDisplayPath, deliverView } from "../src/deliver.ts";
+import { filesRead } from "../src/coverage.ts";
+import { deliverView } from "../src/deliver.ts";
+import { blockDisplayPath } from "../src/figure-paths.ts";
 import { displayPath, repoPathFromPatch, repoRootOf } from "../src/files.ts";
 import { walkthrough } from "./helpers.tsx";
 
@@ -50,5 +52,13 @@ describe("repository-relative figure paths", () => {
     const delivered = view.walkthrough.parts[0]!.blocks[0]!;
     expect(delivered).toMatchObject({ kind: "code", displayPath: "src/server/quick.ts", path: `${OTHER_REPO}/src/server/quick.ts` });
     expect(view.walkthrough.repoRoots).toEqual([OTHER_REPO]);
+  });
+
+  it("lists the files read by their repository paths, not machine paths", () => {
+    const stored = walkthrough({
+      workspacePath: "/Users/tomdale/Code/tomdaleOS",
+      parts: [{ ...walkthrough().parts[0]!, blocks: [block(`${OTHER_REPO}/src/server/quick.ts`), block("/Users/tomdale/Code/tomdaleOS/apps/a.ts", { snapshot: null })] }],
+    });
+    expect(filesRead(stored)).toEqual(["apps/a.ts", "src/server/quick.ts"]);
   });
 });
