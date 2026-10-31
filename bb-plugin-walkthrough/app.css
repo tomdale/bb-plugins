@@ -420,7 +420,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
  * never over the top bar, so glass never sits on glass.
  */
 .wt-sheet {
-  position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
+  position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 10px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
   border-radius: 18px;
   /* Nearly opaque: over a tinted diff, a thinner glass shows the tints as blotches. */
   background: color-mix(in srgb, var(--wt-glass-solid) 95%, transparent);
