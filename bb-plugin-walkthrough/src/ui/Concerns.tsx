@@ -418,7 +418,7 @@ export function PostReviewDialog({
             Posts {body.trim() ? `the summary and ${inline}` : inline} to {target}. Nothing is sent until you press Post review.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-1 text-sm">
+        <div className="wt-post-target">
           {pr?.url ? (
             <p>
               <UrlLink href={pr.url} className="break-all underline underline-offset-2">
@@ -427,29 +427,32 @@ export function PostReviewDialog({
               {pr.title ? <span className="text-muted-foreground"> · {pr.title}</span> : null}
             </p>
           ) : null}
-          {pr?.state && pr.state !== "open" ? <p className="font-medium">This PR is already {pr.state}.</p> : null}
-          <p className="font-medium">This posts publicly to GitHub as your gh account.</p>
+          {pr?.state && pr.state !== "open" ? <p className="wt-post-warn">This PR is already {pr.state}.</p> : null}
+          <p className="wt-post-warn">This posts publicly to GitHub as your gh account.</p>
         </div>
         {body.trim() || comments.length > 0 ? (
-          <ul className="max-h-56 space-y-2 overflow-y-auto text-sm" aria-label="What will be posted">
+          <ul className="wt-post-preview" aria-label="What will be posted">
             {body.trim() ? (
               <li>
-                <span className="block text-xs font-medium text-muted-foreground">Summary</span>
-                <span className="block whitespace-pre-wrap">{ellipsize(body, 400)}</span>
+                <span className="wt-post-label">Summary</span>
+                <span className="wt-post-body">{ellipsize(body, 400)}</span>
               </li>
             ) : null}
             {comments.map((comment, index) => (
               <li key={index}>
-                <code className="block text-xs text-muted-foreground">
-                  {formatLocation({ path: comment.path, startLine: comment.startLine ?? comment.line, endLine: comment.line })}
-                  {comment.side === "LEFT" ? " (old side)" : ""}
-                </code>
-                <span className="block whitespace-pre-wrap">{ellipsize(comment.body, 240)}</span>
+                <span className="wt-post-label">
+                  Inline comment{" "}
+                  <code>
+                    {formatLocation({ path: comment.path, startLine: comment.startLine ?? comment.line, endLine: comment.line })}
+                    {comment.side === "LEFT" ? " (old side)" : ""}
+                  </code>
+                </span>
+                <span className="wt-post-body">{ellipsize(comment.body, 240)}</span>
               </li>
             ))}
           </ul>
         ) : null}
-        <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Review event">
+        <div role="radiogroup" aria-label="Review event">
           {(Object.keys(EVENT_LABEL) as ReviewEvent[]).map((candidate) => (
             <button
               key={candidate}
@@ -459,10 +462,6 @@ export function PostReviewDialog({
               // A merged or closed PR can still be commented on, but not approved or blocked.
               disabled={settled && candidate !== "COMMENT"}
               onClick={() => onEvent(candidate)}
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-sm disabled:opacity-40",
-                event === candidate ? "border-foreground bg-foreground text-background" : "border-border hover:bg-state-hover",
-              )}
             >
               {EVENT_LABEL[candidate]}
             </button>

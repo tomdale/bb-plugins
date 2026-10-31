@@ -321,7 +321,8 @@ describe("the ask input", () => {
 
   it("explains itself on a finished walkthrough", async () => {
     const closed = await mountPage("wt_1", viewOf(walkthrough({ status: "done" })));
-    expect((await closed.findByRole("textbox", { name: "This walkthrough is finished" })).getAttribute("aria-disabled")).toBe("true");
+    expect((await closed.findByText("This walkthrough is finished")).className).toBe("wt-finished");
+    expect(closed.queryByRole("textbox")).toBeNull();
   });
 
   it("announces the page and the concerns sheet to screen readers", async () => {
@@ -508,7 +509,8 @@ describe("review draft and post dialog", () => {
     expect(items[0]!.textContent).toContain("Looks good overall.");
     const comment = items[1]!;
     expect(comment.querySelector("code")!.textContent).toBe("src/config.rs:76 (old side)");
-    expect(comment.querySelector("code")!.nextElementSibling!.textContent).toBe("This removed branch mattered.");
+    expect(comment.querySelector(".wt-post-body")!.textContent).toBe("This removed branch mattered.");
+    expect(comment.querySelector(".wt-post-label")!.textContent).toContain("Inline comment");
     fireEvent.click(await slot.findByRole("radio", { name: "Request changes" }));
     expect(dialog.textContent).toContain("Post review to GitHub as Request changes");
   });

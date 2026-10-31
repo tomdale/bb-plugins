@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import { comparedWith, parseCommand } from "../model.ts";
 import { PAGE_PATH, PANEL_ACTION_ID, type DeliveredNote, type DeliveredWalkthrough as Walkthrough, type NoteKind, type WalkthroughView } from "../schemas.ts";
 import { ConcernsSheet, countedOpen, hasReview, type ConcernsTab } from "./Concerns.tsx";
-import { ReaderContext } from "./context.ts";
+import { BoundaryContext, ReaderContext } from "./context.ts";
 import { figureSelection, type FlagTarget } from "./Figure.tsx";
 import { FlagPopover } from "./Flag.tsx";
 import { PART_STATE_LABEL, flagGlyphs, pageAt, pagePosition, partState, suggestionsFor, type PageId, type PartState } from "./fields.ts";
@@ -126,6 +126,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const wide = width >= WIDE_FROM;
   // The concerns sheet and the toasts stop above the pager so its controls stay reachable.
+  // Overlays that portal out of the reader stay inside it (see BoundaryContext).
+  const [boundary, setBoundary] = useState<Element[]>([]);
+  useEffect(() => setBoundary(rootRef.current ? [rootRef.current] : []), [rootRef]);
   useEffect(() => {
     const root = rootRef.current;
     const pager = root?.querySelector<HTMLElement>(".wt-pager");
@@ -148,6 +151,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const toggleRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const currentPartRef = useRef<HTMLButtonElement>(null);
 
   const streams = useStreams(walkthrough.id, walkthrough.inFlight ? String(walkthrough.inFlight.sentAt) : null, rpc);
   const partCount = walkthrough.parts.length;
@@ -488,6 +492,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                 {sheetOpen ? `Concerns open. ${openCount} open ${openCount === 1 ? "item" : "items"}.` : preparing ? "" : `${progressLabel}${page.kind === "part" ? `: ${walkthrough.parts[page.index]!.title}` : ""}`}
               </p>
               <header className="wt-top wt-glass">
+      <BoundaryContext.Provider value={boundary}>
                 <h1 className="wt-title" data-placeholder={title.placeholder || undefined}>
                   {title.text}
                 </h1>
@@ -505,7 +510,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       {progressLabel}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="wt-portal wt-picker" mobileTitle="Parts">
+                  <PopoverContent align="end" sideOffset={8} collisionPadding={8} collisionBoundary={boundary} autoFocusRef={currentPartRef} className="wt-portal wt-picker" mobileTitle="Parts">
                     <ol aria-label="Parts">
                       {partItems.map((item) => (
                         <li key={item.key}>
@@ -526,6 +531,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       ))}
                     </ol>
                   </PopoverContent>
+                            ref={item.go === position ? currentPartRef : undefined}
                 </Popover>
                 <button
                   ref={toggleRef}
@@ -546,7 +552,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       </button>
                     </DropdownMenuTrigger>
                   </Hint>
-                  <DropdownMenuContent align="end" className="wt-portal wt-menu">
+                  <DropdownMenuContent align="end" sideOffset={8} collisionPadding={8} collisionBoundary={boundary} className="wt-portal wt-menu">
                     {surface === "panel" ? (
                       <DropdownMenuItem onSelect={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}>Open as full page</DropdownMenuItem>
                     ) : (
@@ -618,6 +624,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                   <DialogHeader>
                     <DialogTitle>Finish this walkthrough?</DialogTitle>
                     <DialogDescription>
+                finished={closed}
                       This stops the helper agent, so no more parts are written and you can’t ask it more questions. You can still read what is already written.
                       {(() => {
                         const unwritten = walkthrough.parts.filter((part) => part.status !== "ready").length;
@@ -664,6 +671,7 @@ function Preparing({ walkthrough, skeleton }: { walkthrough: Walkthrough; skelet
       </article>
     );
   }
+      </BoundaryContext.Provider>
   if (walkthrough.status === "failed") return <p className="wt-muted">The walkthrough could not be started.</p>;
   return (
     <article aria-busy>

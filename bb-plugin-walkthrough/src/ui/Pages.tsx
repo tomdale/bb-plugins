@@ -18,19 +18,59 @@ import { Prose, type ProseContext } from "./prose.tsx";
 import { previewFor, partPreview, StreamContext, useStreamedView, type StreamedBlock } from "./stream.ts";
 
 export function Skeleton({ label }: { label?: string }) {
+/** The code rows of a skeleton figure: a gutter number and a line of code at an indent, like the rows that will replace them. */
+const SKELETON_ROWS: Array<[indent: number, width: number]> = [
+  [0, 70],
+  [1, 52],
+  [1, 64],
+  [2, 40],
+  [2, 58],
+  [1, 30],
+  [0, 18],
+  [0, 46],
+];
+
+/**
+ * The layout of a part before it is written: a title, a paragraph, a figure
+ * built from the figure's own header and rows (so it has the real width, edge
+ * and height), and a closing paragraph. When the part arrives nothing moves.
+ */
   return (
+  const lines = (widths: number[]) => (
+    <div className="wt-skel-p">
+      {widths.map((width, index) => (
+        <span key={index} className="wt-skel" style={{ width: `${width}%` }} />
+      ))}
+    </div>
+  );
     <div className="wt-skeleton" role="status" aria-label={label ?? "Writing this part"}>
       <span className="wt-skel wt-skel-title" />
-      <span className="wt-skel" style={{ width: "92%" }} />
-      <span className="wt-skel" style={{ width: "86%" }} />
-      <span className="wt-skel" style={{ width: "58%" }} />
-      <div className="wt-skel-figure">
-        <span className="wt-skel" style={{ width: "40%" }} />
-        <span className="wt-skel" style={{ width: "72%" }} />
-        <span className="wt-skel" style={{ width: "64%" }} />
-      </div>
-      <span className="wt-skel" style={{ width: "88%" }} />
-      <span className="wt-skel" style={{ width: "46%" }} />
+      {lines([96, 90, 58])}
+      <figure className="wt-figure wt-skel-figure" aria-hidden>
+        <div className="wt-cap">
+          <span className="wt-skel" style={{ width: "46%", height: 12 }} />
+        </div>
+        <div className="wt-fig">
+          <div className="wt-fh">
+            <span className="wt-skel" style={{ width: 132, height: 10 }} />
+            <span className="wt-sp" />
+            <span className="wt-skel wt-skel-seg" />
+          </div>
+          <div className="wt-code">
+            <div className="wt-code-rows">
+              {SKELETON_ROWS.map(([indent, width], index) => (
+                <div key={index} className="wt-row wt-skel-row">
+                  <b>
+                    <span className="wt-skel" style={{ width: 16, height: 8 }} />
+                  </b>
+                  <span className="wt-skel" style={{ width: `${width}%`, height: 8, marginLeft: indent * 24 }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </figure>
+      {lines([92, 44])}
       {label ? <p className="wt-muted wt-skel-note">{label}</p> : null}
     </div>
   );
@@ -449,7 +489,7 @@ function ApplyDialog({
   const text = edited ?? prepared?.message ?? "";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="wt-portal wt-dialog wt-apply">
         <DialogHeader>
           <DialogTitle>Ask the thread to apply it</DialogTitle>
           <DialogDescription>This is the message your thread will receive. Edit it, then send it. Nothing is sent until you press Send.</DialogDescription>
@@ -463,11 +503,11 @@ function ApplyDialog({
           placeholder={prepared === undefined ? "Preparing the message…" : "Nothing is waiting to be sent."}
           onChange={(event) => setEdited(event.target.value)}
         />
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="wt-dialog-actions">
+          <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" disabled={sending || !prepared || text.trim() === ""} onClick={() => prepared && onSend({ message: text, noteIds: prepared.noteIds })}>
+          <Button type="button" className="wt-btn wt-btn-primary" disabled={sending || !prepared || text.trim() === ""} onClick={() => prepared && onSend({ message: text, noteIds: prepared.noteIds })}>
             Send to thread
           </Button>
         </DialogFooter>

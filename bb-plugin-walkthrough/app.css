@@ -30,7 +30,7 @@
   --wt-btnt: #fff;
   --wt-shadow: rgba(0, 0, 0, 0.12);
   --wt-focus: rgba(0, 0, 0, 0.75);
-  --wt-ring: #a87800;
+  --wt-ring: #b88a00;
   --wt-select: rgba(255, 204, 0, 0.4);
   /* One reading width for prose, contents, ledger, captions and the question thread: 62 to 68 characters at 17px. */
   --wt-measure: 480px;
@@ -95,6 +95,9 @@
 }
 /* No border-radius here: the ring follows each control's own shape, so focus never squares off a pill. */
 .wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-ring); outline-offset: 2px; }
+.wt-chip[data-selected]:focus-visible, .dark .wt-btn-primary:focus-visible { outline-color: var(--wt-ink); }
+/* A control that sits in a track rings inside it, so the ring never spills over the track's edge. */
+.wt-seg button:focus-visible, .wt-portal.wt-dialog [role="radiogroup"] button:focus-visible, .wt-radios button:focus-visible { outline-offset: -2px; }
 .wt ::selection, .wt-portal ::selection { background: var(--wt-select); }
 .wt-sp { flex: 1; }
 .wt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -225,14 +228,19 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 .wt-toc button:hover .wt-toc-t { text-decoration: underline; text-underline-offset: 3px; }
 .wt-toc-s { display: block; font: 14px/1.4 var(--wt-sans); color: var(--wt-mute); margin-top: 2px; }
 
-/* Skeleton: the layout of a part, before it is written */
-.wt-skeleton { display: flex; flex-direction: column; gap: 12px; }
-.wt-skeleton > .wt-skel { max-width: var(--wt-measure); }
+/* Skeleton: the layout of a part, before it is written. Its figure is a real figure's header and rows, so nothing shifts when the part arrives. */
+.wt-skeleton { display: flex; flex-direction: column; }
+.wt-skeleton > .wt-skel, .wt-skel-p { max-width: var(--wt-measure); }
 /* A part's own title is already on the page, so the skeleton does not draw a second one. */
 article:has(> .wt-head) .wt-skel-title { display: none; }
-.wt-skel { display: block; height: 14px; border-radius: 7px; background: var(--wt-fill); animation: wt-pulse 1.6s ease-in-out infinite; }
-.wt-skel-title { height: 28px; width: 70%; border-radius: 8px; margin-bottom: 6px; }
-.wt-skel-figure { display: flex; flex-direction: column; gap: 10px; padding: 14px var(--wt-fig-pad); margin: 6px -14px; --wt-fig-pad: 14px; border-block: 0.5px solid var(--wt-hair); }
+.wt-skel { display: block; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--wt-ink) 8%, transparent); animation: wt-pulse 1.6s ease-in-out infinite; }
+.wt-skel-title { height: 28px; width: 70%; border-radius: 8px; margin-bottom: 14px; }
+/* A line of prose is 27px tall; each bar sits in one, and a paragraph ends with the prose's own gap. */
+.wt-skel-p { margin-bottom: 12px; }
+.wt-skel-p .wt-skel { margin-block: 6.6px; }
+.wt-skel-seg { width: 122px; height: 22px; border-radius: 7px; }
+.wt-skel-figure .wt-row { padding-left: calc(var(--wt-fig-l) + 28px); }
+.wt-skel-figure .wt-row b { justify-content: flex-end; }
 .wt-skel-note { margin-top: 4px; }
 .wt-pulse { animation: wt-pulse 1.6s ease-in-out infinite; }
 
@@ -243,7 +251,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px var(--wt-fig-l); max-width: calc(var(--wt-measure) + 30px); font-variant-numeric: proportional-nums; }
 .wt-fig { position: relative; font: 11.5px/20px var(--wt-mono); border-block: 0.5px solid var(--wt-hair); }
 .wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad) 0 var(--wt-fig-l); color: var(--wt-mute); font-size: 11px; }
-.wt-fh-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A path too long for its line loses its start, not its file name: the box reads right to left, the path itself stays left to right (see the bdi in LocationLink). */
+.wt-fh-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; direction: rtl; text-align: left; }
 .wt-seg { display: flex; gap: 1px; padding: 2px; border-radius: 7px; background: var(--wt-fill); font: 500 11px var(--wt-sans); }
 .wt-seg button { border: 0; border-radius: 5px; background: none; padding: 0 8px; line-height: 18px; color: var(--wt-mute); }
 .wt-seg button[aria-pressed="true"] { background: var(--wt-page); color: var(--wt-ink); box-shadow: 0 1px 2px var(--wt-shadow); }
@@ -302,11 +311,15 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   box-shadow: var(--wt-m-inset, 0 0 #0000), var(--wt-m-ring, 0 0 #0000), var(--wt-m-halo, 0 0 #0000);
 }
 .wt-m[aria-pressed="true"] { --wt-m-ring: 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
-.wt-m-inline { margin-right: 6px; vertical-align: -2px; cursor: default; }
+.wt-m-inline { cursor: default; }
+.wt-mn > .wt-m-inline { position: absolute; left: 0; top: 2px; }
+.wt-leader { position: absolute; left: -18px; overflow: visible; color: color-mix(in srgb, var(--wt-ink) 26%, transparent); pointer-events: none; }
+.wt-mn.wt-hot .wt-leader { color: var(--wt-y); }
 .wt-more { display: block; width: 100%; position: absolute; bottom: 0; left: 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: var(--wt-page); padding: 3px var(--wt-fig-pad) 3px var(--wt-fig-l); text-align: left; font: 12px var(--wt-sans); color: var(--wt-mute); }
 .wt-skel-row { align-items: center; }
 .wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px var(--wt-fig-l); font: 13px var(--wt-sans); color: var(--wt-mute); }
-.wt-mn { font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color 0.2s, opacity 0.2s; }
+/* The marker hangs in the note's left indent, so wrapped lines align with the first word, not under the marker. */
+.wt-mn { position: relative; padding-left: 22px; font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color 0.2s, opacity 0.2s; }
 .wt-mn.wt-hot { opacity: 1; background: var(--wt-yhi); }
 .wt-mn-kind { font-style: normal; font: 600 11px var(--wt-sans); color: var(--wt-mute); }
 .wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px var(--wt-fig-l); display: flex; flex-direction: column; gap: 10px; }
@@ -314,6 +327,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt[data-wide] .wt-margin-slot { position: absolute; left: 0; right: 0; }
 
 /* Selection toolbar and note composer */
+/* Dense glass: over serif text a thin one leaves a ghost of the line behind it. */
+.wt-flag.wt-glass { background: color-mix(in srgb, var(--wt-glass-solid) 94%, transparent); }
 .wt-flag { position: absolute; z-index: 6; display: flex; gap: 2px; padding: 3px; border-radius: 10px; box-shadow: 0 6px 20px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); }
 .wt-flag[data-above] { transform: translateY(-100%); }
 .wt-flag > button { border: 0; background: none; border-radius: 7px; padding: 3px 10px; font-weight: 500; font-size: 12px; }
@@ -334,8 +349,9 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-btn-icon { width: 30px; padding: 0; flex: none; }
 
 /* Pager */
-.wt-pager { position: relative; z-index: 5; flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 auto var(--wt-inset); width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w)); padding: 8px 10px; border-radius: 22px; }
-.wt-suggest { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+/* Suggestions on top; Prev, the question and the page's main action share the row beneath. */
+.wt-pager { position: relative; z-index: 5; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; margin: 0 auto var(--wt-inset); width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w)); padding: 8px 10px; border-radius: 22px; }
+.wt-suggest { grid-column: 1 / -1; grid-row: 1; min-width: 0; margin-bottom: 6px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 /* Suggestions that run past the pager fade out at the edge, so a clipped chip reads as scrollable. */
 @supports (animation-timeline: scroll()) {
   .wt-suggest {
@@ -347,23 +363,29 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 }
 .wt-suggest button { flex: none; max-width: 100%; border: 0; border-radius: 12px; background: var(--wt-fill); padding: 2px 10px; font: italic 13px/1.4 var(--wt-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-suggest button:hover:not(:disabled) { background: var(--wt-hair); }
-.wt-scope { display: flex; align-items: center; gap: 6px; padding: 0 4px; color: var(--wt-mute); font: italic 13px var(--wt-serif); }
+.wt-scope { grid-column: 1 / -1; grid-row: 2; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; padding: 0 4px; color: var(--wt-mute); font: italic 13px var(--wt-serif); }
 .wt-scope-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-scope button { border: 0; background: none; display: grid; place-items: center; }
-.wt-pager-row { display: flex; align-items: center; gap: 8px; margin: 0; }
+.wt-pager-row { grid-column: 1 / -1; grid-row: 3; min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; }
+.wt-pager:has(.wt-pager-actions) .wt-pager-row { grid-column: 1; }
+.wt .wt-pager .wt-pager-actions { grid-column: 2; grid-row: 3; flex-wrap: nowrap; padding: 0; }
+.wt-finished { flex: 1; min-width: 0; margin: 0; text-align: center; font: italic 13px var(--wt-serif); color: var(--wt-mute); }
 .wt-input { flex: 1; min-width: 0; display: flex; align-items: center; height: 30px; border-radius: 15px; padding: 0 4px 0 14px; background: var(--wt-fill); }
 .wt-input input { flex: 1; min-width: 0; border: 0; background: none; outline: none; height: 100%; padding: 0; }
 .wt-input:focus-within { box-shadow: 0 0 0 2px var(--wt-ring); }
 .wt-input[data-disabled] { opacity: 0.6; }
 .wt-input[data-disabled] input { cursor: default; }
 /* A pager with nothing to ask and nowhere to go is not a bar. */
-.wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
+.wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions, .wt-finished)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
 /* Panel width: the question gets its own row and Prev and Next share the one below, so no label is clipped. */
 @container wt (max-width: 460px) {
   .wt-pager-row { flex-wrap: wrap; }
   .wt-pager-row .wt-input { order: -1; flex: 1 0 100%; }
   .wt-pager-row .wt-prev { flex: none; }
   .wt-pager-row .wt-next { flex: 1; max-width: none; }
+  .wt-pager:has(.wt-pager-actions) .wt-pager-row { grid-column: 1 / -1; grid-row: 4; }
+  .wt .wt-pager .wt-pager-actions { grid-column: 1 / -1; grid-row: 3; margin-bottom: 6px; flex-wrap: wrap; }
+  .wt .wt-pager .wt-pager-actions .wt-btn { flex: 1; }
 }
 .wt-send { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 11px; background: var(--wt-btn); color: var(--wt-btnt); }
 .wt-next { min-width: 0; max-width: 48%; }
@@ -377,10 +399,11 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-sheet {
   position: absolute; z-index: 4; top: 56px; right: calc((100% - min(100% - var(--wt-inset) * 2, var(--wt-sheet-w))) / 2 + 10px); bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - var(--wt-inset) * 2 - 20px));
   border-radius: 18px;
-  background: color-mix(in srgb, var(--wt-glass-solid) 82%, transparent);
+  /* Nearly opaque: over a tinted diff, a thinner glass shows the tints as blotches. */
+  background: color-mix(in srgb, var(--wt-glass-solid) 92%, transparent);
   display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px;
   box-shadow: 0 16px 40px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
-  -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.1); backdrop-filter: blur(40px) saturate(1.1);
   transform: translateX(calc(100% + 24px)); visibility: hidden;
   transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02), visibility 0s 0.38s;
 }
@@ -432,12 +455,13 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 
 /* Part picker (portaled) */
-.wt-picker { width: min(440px, 92vw); padding: 6px !important; background: var(--wt-glass-solid) !important; color: var(--wt-ink) !important; font: 13px/1.4 var(--wt-sans); }
+.wt-picker { width: min(440px, 92vw); padding: 6px !important; background: var(--wt-glass-solid) !important; color: var(--wt-ink) !important; font: 13px/1.4 var(--wt-sans); border: 0 !important; border-radius: 12px !important; box-shadow: 0 12px 32px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair) !important; }
 .wt-picker ol { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
 .wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
-.wt-picker button:hover:not(:disabled), .wt-picker button[aria-current="step"] { background: var(--wt-fill); }
-/* The list scrolls, so an outer outline would be clipped: the focused row takes the hover fill instead, with no ring to look like a stray underline. */
-.wt-picker button:focus-visible { outline: none; background: var(--wt-hair); }
+/* One highlight at a time: hover fills a row, the current part is marked by its dot and weight, and keyboard focus is a ring inside the row (the list scrolls, so an outer outline would be clipped). */
+.wt-picker button:hover:not(:disabled) { background: var(--wt-fill); }
+.wt-picker button:focus-visible { outline: none; background: none; box-shadow: inset 0 0 0 1.5px var(--wt-ring); }
+.wt-picker button[aria-current="step"] .wt-picker-t { font-weight: 600; }
 .wt-picker button:disabled { opacity: 0.45; cursor: default; }
 .wt-picker-n { position: relative; width: 16px; flex: none; text-align: right; font: 500 15px var(--wt-serif); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
 .wt-picker button[aria-current="step"] .wt-picker-n { color: var(--wt-ink); }
@@ -466,9 +490,8 @@ button.wt-it-loc:hover { text-decoration: underline; }
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
 .wt:not([data-wide]) .wt-figure { margin-inline: -16px -8px; --wt-fig-pad: 8px; }
-.wt:not([data-wide]) .wt-skel-figure { margin-inline: -8px; --wt-fig-pad: 8px; }
 /* The figure header gives the location its own line, so a long path is never squeezed to a letter. */
-@container wt (max-width: 460px) {
+@container wt (max-width: 540px) {
   .wt-fh { flex-wrap: wrap; height: auto; min-height: 32px; padding-block: 5px; row-gap: 4px; }
   .wt-fh .wt-fh-where { flex: 1 0 100%; }
 }
@@ -511,3 +534,19 @@ button.wt-it-loc:hover { text-decoration: underline; }
   width: 16px; height: 16px; border: 1px solid var(--wt-mute); border-radius: 5px; background: none; box-shadow: none; color: var(--wt-yt);
 }
 .wt-check[data-state="checked"] { background: var(--wt-y); border-color: var(--wt-y); color: var(--wt-yt); }
+
+/* "Ask the thread to apply it": the message the thread will receive, as an inset field in the dialog's language. */
+.wt-portal.wt-apply { max-width: 560px; }
+.wt-portal .wt-apply-text { width: 100%; resize: vertical; border: 0; border-radius: 12px; background: var(--wt-fill); padding: 10px 12px; font: 13px/1.5 var(--wt-sans); color: var(--wt-ink); }
+.wt-portal .wt-apply-text:disabled { opacity: 0.6; cursor: default; }
+.wt-portal .wt-apply-text::placeholder { color: var(--wt-mute); }
+
+/* Post review: what will be posted reads as an inset sheet of the posted words, set apart from the dialog's own sentences. */
+.wt-portal .wt-post-target { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.wt-portal.wt-dialog .wt-post-target p { margin: 0; }
+.wt-portal.wt-dialog .wt-post-target .wt-post-warn { color: var(--wt-ink); font-weight: 500; }
+.wt-portal .wt-post-preview { list-style: none; margin: 0; padding: 10px 12px; max-height: 40vh; overflow: auto; border-radius: 12px; background: var(--wt-fill); display: flex; flex-direction: column; gap: 12px; }
+.wt-portal .wt-post-preview li + li { padding-top: 10px; border-top: 0.5px solid var(--wt-hair); }
+.wt-portal .wt-post-label { display: block; margin-bottom: 3px; font: 600 10.5px var(--wt-sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--wt-mute); }
+.wt-portal .wt-post-label code { font: 11px var(--wt-mono); letter-spacing: 0; text-transform: none; }
+.wt-portal .wt-post-body { display: block; font: 15px/1.45 var(--wt-serif); white-space: pre-wrap; font-variant-numeric: proportional-nums; }

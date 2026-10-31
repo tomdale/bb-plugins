@@ -18,7 +18,7 @@ export function LocationLink({
 }) {
   const label = formatLocation(location) ?? location.path;
   const target = fileTarget(files, location.path);
-  if (target === null) return <code className={cn("wt-loc", className)}>{label}</code>;
+  if (target === null) return <code className={cn("wt-loc", className)}><bdi>{label}</bdi></code>;
   const fileLocation =
     location.startLine === undefined
       ? null
@@ -31,7 +31,7 @@ export function LocationLink({
       location={fileLocation}
       className={cn("wt-loc", className)}
     >
-      {label}
+      <bdi>{label}</bdi>
     </FileLink>
   );
 }

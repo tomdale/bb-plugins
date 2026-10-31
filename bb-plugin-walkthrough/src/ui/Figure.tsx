@@ -124,6 +124,25 @@ function marginOffsets(annotations: Annotation[]): number[] {
   });
 }
 
+/**
+ * The hairline from a code row to its margin note. A note level with its row
+ * gets a short tick; one pushed down past the note above it gets an elbow that
+ * runs from the row to the note, so a displaced note still points at its line.
+ * It crosses the 18px gap between the figure and the margin, and is drawn in the
+ * note's own box so it lights up with it.
+ */
+function Leader({ drift }: { drift: number }) {
+  const d = Math.max(0, Math.round(drift));
+  const elbow = d > 12;
+  const height = elbow ? d + 1 : 1;
+  const path = elbow ? `M0 .5 H5 Q9 .5 9 4.5 V${d - 3.5} Q9 ${d + 0.5} 13 ${d + 0.5} H18` : "M0 .5 H18";
+  return (
+    <svg className="wt-leader" width={18} height={height} viewBox={`0 0 18 ${height}`} style={{ top: 10 - (elbow ? d : 0) }} aria-hidden>
+      <path d={path} fill="none" stroke="currentColor" strokeWidth={1} />
+    </svg>
+  );
+}
+
 export function Figure({
   walkthrough,
   block,
@@ -206,13 +225,14 @@ export function Figure({
   };
   const cursorLine = cursor === null ? null : (rows[cursor]?.newNo ?? null);
 
-  const note = (annotation: Annotation) => (
+  const note = (annotation: Annotation, drift = -1) => (
     <div
       key={annotation.key}
       className={cn("wt-mn", annotation.own && "wt-mn-own", hot === annotation.key && "wt-hot")}
       onMouseEnter={() => setHovered(annotation.key)}
       onMouseLeave={() => setHovered(null)}
     >
+      {drift >= 0 ? <Leader drift={drift} /> : null}
       <span className={cn("wt-m wt-m-inline", annotation.own && "wt-m-own")} aria-hidden>
         {annotation.glyph}
       </span>

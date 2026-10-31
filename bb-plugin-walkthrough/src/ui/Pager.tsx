@@ -22,6 +22,8 @@ export interface PagerProps {
   inputDisabled?: boolean;
   suggestions: string[];
   /** Suggestions are shown but cannot be asked yet: the part is still being written. */
+  /** The walkthrough is over: nothing can be asked, so the input gives way to a plain statement instead of a dead field. */
+  finished?: boolean;
   suggestionsLocked?: boolean;
   /** Text from the selection the next question is about. */
   scope: string | null;
@@ -33,7 +35,7 @@ export interface PagerProps {
 }
 
 export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
-  { prevTitle, nextLabel, nextWaiting = false, onPrev, onNext, placeholder, inputDisabled = false, suggestions, suggestionsLocked = false, scope, onClearScope, busy, onSubmit, actions },
+  { prevTitle, nextLabel, nextTitle = null, nextWaiting = false, onPrev, onNext, placeholder, inputDisabled = false, finished = false, suggestions, suggestionsLocked = false, scope, onClearScope, busy, onSubmit, actions },
   inputRef,
 ) {
   const [text, setText] = useState("");
@@ -84,22 +86,28 @@ export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
             <span className="wt-prev-label">Prev</span>
           </button>
         </Hint>
-        <label className="wt-input" data-disabled={inputDisabled || undefined}>
-          <input
-            ref={inputRef}
-            value={text}
-            readOnly={inputDisabled || sending}
-            aria-disabled={inputDisabled || undefined}
-            placeholder={placeholder}
-            aria-label={placeholder}
-            onChange={(event) => setText(event.target.value)}
-          />
-          {text.trim() !== "" && !inputDisabled ? (
-            <button type="submit" className="wt-send" aria-label="Ask" disabled={sending}>
-              <Icon name="ArrowUp" className="size-3.5" aria-hidden />
-            </button>
-          ) : null}
-        </label>
+        {finished ? (
+          <p className="wt-finished">
+            {placeholder}
+          </p>
+        ) : (
+          <label className="wt-input" data-disabled={inputDisabled || undefined}>
+            <input
+              ref={inputRef}
+              value={text}
+              readOnly={inputDisabled || sending}
+              aria-disabled={inputDisabled || undefined}
+              placeholder={placeholder}
+              aria-label={placeholder}
+              onChange={(event) => setText(event.target.value)}
+            />
+            {text.trim() !== "" && !inputDisabled ? (
+              <button type="submit" className="wt-send" aria-label="Ask" disabled={sending}>
+                <Icon name="ArrowUp" className="size-3.5" aria-hidden />
+              </button>
+            ) : null}
+          </label>
+        )}
         {nextLabel !== null ? (
           <button type="button" className="wt-btn wt-btn-primary wt-next" disabled={nextWaiting} aria-live="polite" onClick={onNext}>
             <span className="wt-next-label">{nextLabel}</span>

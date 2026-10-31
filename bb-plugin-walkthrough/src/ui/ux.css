@@ -94,9 +94,6 @@
 .wt .wt-coverage-files li[data-excluded] { opacity: 0.7; border-style: dashed; }
 .wt .wt-coverage-left { margin: 8px 0 0; font-size: 12px; }
 
-/* "Ask the thread to apply it": the message, editable. */
-.wt-apply-text { width: 100%; resize: vertical; border: 1px solid var(--border, rgba(128, 128, 128, 0.3)); border-radius: 8px; background: transparent; padding: 8px 10px; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace; color: inherit; }
-
 /* The starter: a top bar of its own and a field that looks like one. */
 .wt-starter .wt-top { justify-content: space-between; }
 .wt-start-input { background: var(--wt-fill); box-shadow: inset 0 0 0 1px var(--wt-hair); height: 38px; border-radius: 12px; }
