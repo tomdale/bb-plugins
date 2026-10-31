@@ -109,12 +109,17 @@ function annotationsFor(block: CodeBlock, notes: Note[], rows: PatchRow[], glyph
   return [...agent, ...own].sort((a, b) => a.row - b.row);
 }
 
+/** How tall a margin note is: about 30 characters to a 20px line in the 210px margin, plus its padding. */
+function noteHeight(annotation: Annotation): number {
+  return Math.ceil((annotation.text.length + (annotation.label?.length ?? 0) + 3) / 30) * 20 + 6;
+}
+
 /** Where each margin note starts: level with its row, pushed down past the note above it. */
 function marginOffsets(annotations: Annotation[]): number[] {
   let floor = 0;
   return annotations.map((annotation) => {
     const top = Math.max(HEADER_HEIGHT + CODE_PAD + annotation.row * ROW_HEIGHT, floor);
-    floor = top + (Math.ceil((annotation.text.length + (annotation.label?.length ?? 0) + 3) / 30) * 20 + 6) + MARGIN_NOTE_GAP;
+    floor = top + noteHeight(annotation) + MARGIN_NOTE_GAP;
     return top;
   });
 }
@@ -165,7 +170,8 @@ export function Figure({
   // A figure with nothing to show has no rows for notes to point at: they collapse under it instead.
   const empty = !loading && rows.length === 0;
   // The margin hangs outside the figure, so the figure must be at least as tall as the last note reaches.
-  const minHeight = wide && annotations.length > 0 && !empty ? (offsets.at(-1) ?? 0) + 70 : undefined;
+  const last = annotations.at(-1);
+  const minHeight = wide && last && !empty ? (offsets.at(-1) ?? 0) + noteHeight(last) + MARGIN_NOTE_GAP : undefined;
   const revision = shortSha(block.snapshot?.headSha) ?? shortSha(block.snapshot?.baseSha);
   const github = githubLink(walkthrough, block);
 

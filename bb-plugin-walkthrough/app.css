@@ -10,7 +10,7 @@
 .wt-portal {
   --wt-ink: #222;
   --wt-page: #fffef9;
-  --wt-desk: #d9d6cd;
+  --wt-desk: #e7e4dc;
   --wt-mute: rgba(0, 0, 0, 0.6);
   --wt-hair: rgba(0, 0, 0, 0.14);
   --wt-glass: rgba(255, 255, 255, 0.72);
@@ -18,6 +18,10 @@
   --wt-fill: rgba(0, 0, 0, 0.05);
   --wt-add: rgba(52, 199, 89, 0.16);
   --wt-del: rgba(255, 59, 48, 0.12);
+  --wt-add-ink: #1d8a3a;
+  --wt-del-ink: #c9372c;
+  --wt-add-edge: rgba(52, 199, 89, 0.8);
+  --wt-del-edge: rgba(255, 59, 48, 0.7);
   --wt-rule: rgba(255, 59, 48, 0.32);
   --wt-y: #ffcc00;
   --wt-yt: #3a2e00;
@@ -26,6 +30,10 @@
   --wt-btnt: #fff;
   --wt-shadow: rgba(0, 0, 0, 0.12);
   --wt-focus: rgba(0, 0, 0, 0.75);
+  --wt-ring: #a87800;
+  --wt-select: rgba(255, 204, 0, 0.4);
+  /* One reading width for prose, contents, ledger, captions and the question thread: 62 to 68 characters at 17px. */
+  --wt-measure: 480px;
   --wt-serif: "Newsreader Variable", "Newsreader", "New York", ui-serif, Georgia, serif;
   --wt-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --wt-sans: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -34,19 +42,25 @@
 .dark .wt-portal {
   --wt-ink: #ebe6d8;
   --wt-page: #1b1a17;
-  --wt-desk: #000;
+  --wt-desk: #0f0f0e;
   --wt-mute: rgba(255, 255, 255, 0.62);
   --wt-hair: rgba(255, 255, 255, 0.16);
   --wt-glass: rgba(44, 44, 42, 0.62);
   --wt-glass-solid: #2c2c2a;
   --wt-fill: rgba(255, 255, 255, 0.08);
-  --wt-add: rgba(48, 209, 88, 0.16);
-  --wt-del: rgba(255, 69, 58, 0.15);
+  --wt-add: rgba(48, 209, 88, 0.1);
+  --wt-del: rgba(255, 69, 58, 0.12);
+  --wt-add-ink: #5bd778;
+  --wt-del-ink: #ff8a80;
+  --wt-add-edge: rgba(48, 209, 88, 0.7);
+  --wt-del-edge: rgba(255, 69, 58, 0.65);
   --wt-rule: rgba(255, 159, 10, 0.4);
   --wt-btn: #ffcc00;
   --wt-btnt: #2a2100;
   --wt-shadow: rgba(0, 0, 0, 0.6);
   --wt-focus: rgba(255, 255, 255, 0.85);
+  --wt-ring: #ffcc00;
+  --wt-select: rgba(255, 204, 0, 0.34);
 }
 
 .wt {
@@ -60,6 +74,9 @@
   background: var(--wt-desk);
   color: var(--wt-ink);
   font: 13px/1.45 var(--wt-sans);
+  /* Newsreader ships optical sizes; let the 28px title and the 14px italics each use their own design. */
+  font-optical-sizing: auto;
+  container: wt / inline-size;
 }
 .wt:focus { outline: none; }
 .wt *, .wt *::before, .wt *::after { box-sizing: border-box; }
@@ -73,7 +90,9 @@
   :where(.wt) button { font: inherit; color: inherit; cursor: pointer; }
   :where(.wt) button:disabled { cursor: default; opacity: 0.45; }
 }
-.wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-focus); outline-offset: 2px; border-radius: 4px; }
+/* No border-radius here: the ring follows each control's own shape, so focus never squares off a pill. */
+.wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-ring); outline-offset: 2px; }
+.wt ::selection, .wt-portal ::selection { background: var(--wt-select); }
 .wt-sp { flex: 1; }
 .wt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .wt-muted { color: var(--wt-mute); font-size: 13px; margin: 0; }
@@ -115,7 +134,8 @@
   background: var(--wt-fill); font-weight: 500; font-size: 12px; white-space: nowrap;
 }
 .wt-chip:hover:not(:disabled) { background: var(--wt-hair); }
-.wt-chip[data-selected="true"], .wt-chip[aria-expanded="true"][aria-controls] { background: var(--wt-y); color: var(--wt-yt); }
+.wt-chip[aria-expanded="true"] { background: var(--wt-hair); }
+.wt-chip[data-selected="true"] { background: var(--wt-y); color: var(--wt-yt); }
 .wt-chip-icon { padding: 0 6px; }
 .wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-y); animation: wt-pulse 1.4s ease-in-out infinite; }
 
@@ -126,7 +146,7 @@
   min-height: 0;
   margin: 10px 14px;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--wt-page);
   box-shadow: 0 10px 30px var(--wt-shadow);
   overflow-anchor: none;
@@ -142,24 +162,39 @@
   animation: wt-in 0.35s ease;
 }
 .wt[data-wide] .wt-page { max-width: 1080px; padding-right: 260px; }
+/*
+ * On a window wider than the page, the page stays a sheet of paper centered on
+ * the desk, and the bars float over it at the same width, instead of the
+ * ruled margin drifting into the middle of a full-width card.
+ */
+.wt[data-wide] .wt-scroll { width: min(100% - 28px, 1120px); margin-inline: auto; }
+.wt[data-wide] .wt-top { width: min(100% - 20px, 1128px); margin-inline: auto; }
+.wt[data-wide] .wt-pager { width: min(100% - 24px, 1124px); margin-inline: auto; }
+/* Without margin notes the empty margin column would pull the text left: balance the ruled margin instead. */
+.wt[data-wide] .wt-page:not(:has(.wt-margin)) { padding-right: 62px; }
 .wt-pn { position: absolute; left: 6px; width: 40px; top: 34px; text-align: center; font: 600 10px var(--wt-sans); color: var(--wt-mute); letter-spacing: 0.04em; }
+/* Introduction and wrap-up have no part number: their margin label is the page's name, set small enough to stay inside the rule. */
+.wt-pn:not(:has(b)) { font-size: 9px; letter-spacing: 0.02em; white-space: nowrap; }
 .wt-pn b { display: block; font: 500 20px var(--wt-serif); color: var(--wt-ink); letter-spacing: 0; }
 .wt-head { margin: 0 0 14px; }
 .wt-head h2 { margin: 0; font: 500 28px/1.12 var(--wt-serif); letter-spacing: -0.012em; text-wrap: balance; }
-.wt-lbl { margin: 0 0 4px; font: 600 11px var(--wt-sans); color: var(--wt-mute); letter-spacing: 0.02em; }
+.wt-lbl { margin: 0 0 8px; font: 600 10.5px var(--wt-sans); color: var(--wt-mute); letter-spacing: 0.06em; text-transform: uppercase; }
 .wt-subject { margin: 0 0 6px; font: 12px var(--wt-sans); color: var(--wt-mute); }
+.wt-head + .wt-subject { margin: -6px 0 16px; }
 .wt-summary { font: italic 17px/1.6 var(--wt-serif); color: var(--wt-mute); margin: 0 0 12px; }
 .wt-link { text-decoration: underline; text-underline-offset: 2px; }
 .wt-link-btn { border: 0; background: none; padding: 0; text-decoration: underline; text-underline-offset: 2px; color: var(--wt-ink); font-size: 12px; text-align: left; }
 @keyframes wt-in { from { opacity: 0; transform: translateY(6px); } }
 @keyframes wt-pulse { 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) {
-  .wt *, .wt *::before, .wt *::after { animation: none !important; transition: none !important; }
+  .wt *:not(.wt-code), .wt *::before, .wt *::after { animation: none !important; transition: none !important; }
 }
 
 /* Prose */
-.wt-prose { font: 17px/1.6 var(--wt-serif); }
-.wt-prose > * { margin: 0 0 12px; max-width: 34em; }
+/* Newsreader's default figures are tabular, which gaps every 1 in running text; lists and the picker keep tabular figures. */
+.wt-prose, .wt-head h2, .wt-mn, .wt-cap, .wt-summary, .wt-q { font-variant-numeric: proportional-nums; }
+.wt-prose { font: 17px/1.6 var(--wt-serif); font-variant-numeric: proportional-nums; }
+.wt-prose > * { margin: 0 0 12px; max-width: var(--wt-measure); }
 .wt-prose p { text-wrap: pretty; }
 .wt-ul, .wt-ol { padding-left: 1.3em; }
 .wt-ul { list-style: disc; }
@@ -170,6 +205,8 @@
 .wt-pre { font: 12px/1.55 var(--wt-mono); background: var(--wt-fill); border-radius: 8px; padding: 8px 12px; overflow-x: auto; max-width: none; }
 .wt-ref { background: linear-gradient(transparent 55%, rgba(255, 204, 0, 0.5) 55%); color: inherit; cursor: pointer; }
 .wt-ref:hover { background: rgba(255, 204, 0, 0.35); }
+.dark .wt-ref { background: linear-gradient(transparent 60%, rgba(255, 214, 10, 0.3) 60%); }
+.dark .wt-ref:hover { background: rgba(255, 214, 10, 0.2); }
 .wt-table-wrap { overflow-x: auto; max-width: none !important; }
 .wt-table { width: 100%; border-collapse: collapse; font: 13px/1.4 var(--wt-sans); }
 .wt-th { text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--wt-hair); background: var(--wt-fill); }
@@ -178,7 +215,7 @@
 a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 
 /* Introduction contents */
-.wt-toc { list-style: none; margin: 18px 0 0; padding: 0; max-width: 34em; }
+.wt-toc { list-style: none; margin: 18px 0 0; padding: 0; max-width: var(--wt-measure); font-variant-numeric: tabular-nums; }
 .wt-toc button { display: flex; gap: 12px; width: 100%; padding: 8px 0; border: 0; background: none; text-align: left; border-top: 0.5px solid var(--wt-hair); }
 .wt-toc-n { width: 18px; flex: none; text-align: right; font: 500 17px var(--wt-serif); color: var(--wt-mute); }
 .wt-toc-t { display: block; font: 17px/1.3 var(--wt-serif); }
@@ -187,31 +224,67 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 
 /* Skeleton: the layout of a part, before it is written */
 .wt-skeleton { display: flex; flex-direction: column; gap: 12px; }
+.wt-skeleton > .wt-skel { max-width: var(--wt-measure); }
+/* A part's own title is already on the page, so the skeleton does not draw a second one. */
+article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-skel { display: block; height: 14px; border-radius: 7px; background: var(--wt-fill); animation: wt-pulse 1.6s ease-in-out infinite; }
 .wt-skel-title { height: 28px; width: 70%; border-radius: 8px; margin-bottom: 6px; }
-.wt-skel-figure { display: flex; flex-direction: column; gap: 10px; padding: 14px; margin: 6px -14px; border-block: 0.5px solid var(--wt-hair); }
+.wt-skel-figure { display: flex; flex-direction: column; gap: 10px; padding: 14px var(--wt-fig-pad); margin: 6px -14px; --wt-fig-pad: 14px; border-block: 0.5px solid var(--wt-hair); }
 .wt-skel-note { margin-top: 4px; }
 .wt-pulse { animation: wt-pulse 1.6s ease-in-out infinite; }
 
 /* Figures */
-.wt-figure { margin: 18px -14px 18px; position: relative; }
-.wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 14px 6px; max-width: 40em; }
+.wt-figure { --wt-fig-pad: 14px; margin: 18px -14px 18px; position: relative; }
+/* Figures break out of the reading column, but only to about 900px. */
+.wt[data-wide] .wt-figure { max-width: 900px; }
+.wt-cap { font: italic 15px/1.4 var(--wt-serif); color: var(--wt-mute); padding: 0 var(--wt-fig-pad) 6px; max-width: calc(var(--wt-measure) + 28px); font-variant-numeric: proportional-nums; }
 .wt-fig { position: relative; font: 11.5px/20px var(--wt-mono); border-block: 0.5px solid var(--wt-hair); }
-.wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 14px; color: var(--wt-mute); font-size: 11px; }
+.wt-fh { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 var(--wt-fig-pad); color: var(--wt-mute); font-size: 11px; }
 .wt-fh-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .wt-seg { display: flex; gap: 1px; padding: 2px; border-radius: 7px; background: var(--wt-fill); font: 500 11px var(--wt-sans); }
 .wt-seg button { border: 0; border-radius: 5px; background: none; padding: 0 8px; line-height: 18px; color: var(--wt-mute); }
 .wt-seg button[aria-pressed="true"] { background: var(--wt-page); color: var(--wt-ink); box-shadow: 0 1px 2px var(--wt-shadow); }
+/* In dark mode the page is darker than the track, so the thumb is lifted instead. */
+.dark .wt-seg button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.18); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4); }
 .wt-icon-btn { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--wt-mute); }
 .wt-icon-btn:hover:not(:disabled) { background: var(--wt-fill); color: var(--wt-ink); }
 .wt-code { position: relative; padding: 6px 0; overflow-x: auto; }
+/*
+ * A line longer than the figure scrolls sideways. Where it does, the code
+ * fades out at that edge (and at the left edge once scrolled). The fade is
+ * driven by the scroll position, so a figure that fits shows none.
+ */
+@property --wt-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --wt-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes wt-code-fade { 0% { --wt-fade-l: 0px; --wt-fade-r: 36px; } 4% { --wt-fade-l: 24px; } 96% { --wt-fade-r: 36px; } 100% { --wt-fade-l: 24px; --wt-fade-r: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .wt-code {
+    animation: wt-code-fade linear both;
+    animation-timeline: scroll(self inline);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+  }
+}
+.wt-code:focus-visible { outline-offset: -2px; }
 .wt-code-rows { min-width: max-content; }
-.wt-row { display: flex; gap: 10px; height: 20px; padding: 0 14px; position: relative; white-space: pre; }
-.wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); }
-.wt-add { background: var(--wt-add); }
-.wt-del { background: var(--wt-del); }
+.wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-pad) + 22px); position: relative; white-space: pre; }
+.wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
+/* Note markers have their own column left of the line numbers, so a flagged line keeps its number. */
+.wt-mk { position: absolute; left: var(--wt-fig-pad); top: 2px; display: flex; }
+.wt-mk { gap: 2px; }
+/* A third marker on one line tucks under the second so the cluster never reaches the line number. */
+.wt-mk .wt-m:nth-child(n + 3) { margin-left: -9px; }
+.wt-text { position: relative; }
+/* Added and removed lines carry a sign and an edge as well as a tint, so the diff reads without colour. */
+.wt-add { background: var(--wt-add); box-shadow: inset 2px 0 0 var(--wt-add-edge); }
+.wt-del { background: var(--wt-del); box-shadow: inset 2px 0 0 var(--wt-del-edge); }
+.wt-del .wt-text { opacity: 0.72; }
+.wt-add .wt-text::before, .wt-del .wt-text::before { position: absolute; left: -12px; width: 10px; text-align: center; font-weight: 600; }
+.wt-add .wt-text::before { content: "+"; color: var(--wt-add-ink); }
+.wt-del .wt-text::before { content: "\2212"; color: var(--wt-del-ink); }
 .wt-gap { color: var(--wt-mute); }
 .wt-hot, .wt-row.wt-hot { background: var(--wt-yhi); }
+.wt-row.wt-hot.wt-add, .wt-row.wt-hot.wt-del { background: linear-gradient(var(--wt-yhi), var(--wt-yhi)), var(--wt-page); }
 .wt-ln { border: 0; background: none; padding: 0 2px; font: inherit; color: var(--wt-mute); }
 .wt-ln:hover { color: var(--wt-ink); text-decoration: underline; }
 .wt-m {
@@ -220,18 +293,19 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 }
 .wt-m[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--wt-page), 0 0 0 3.5px var(--wt-y); }
 .wt-m-inline { margin-right: 6px; vertical-align: -2px; cursor: default; }
-.wt-more { display: block; width: 100%; position: absolute; bottom: 0; left: 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: var(--wt-page); padding: 3px 14px; text-align: left; font: 12px var(--wt-sans); color: var(--wt-mute); }
+.wt-more { display: block; width: 100%; position: absolute; bottom: 0; left: 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: var(--wt-page); padding: 3px var(--wt-fig-pad); text-align: left; font: 12px var(--wt-sans); color: var(--wt-mute); }
 .wt-skel-row { align-items: center; }
-.wt-fig-empty { margin: 0; padding: 8px 14px 10px; font: 13px var(--wt-sans); color: var(--wt-mute); }
+.wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px; font: 13px var(--wt-sans); color: var(--wt-mute); }
 .wt-mn { font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color 0.2s, opacity 0.2s; }
 .wt-mn.wt-hot { opacity: 1; background: var(--wt-yhi); }
 .wt-mn-kind { font-style: normal; font: 600 11px var(--wt-sans); color: var(--wt-mute); }
-.wt-notes-stack { padding: 6px 14px 4px; display: flex; flex-direction: column; gap: 10px; }
+.wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px; display: flex; flex-direction: column; gap: 10px; }
 .wt[data-wide] .wt-margin { position: absolute; top: 0; left: calc(100% + 18px); width: 210px; }
 .wt[data-wide] .wt-margin-slot { position: absolute; left: 0; right: 0; }
 
 /* Selection toolbar and note composer */
 .wt-flag { position: absolute; z-index: 6; display: flex; gap: 2px; padding: 3px; border-radius: 10px; box-shadow: 0 6px 20px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); }
+.wt-flag[data-above] { transform: translateY(-100%); }
 .wt-flag > button { border: 0; background: none; border-radius: 7px; padding: 3px 10px; font-weight: 500; font-size: 12px; }
 .wt-flag > button:hover { background: var(--wt-y); color: var(--wt-yt); }
 .wt-flag-open { display: block; width: min(300px, calc(100% - 20px)); padding: 8px; border-radius: 14px; }
@@ -252,6 +326,15 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 /* Pager */
 .wt-pager { position: relative; z-index: 5; flex: none; display: flex; flex-direction: column; gap: 6px; margin: 0 12px 12px; padding: 8px 10px; border-radius: 22px; }
 .wt-suggest { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+/* Suggestions that run past the pager fade out at the edge, so a clipped chip reads as scrollable. */
+@supports (animation-timeline: scroll()) {
+  .wt-suggest {
+    animation: wt-code-fade linear both;
+    animation-timeline: scroll(self inline);
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 var(--wt-fade-l), #000 calc(100% - var(--wt-fade-r)), transparent);
+  }
+}
 .wt-suggest button { flex: none; max-width: 100%; border: 0; border-radius: 12px; background: var(--wt-fill); padding: 2px 10px; font: italic 13px/1.4 var(--wt-serif); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wt-suggest button:hover:not(:disabled) { background: var(--wt-y); color: var(--wt-yt); }
 .wt-scope { display: flex; align-items: center; gap: 6px; padding: 0 4px; color: var(--wt-mute); font: italic 13px var(--wt-serif); }
@@ -260,27 +343,43 @@ a.wt-loc:hover, button.wt-loc:hover { text-decoration: underline; }
 .wt-pager-row { display: flex; align-items: center; gap: 8px; margin: 0; }
 .wt-input { flex: 1; min-width: 0; display: flex; align-items: center; height: 30px; border-radius: 15px; padding: 0 4px 0 14px; background: var(--wt-fill); }
 .wt-input input { flex: 1; min-width: 0; border: 0; background: none; outline: none; height: 100%; padding: 0; }
-.wt-input:focus-within { box-shadow: 0 0 0 2px var(--wt-focus); }
+.wt-input:focus-within { box-shadow: 0 0 0 2px var(--wt-ring); }
+.wt-input[data-disabled] { opacity: 0.6; }
+.wt-input[data-disabled] input { cursor: default; }
+/* A pager with nothing to ask and nowhere to go is not a bar. */
+.wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
+/* Panel width: the question gets its own row and Prev and Next share the one below, so no label is clipped. */
+@container wt (max-width: 460px) {
+  .wt-pager-row { flex-wrap: wrap; }
+  .wt-pager-row .wt-input { order: -1; flex: 1 0 100%; }
+  .wt-pager-row .wt-prev { flex: none; }
+  .wt-pager-row .wt-next { flex: 1; max-width: none; }
+}
 .wt-send { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 11px; background: var(--wt-btn); color: var(--wt-btnt); }
 .wt-next { min-width: 0; max-width: 48%; }
 .wt-next-label { overflow: hidden; text-overflow: ellipsis; }
 
-/* Concerns sheet */
+/*
+ * Concerns sheet: a floating panel in the family of the top bar and pager (same
+ * hairline, a radius that nests with the page's). It floats over the page only,
+ * never over the top bar, so glass never sits on glass.
+ */
 .wt-sheet {
-  position: absolute; z-index: 4; top: 0; right: 0; bottom: var(--wt-pager-h, 0px); width: min(340px, 100%);
-  background: color-mix(in srgb, var(--wt-glass-solid) 90%, transparent);
-  display: flex; flex-direction: column; gap: 10px; padding: 56px 16px 16px;
-  box-shadow: -1px 0 0 var(--wt-hair), -20px 0 40px var(--wt-shadow);
+  position: absolute; z-index: 4; top: 56px; right: 10px; bottom: calc(var(--wt-pager-h, 12px) + 8px); width: min(340px, calc(100% - 20px));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--wt-glass-solid) 82%, transparent);
+  display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px;
+  box-shadow: 0 16px 40px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
   -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
-  transform: translateX(105%); visibility: hidden;
+  transform: translateX(calc(100% + 24px)); visibility: hidden;
   transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02), visibility 0s 0.38s;
 }
-/* In the narrow panel the sheet covers the page edge to edge. */
-.wt:not([data-wide]) .wt-sheet { width: 100%; }
+/* In the narrow panel the sheet spans the page. */
+.wt:not([data-wide]) .wt-sheet { left: 10px; width: auto; }
 .wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02); }
 @media (prefers-reduced-transparency: reduce) { .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .wt-tabs { display: flex; align-items: center; gap: 16px; padding-bottom: 6px; border-bottom: 0.5px solid var(--wt-hair); }
-.wt-tabs [role="tab"] { border: 0; background: none; padding: 0; color: var(--wt-mute); }
+.wt-tabs [role="tab"] { border: 0; border-radius: 6px; background: none; padding: 1px 4px; margin: 0 -4px; color: var(--wt-mute); }
 .wt-tabs [role="tab"][aria-selected="true"] { color: var(--wt-ink); font-weight: 600; }
 .wt-sheet-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .wt-sheet-foot { display: flex; flex-direction: column; }
@@ -304,7 +403,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-radios button[aria-checked="true"] { background: var(--wt-y); color: var(--wt-yt); }
 
 /* Thread of questions under a page */
-.wt-thread { margin-top: 28px; padding-top: 14px; border-top: 0.5px solid var(--wt-hair); display: flex; flex-direction: column; gap: 18px; }
+.wt-thread { margin-top: 28px; padding-top: 14px; max-width: var(--wt-measure); border-top: 0.5px solid var(--wt-hair); display: flex; flex-direction: column; gap: 18px; }
 .wt-ex { padding-left: 12px; border-left: 2px solid var(--wt-y); }
 .wt-q { margin: 0 0 4px; font: italic 16px/1.4 var(--wt-serif); color: var(--wt-mute); }
 .wt-a { font-size: 16px; }
@@ -315,7 +414,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 
 /* Wrap-up */
-.wt-ledger { margin: 22px 0 0; max-width: 34em; border-top: 0.5px solid var(--wt-hair); }
+.wt-ledger { margin: 22px 0 0; max-width: var(--wt-measure); font-variant-numeric: tabular-nums; border-top: 0.5px solid var(--wt-hair); }
 .wt-ledger > div { display: flex; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--wt-hair); }
 .wt-ledger dt { width: 9.5em; flex: none; color: var(--wt-mute); }
 .wt-ledger dd { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
@@ -323,17 +422,19 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 
 /* Part picker (portaled) */
-.wt-picker { width: min(340px, 92vw); padding: 6px !important; background: var(--wt-glass-solid) !important; color: var(--wt-ink) !important; font: 13px/1.4 var(--wt-sans); }
+.wt-picker { width: min(440px, 92vw); padding: 6px !important; background: var(--wt-glass-solid) !important; color: var(--wt-ink) !important; font: 13px/1.4 var(--wt-sans); }
 .wt-picker ol { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
 .wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .wt-picker button:hover:not(:disabled), .wt-picker button[aria-current="step"] { background: var(--wt-fill); }
-/* An inset ring: the list scrolls, so an outer outline would be clipped. */
-.wt-picker button:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--wt-focus); }
+/* The list scrolls, so an outer outline would be clipped: the focused row takes the hover fill instead, with no ring to look like a stray underline. */
+.wt-picker button:focus-visible { outline: none; background: var(--wt-hair); }
 .wt-picker button:disabled { opacity: 0.45; cursor: default; }
-.wt-picker-n { width: 16px; flex: none; text-align: right; font: 500 15px var(--wt-serif); color: var(--wt-mute); }
+.wt-picker-n { position: relative; width: 16px; flex: none; text-align: right; font: 500 15px var(--wt-serif); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
+.wt-picker button[aria-current="step"] .wt-picker-n { color: var(--wt-ink); }
+.wt-picker button[aria-current="step"] .wt-picker-n::before { content: ""; position: absolute; left: -8px; top: 50%; width: 5px; height: 5px; margin-top: -2.5px; border-radius: 50%; background: var(--wt-y); }
 .wt-picker-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wt-status { flex: none; font: 600 10.5px var(--wt-sans); color: var(--wt-mute); }
-.wt-status-ready { color: var(--wt-mute); }
+.wt-status-ready { display: none; }
 .wt-status-writing, .wt-status-stale { color: var(--wt-ink); }
 .wt-status-writing::before, .wt-status-stale::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 3px; background: var(--wt-y); }
 .wt-status-failed { color: #c4281c; }
@@ -345,7 +446,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-detected-t { margin: 0; font: 500 17px/1.3 var(--wt-serif); }
 .wt-start-form { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 14px; max-width: 34em; }
 .wt-input-box { width: 100%; padding-right: 14px; }
-.wt-earlier { margin-top: 32px; max-width: 34em; }
+.wt-earlier { margin-top: 32px; max-width: var(--wt-measure); }
 .wt-earlier ul, .wt-index-list { list-style: none; margin: 0; padding: 0; }
 .wt-summary-row { display: block; width: 100%; padding: 8px 0; border: 0; border-top: 0.5px solid var(--wt-hair); background: none; text-align: left; }
 .wt-summary-title { display: block; font: 17px/1.3 var(--wt-serif); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -354,8 +455,49 @@ button.wt-it-loc:hover { text-decoration: underline; }
 
 /* Panel width (about 480px): everything stacks and the page is tighter. */
 .wt:not([data-wide]) .wt-page { padding-right: 22px; }
-.wt:not([data-wide]) .wt-figure { margin-inline: -8px; }
+.wt:not([data-wide]) .wt-figure { margin-inline: -8px; --wt-fig-pad: 8px; }
+.wt:not([data-wide]) .wt-skel-figure { margin-inline: -8px; --wt-fig-pad: 8px; }
+/* The figure header gives the location its own line, so a long path is never squeezed to a letter. */
+@container wt (max-width: 460px) {
+  .wt-fh { flex-wrap: wrap; height: auto; min-height: 32px; padding-block: 5px; row-gap: 4px; }
+  .wt-fh .wt-fh-where { flex: 1 0 100%; }
+}
 
 /* A figure being written: it fades in once and carries a small pulsing dot until the part is saved. */
 .wt-figure[data-streaming] { animation: wt-in 0.25s ease-out; }
 .wt-figure[data-streaming] .wt-cap::after { content: ""; display: inline-block; width: 0.45em; height: 0.45em; margin-left: 0.4em; border-radius: 50%; background: var(--wt-y); animation: wt-pulse 1s ease-in-out infinite; }
+
+/*
+ * BB's shared controls in the Notebook language: glass-solid surfaces, one
+ * hairline, and radii that nest (a 12px menu holds 8px items at a 4px inset; an
+ * 18px dialog holds 15px pills at the same inset as the bars). They carry
+ * .wt-portal because they render outside the reader, in a portal.
+ */
+.wt-portal.wt-tip {
+  border-radius: 7px; padding: 3px 8px; background: var(--wt-glass-solid); color: var(--wt-ink);
+  font: 500 11.5px/1.4 var(--wt-sans); box-shadow: 0 6px 18px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
+}
+.wt-portal.wt-menu {
+  min-width: 11rem; padding: 4px; border: 0; border-radius: 12px; background: var(--wt-glass-solid); color: var(--wt-ink);
+  box-shadow: 0 12px 32px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); font: 13px/1.4 var(--wt-sans);
+}
+.wt-portal.wt-menu [role="menuitem"] { border-radius: 8px; padding: 6px 10px; font: inherit; color: inherit; cursor: pointer; }
+.wt-portal.wt-menu [role="menuitem"][data-highlighted] { background: var(--wt-fill); color: var(--wt-ink); outline: none; }
+.wt-portal.wt-menu [role="separator"] { margin: 4px 6px; background: var(--wt-hair); }
+.wt-portal.wt-dialog {
+  max-width: 460px; padding: 22px 24px 20px; border: 0; border-radius: 18px; background: var(--wt-glass-solid); color: var(--wt-ink);
+  box-shadow: 0 24px 60px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); font: 13px/1.5 var(--wt-sans); gap: 14px;
+}
+.wt-portal.wt-dialog h2 { font: 500 20px/1.2 var(--wt-serif); letter-spacing: -0.005em; color: var(--wt-ink); text-wrap: balance; }
+.wt-portal.wt-dialog p { color: var(--wt-mute); font-size: 13px; line-height: 1.5; }
+.wt-portal.wt-dialog [role="radiogroup"] { display: flex; gap: 1px; padding: 2px; border-radius: 9px; background: var(--wt-fill); width: fit-content; }
+.wt-portal.wt-dialog [role="radiogroup"] button { border: 0; border-radius: 7px; background: none; padding: 3px 10px; font: 500 12px var(--wt-sans); color: var(--wt-mute); cursor: pointer; }
+.wt-portal.wt-dialog [role="radiogroup"] button[aria-checked="true"] { background: var(--wt-page); color: var(--wt-ink); box-shadow: 0 1px 2px var(--wt-shadow); }
+.dark .wt-portal.wt-dialog [role="radiogroup"] button[aria-checked="true"] { background: rgba(255, 255, 255, 0.18); }
+.wt-portal.wt-dialog .wt-btn { height: 32px; border-radius: 16px; }
+.wt-portal .wt-btn:focus-visible { box-shadow: none; }
+.wt-portal.wt-dialog [data-slot="dialog-footer"], .wt-dialog-actions { display: flex; flex-direction: row; justify-content: flex-end; gap: 8px; }
+.wt-check {
+  width: 16px; height: 16px; border: 1px solid var(--wt-mute); border-radius: 5px; background: none; box-shadow: none; color: var(--wt-yt);
+}
+.wt-check[data-state="checked"] { background: var(--wt-y); border-color: var(--wt-y); color: var(--wt-yt); }
