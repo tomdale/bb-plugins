@@ -75,8 +75,8 @@ function nextLineBottom(range: Range): number {
 }
 
 /** The paragraph, list item or heading a selection ends in (undefined for a selection in code). */
-function proseBlock(range: Range): Element | null {
-  const node = range.endContainer;
+function proseBlock(range: Range, end: "start" | "end" = "end"): Element | null {
+  const node = end === "end" ? range.endContainer : range.startContainer;
   const element = node instanceof Element ? node : node.parentElement;
   return element?.closest(".wt-prose > *, .wt-prose li, .wt-prose p, .wt-head") ?? null;
 }
@@ -172,6 +172,26 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   // the parts from it; this only picks what is shown.
   const [leftWrapUp, setLeftWrapUp] = useState(false);
   const [flag, setFlag] = useState<{ target: FlagTarget; geometry: FlagGeometry } | null>(null);
+  // Room made for the toolbar by pushing the selection's block down (see the "reserve" rule in place-flag.ts); undone with the toolbar.
+  const pushed = useRef<{ element: HTMLElement; inline: string; base: number } | null>(null);
+  const flagBlock = useRef<HTMLElement | null>(null);
+  const releasePush = () => {
+    if (pushed.current) pushed.current.element.style.marginTop = pushed.current.inline;
+    pushed.current = null;
+  };
+  const reservePush = (push: number) => {
+    const element = flagBlock.current;
+    if (!element || push <= 0) return releasePush();
+    if (pushed.current?.element !== element) {
+      releasePush();
+      pushed.current = { element, inline: element.style.marginTop, base: parseFloat(getComputedStyle(element).marginTop) || 0 };
+    }
+    element.style.marginTop = `${pushed.current.base + push}px`;
+  };
+  useEffect(() => {
+    if (flag === null) releasePush();
+  }, [flag]);
+  useEffect(() => releasePush, []);
   const [scope, setScope] = useState<FlagTarget | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -376,7 +396,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 
   // Flagging: a selection in prose or code, or a code line.
   // Where the toolbar goes is decided by `placeFlag` from the geometry measured here; the box measures itself (see FlagPopover).
-  const anchorFlag = (target: FlagTarget, rect: DOMRect, nextBottom: number = rect.bottom + rect.height, block?: Element | null) => {
+  const anchorFlag = (target: FlagTarget, rect: DOMRect, nextBottom: number = rect.bottom + rect.height, block?: Element | null, startBlock?: Element | null) => {
     const page = pageRef.current;
     const origin = page?.getBoundingClientRect();
     if (!page || !origin) return;
@@ -389,6 +409,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     const visibleTop = head !== undefined && rect.top > head.top ? Math.max(hardTop, head.bottom - origin.top) : hardTop;
     const viewBottom = Math.min(scroller?.bottom ?? Infinity, pager && pager.height > 0 ? pager.top : Infinity);
     const style = getComputedStyle(page);
+    flagBlock.current = startBlock instanceof HTMLElement ? startBlock : null;
     const relative = (box: DOMRect): Rect => ({ top: box.top - origin.top, bottom: box.bottom - origin.top, left: box.left - origin.left, right: box.right - origin.left });
     setFlag({
       target,
@@ -404,6 +425,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
           ? { left: block.getBoundingClientRect().left - origin.left, right: block.getBoundingClientRect().right - origin.left }
           : { left: parseFloat(style.paddingLeft) || 0, right: origin.width - (parseFloat(style.paddingRight) || 0) },
         obstacles: Array.from(page.querySelectorAll(".wt-margin-slot, .wt-aside"), (element) => relative(element.getBoundingClientRect())),
+        ...(startBlock ? { blockTop: startBlock.getBoundingClientRect().top - origin.top } : {}),
       },
     });
   };
@@ -414,6 +436,8 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
       setFlag(null);
       return;
     }
+    // Measure on the page as it is, without room made for an earlier toolbar.
+    releasePush();
     // A note never starts or ends mid-word: the selection grows to whole words first.
     const range = snapRangeToWords(selection.getRangeAt(0));
     const text = selection.toString().trim();
@@ -423,7 +447,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
     }
     const inFigure = figureSelection(range);
     const target: FlagTarget = inFigure ?? { location: null, quote: text.slice(0, 2000) };
-    anchorFlag(target, range.getBoundingClientRect(), nextLineBottom(range), proseBlock(range));
+    anchorFlag(target, range.getBoundingClientRect(), nextLineBottom(range), proseBlock(range), inFigure ? null : proseBlock(range, "start"));
   };
   // Saving a note can change the page's height (a margin note appears, a figure grows); the line the reader flagged stays where it was on screen.
   const anchor = useRef<{ selector: string; top: number } | null>(null);
@@ -658,6 +682,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                         window.getSelection()?.removeAllRanges();
                         inputRef.current?.focus();
                       }}
+                      onReserve={reservePush}
                       onDismiss={() => setFlag(null)}
                     />
                   ) : null}

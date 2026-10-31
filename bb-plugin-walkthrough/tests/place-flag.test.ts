@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CLEARANCE, GAP, placeFlag, type FlagGeometry, type Rect } from "../src/ui/place-flag.ts";
+import { CLEARANCE, GAP, placeFlag, RESERVE_REACH, type FlagGeometry, type Rect } from "../src/ui/place-flag.ts";
 
 const LINE = 27;
 const BAR = { width: 215, height: 32 };
@@ -164,5 +164,49 @@ describe("placing the flag toolbar", () => {
         }
       }
     }
+  });
+});
+
+describe("making room instead of covering prose", () => {
+  // A selection in the first line of the first paragraph, 14px under the heading: no room above, and a 62/22px margin.
+  const first = (over: Parameters<typeof narrow>[0] = {}) => narrow({ top: 114, visibleTop: 100, blockTop: 114, ...over });
+
+  it("reserves space above the block, so neither the selection nor any line after it is covered", () => {
+    const geometry = first();
+    const placed = placeFlag(geometry, BAR);
+    expect(placed.side).toBe("reserve");
+    // After the block moves down by `push` the box sits in the gap above it, inside the visible band.
+    const pushed = 114 + (placed.push ?? 0);
+    expect(placed.top).toBe(geometry.visibleTop + 4);
+    expect(placed.top + BAR.height + GAP).toBe(pushed);
+    expect(placed.push).toBeGreaterThan(0);
+  });
+
+  it("covers no prose at any line of the first paragraph within reach, at 480 and 390px", () => {
+    for (const pageWidth of [480, 390]) {
+      for (let line = 0; line * LINE <= RESERVE_REACH; line += 1) {
+        const geometry = narrow({ top: 114 + line * LINE, blockTop: 114, visibleTop: 100, pageWidth, column: { left: 62, right: pageWidth - 22 } });
+        const placed = placeFlag(geometry, BAR);
+        expect(placed.side, `line ${line + 1} at ${pageWidth}`).toBe("reserve");
+        // Everything of the block moves down by `push`; the box ends above the block's pushed top.
+        expect(placed.top + BAR.height).toBeLessThanOrEqual(114 + (placed.push ?? 0));
+      }
+    }
+  });
+
+  it("prefers a roomy spot above or in a wide margin to pushing anything", () => {
+    expect(placeFlag(first({ top: 300, blockTop: 114 }), BAR).side).toBe("above");
+    expect(placeFlag(wide({ top: 114, visibleTop: 100, blockTop: 114 }), BAR).side).toBe("beside");
+  });
+
+  it("falls back to below when there is no block to push or the selection is far down its block", () => {
+    expect(placeFlag(narrow({ top: 114, visibleTop: 100 }), BAR).side).toBe("below");
+    expect(placeFlag(first({ top: 114 + RESERVE_REACH + 40, visibleTop: 100 + RESERVE_REACH + 40 }), BAR).side).not.toBe("reserve");
+  });
+
+  it("makes room for the composer too", () => {
+    const placed = placeFlag(first(), COMPOSER);
+    expect(placed.side).toBe("reserve");
+    expect(placed.push).toBe(100 + 4 + COMPOSER.height + GAP - 114);
   });
 });

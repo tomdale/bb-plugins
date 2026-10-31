@@ -8,12 +8,17 @@
 //   1. above    just over the selection, under the top bar and the page heading;
 //   2. beside   in the page margin next to the selection's first line, when the
 //               margin is wide enough and holds no margin note;
-//   3. below    under the line that follows the selection, with a clear gap, so
+//   3. reserve  above the text block the selection is in, in space made by
+//               pushing that block down (`push`), when the selection starts in
+//               the block's first lines and nothing above has room: the box
+//               then covers no prose at all, and only content below the heading
+//               moves while the selection is open;
+//   4. below    under the line that follows the selection, with a clear gap, so
 //               the next line of prose stays readable;
-//   4. tight    directly under the selection (the next line is covered) when
+//   5. tight    directly under the selection (the next line is covered) when
 //               there is no room for 3;
-//   5. over     above the selection but over the heading, when 4 fails;
-//   6. pinned   inside the visible area, the last resort for a box taller than
+//   6. over     above the selection but over the heading, when 4 fails;
+//   7. pinned   inside the visible area, the last resort for a box taller than
 //               the room on either side.
 //
 // No placement covers the selection itself except "pinned", and none runs under
@@ -41,6 +46,8 @@ export interface FlagGeometry {
   column: { left: number; right: number };
   /** Margin notes and asides the box must not cover. */
   obstacles: readonly Rect[];
+  /** The top of the text block the selection is in (page coordinates); absent for a code line, which has no block to push. */
+  blockTop?: number;
 }
 
 export interface BoxSize {
@@ -48,18 +55,22 @@ export interface BoxSize {
   height: number;
 }
 
-export type FlagSide = "above" | "beside" | "below" | "tight" | "over" | "pinned";
+export type FlagSide = "above" | "beside" | "reserve" | "below" | "tight" | "over" | "pinned";
 
 export interface FlagPosition {
   top: number;
   left: number;
   side: FlagSide;
+  /** For "reserve": how far the selection's block must move down to make room; the box's `top` already assumes it. */
+  push?: number;
 }
 
 /** Space between the box and the selection. */
 export const GAP = 6;
 /** Space kept between the box and the next line of prose when it goes below. */
 export const CLEARANCE = 4;
+/** A selection further than this below its block's top is too far from the space a "reserve" would make. */
+export const RESERVE_REACH = 120;
 /** Space kept from the edges of the visible band and of the page. */
 const EDGE = 4;
 
@@ -75,7 +86,10 @@ export function placeFlag(geometry: FlagGeometry, size: BoxSize): FlagPosition {
   const clear = (rect: Rect) => !geometry.obstacles.some((obstacle) => overlaps(rect, obstacle));
 
   const above = anchor.top - GAP - height;
-  if (above >= visibleTop + EDGE) return { top: above, left: alongSelection, side: "above" };
+  // At the top of a page the block sits right under the heading: a box over the selection would cover the
+  // block's own earlier lines, and there is no gap above the block to put it in. That case makes room (below).
+  const topOfPage = geometry.blockTop !== undefined && geometry.blockTop - visibleTop < height + GAP + EDGE && anchor.top - GAP > geometry.blockTop - 1 && anchor.top - geometry.blockTop <= RESERVE_REACH;
+  if (!topOfPage && above >= visibleTop + EDGE) return { top: above, left: alongSelection, side: "above" };
 
   // Beside: aligned with the selection's first line, as high as the band allows.
   const beside = Math.max(visibleTop + EDGE, Math.min(anchor.top, visibleBottom - EDGE - height));
@@ -87,6 +101,14 @@ export function placeFlag(geometry: FlagGeometry, size: BoxSize): FlagPosition {
   ];
   for (const [left, room] of margins) {
     if (room >= 0 && clear({ top: beside, bottom: beside + height, left, right: left + width })) return { top: beside, left, side: "beside" };
+  }
+
+  if (geometry.blockTop !== undefined && anchor.top - geometry.blockTop <= RESERVE_REACH) {
+    const top = visibleTop + EDGE;
+    // The box ends GAP above the block's new top, so it covers none of the block's lines.
+    const push = Math.max(1, top + height + GAP - geometry.blockTop);
+    // The pushed selection must still leave the box clear of the pager.
+    if (fitsBelow(anchor.bottom + push)) return { top, left: alongSelection, side: "reserve", push };
   }
 
   const below = Math.max(anchor.bottom, geometry.nextLineBottom) + CLEARANCE;

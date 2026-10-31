@@ -25,6 +25,7 @@ export function FlagPopover({
   onSave,
   onAsk,
   onDismiss,
+  onReserve,
 }: {
   target: FlagTarget;
   geometry: FlagGeometry;
@@ -33,6 +34,8 @@ export function FlagPopover({
   onSave: (kind: NoteKind, text: string) => Promise<void>;
   onAsk: () => void;
   onDismiss: () => void;
+  /** Called with how far the selection's block must move down to leave room for the box (0 when none). */
+  onReserve?: (push: number) => void;
 }) {
   const [kind, setKind] = useState<NoteKind | null>(null);
   const [text, setText] = useState("");
@@ -47,6 +50,9 @@ export function FlagPopover({
     const next = placeFlag(geometry, { width: element?.offsetWidth ?? 0, height: element?.offsetHeight ?? 0 });
     setPosition((held) => (held.top === next.top && held.left === next.left && held.side === next.side ? held : next));
   }, [geometry, kind, text]);
+  useLayoutEffect(() => {
+    onReserve?.(position.side === "reserve" ? (position.push ?? 0) : 0);
+  }, [position.side, position.push]);
   useEffect(() => {
     if (kind) area.current?.focus();
   }, [kind]);
