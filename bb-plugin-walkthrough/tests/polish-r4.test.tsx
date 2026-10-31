@@ -49,6 +49,19 @@ describe("an excluded comment", () => {
   });
 });
 
+describe("the In review choice", () => {
+  it("is offered only where the review draft can honour it: a comment on a line", async () => {
+    stubWidth(480);
+    const w = pr();
+    const notes = [comment("n1", "On a line", 3), note({ id: "n2", kind: "todo", text: "Do it", location: { path: "src/a.ts", startLine: 4 } }), note({ id: "n3", kind: "note", text: "Aside" }), comment("n4", "No line", 6, { location: null })];
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: w, notes, reviewDraft: mergedReviewDraft(w, notes) } }) });
+    fireEvent.click(await slot.findByRole("button", { name: /Concerns/u }));
+    const has = (id: string) => slot.container.querySelector(`[data-note-id="${id}"] .wt-include`) !== null;
+    expect([has("n1"), has("n2"), has("n3"), has("n4")]).toEqual([true, false, false, false]);
+    expect(slot.getByTestId("wt-review-count").textContent).toBe("1 in the review");
+  });
+});
+
 describe("Save notes", () => {
   for (const intent of ["review", "own-change", "understand"] as const) {
     it(`is offered in a ${intent} wrap-up and saves the open notes`, async () => {

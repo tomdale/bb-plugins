@@ -122,7 +122,7 @@ export function ConcernsSheet({
         <>
           <div className="wt-sheet-body" role="tabpanel" aria-label="Open items">
             {openItems.length === 0 ? <p className="wt-muted">Nothing flagged yet. Select text or a line of code to flag it.</p> : null}
-            {reviewable && openItems.some((note) => note.kind !== "question") ? (
+            {reviewable && openItems.some((note) => note.kind === "comment" && note.location !== null) ? (
               // The same number as the Review draft tab and the wrap-up: what the review will contain right now.
               <p className="wt-review-count" role="status" data-testid="wt-review-count">
                 {comments.length === 0 ? "Nothing in the review yet" : `${comments.length} in the review`}
@@ -175,7 +175,8 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
   const remove = () => rpc.call("deleteNote", { walkthroughId: walkthrough.id, noteId: note.id }).catch(fail);
   const part = note.groupIndex === null ? null : walkthrough.parts[note.groupIndex];
   const where = [part ? `Part ${(note.groupIndex ?? 0) + 1}` : null, note.location ? formatLocation({ ...note.location, path: shortPath(note.location.path) }) : null].filter(Boolean).join(" · ");
-  const reviewable = hasReview(walkthrough) && note.status === "open" && (note.kind === "comment" || note.kind === "note" || note.kind === "todo");
+  // Only a comment on a line becomes a line comment in the review (see deriveReviewComments); offering the choice for anything else would promise what the draft never does.
+  const reviewable = hasReview(walkthrough) && note.status === "open" && note.kind === "comment" && note.location !== null;
   const included = note.includeInReview;
   const glyph = glyphs.get(note.id);
   const jump = () => onJump(note);
