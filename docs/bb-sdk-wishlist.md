@@ -743,3 +743,21 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   with the JSON text so far) in `threads.events`; an undebounced or
   configurable-interval subscription to selected event types for a plugin; and
   the code-fence renderer slot backported with feature detection
+
+## Incremental agent-message text from every provider
+
+- **Status:** not filed
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29, a Pi-provider worker thread (`thr_kvaezpexxh`)
+- **Use case:** Walkthrough shows a worker's message as it is written, so the first words appear in about a second
+- **Limit and evidence:** the thread's event log holds exactly one `item/agentMessage/delta` per message, emitted when the message ends (6 deltas for 6 messages, 65 to 739 characters each). A plugin cannot tell a provider that streams from one that buffers, and on a buffering provider the preview arrives all at once after the whole message has been generated
+- **Workaround:** the worker opens with a one- or two-sentence message before reading code, so something real is on screen within seconds whatever the provider does
+- **Possible API:** a documented guarantee (or a capability flag per provider) that `item/agentMessage/delta` carries incremental text, and a `threads.events` field for whether the provider streams
+
+## Staged changes and unchanged files in the environment diff APIs
+
+- **Status:** not filed
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29 (Walkthrough UAT: a repository with 11 staged files)
+- **Use case:** Walkthrough must show a staged-only change, and the current lines of a file that has no diff (explaining existing code)
+- **Limit and evidence:** `environments.diffPatch` and `diffFile` take `uncommitted`, `branch_committed`, `all` and `commit` targets; none names the index, and a file with no changes has no patch or side to read. In the UAT a staged-only change was reported as "No changes found" and a new staged file as "has no changes against HEAD"
+- **Workaround:** a read-only host entry runs git itself (`git diff <base>` for the working tree, `git status --porcelain`, `git diff --numstat -M`), and BB's APIs are the fallback
+- **Possible API:** a `staged` diff target, `includeUntracked` on `uncommitted`, and a `files.read`-like call that returns a workspace file at a revision (`HEAD`, the index, or the working tree)

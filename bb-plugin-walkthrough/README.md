@@ -56,11 +56,14 @@ there is no rail and no contents list.
   - *Reviewing a PR:* **Post review** shows exactly what will be posted and
     waits for confirmation, then asks the helper to submit it, publicly, as your
     `gh` account. Nothing reaches GitHub without that step.
-  - *Your own or an agent's change:* **Send open items to thread** posts the
-    open todos and questions to your thread's agent.
+  - *Your own or an agent's change:* **Send open items to thread** shows the
+    message in an editable field and posts it to your thread's agent only when
+    you press Send.
   - *Understanding only:* **Save notes** writes your open notes as a Markdown
-    file and shows where it went; **Ask the thread to apply it** sends the todos
-    and questions.
+    file and shows where it went; **Ask the thread to apply it** shows the message
+    for you to edit and sends it only when you press Send.
+  - The helper never resolves your notes. At the wrap-up it can propose an
+    outcome for a note; the note stays open until you accept the proposal.
 - **Save notes:** the file goes to `walkthrough-notes/<title>-<id>.md` in the
   walkthrough thread's own storage, which is outside your repository, so it never
   appears as untracked work. The same file is replaced each time. Nothing else is
@@ -72,7 +75,7 @@ there is no rail and no contents list.
   afterwards) and asks first unless every part is written.
 - **Staying current:** your thread keeps working while the walkthrough is
   written. The helper is told what you said there, and a part written against
-  code that has since changed is marked out of date with a one-click rewrite.
+  files a part cites that have since changed mark that part out of date (naming the files), with a one-click rewrite.
 - **PRs:** excerpts of a PR walkthrough come from the PR's head commit, not from
   the checkout, so a merged PR or another branch still shows the PR's own code.
 
@@ -104,16 +107,19 @@ their own.
 **Intent.** The planner sets `intent` (`review`, `own-change`, `understand`),
 which defaults from the mode. It decides which primary action the wrap-up offers.
 
-**Code.** Excerpts inside the thread's workspace use BB's environment diff APIs.
-Absolute paths in another checkout use a read-only host entry that resolves the
-file's Git repository and compares against the walkthrough's base there. File and
+**Code.** A read-only host entry reads git directly (`readCode`, `changedFiles`,
+`fileHashes`), so staged, unstaged and untracked work, renames, and files with no
+diff (an explanation of existing code) all have excerpts; BB's environment diff
+APIs are the fallback. It also resolves absolute paths in another checkout to
+that file's repository and compares against the walkthrough's base there. File and
 line links open BB's preview using workspace-relative paths or an explicit host
 target.
 
-**Target detection.** `detectTarget` reads the thread's environment through the
-SDK (`environments.pullRequest` and `environments.status`) and answers with the
-PR, the uncommitted change counts, or the committed branch change counts; it
-answers null when the thread has no workspace or nothing has changed.
+**Target detection.** `detectTarget` asks the thread's environment for an open
+PR, then the host's git for the working tree (staged, unstaged and untracked
+files counted together), falling back to `environments.status`, then the
+committed branch change; it answers null when the thread has no workspace or
+nothing has changed.
 
 ## Settings
 
