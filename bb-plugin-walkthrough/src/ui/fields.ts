@@ -1,6 +1,7 @@
 // Small derivations over the delivered walkthrough: which pages exist, how a
 // part reads, which questions to suggest. The wire types guarantee the fields
 // the redesign added, so nothing here guards for their absence.
+import { noteMarkers } from "../model.ts";
 import { isOutdated } from "../staleness.ts";
 import type { DeliveredCodeBlock, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 
@@ -80,18 +81,7 @@ export function baseName(path: string): string {
  * the two sequences never renumber or collide.
  */
 export function flagGlyphs(notes: Array<{ id: string; author: string; createdAt: number }>): Map<string, string> {
-  const own = notes.filter((note) => note.author === "user").sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id, undefined, { numeric: true }));
-  return new Map(own.map((note, index) => [note.id, letters(index)]));
-}
-
-function letters(index: number): string {
-  let rest = index;
-  let out = "";
-  do {
-    out = String.fromCharCode(97 + (rest % 26)) + out;
-    rest = Math.floor(rest / 26) - 1;
-  } while (rest >= 0);
-  return out;
+  return noteMarkers(notes);
 }
 
 /** The last two segments of a path ("src/model.ts"), enough to tell same-named files apart. */

@@ -66,9 +66,9 @@ describe("the pane while a part streams", () => {
 
     // A header whose lines value is still arriving does not make a figure; a complete one does.
     await emit(payload(7, `The schema is small.\n\n${PARTIAL_HEADER}`));
-    expect(slot.container.querySelector("figure")).toBeNull();
+    expect(slot.container.querySelector("figure[data-code-path]")).toBeNull();
     await emit(payload(8, `The schema is small.\n\n${FIGURE_HEADER}caption: The table`));
-    const figure = slot.container.querySelector("figure")!;
+    const figure = slot.container.querySelector<HTMLElement>("figure[data-code-path]")!;
     expect(figure.dataset.codePath).toBe("src/a.ts");
     expect(figure.dataset.streaming).toBe("true");
     expect(excerpt).toHaveBeenCalledWith(expect.objectContaining({ path: "src/a.ts", startLine: 3, endLine: 9 }));

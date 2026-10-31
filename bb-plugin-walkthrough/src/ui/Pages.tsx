@@ -9,6 +9,7 @@ import type { SavedNotes } from "../save-notes.ts";
 import type { Coverage, Place, DeliveredCodeBlock, DeliveredNote as Note, DeliveredPart as Part, DeliveredWalkthrough as Walkthrough, Exchange } from "../schemas.ts";
 import { Figure, type FlagTarget } from "./Figure.tsx";
 import { countedOpen, openConcerns, PostReviewControl, type ReviewDraftView } from "./Concerns.tsx";
+import { filesRead } from "../coverage.ts";
 import { partState } from "./fields.ts";
 import { unsentItems } from "./hand-off.ts";
 import { type WalkthroughRpc } from "./hooks.ts";
@@ -17,7 +18,6 @@ import { stripReplyWrapper } from "./reply.ts";
 import { Prose, type ProseContext } from "./prose.tsx";
 import { previewFor, partPreview, StreamContext, useStreamedView, type StreamedBlock } from "./stream.ts";
 
-export function Skeleton({ label }: { label?: string }) {
 /** The code rows of a skeleton figure: a gutter number and a line of code at an indent, like the rows that will replace them. */
 const SKELETON_ROWS: Array<[indent: number, width: number]> = [
   [0, 70],
@@ -35,7 +35,7 @@ const SKELETON_ROWS: Array<[indent: number, width: number]> = [
  * built from the figure's own header and rows (so it has the real width, edge
  * and height), and a closing paragraph. When the part arrives nothing moves.
  */
-  return (
+export function Skeleton({ label }: { label?: string }) {
   const lines = (widths: number[]) => (
     <div className="wt-skel-p">
       {widths.map((width, index) => (
@@ -43,6 +43,7 @@ const SKELETON_ROWS: Array<[indent: number, width: number]> = [
       ))}
     </div>
   );
+  return (
     <div className="wt-skeleton" role="status" aria-label={label ?? "Writing this part"}>
       <span className="wt-skel wt-skel-title" />
       {lines([96, 90, 58])}
@@ -127,13 +128,23 @@ export function pageTitle(walkthrough: Pick<Walkthrough, "title" | "request">): 
   return { text: walkthrough.request.trim() || "Reading your changes…", placeholder: true };
 }
 
-export function Introduction({ walkthrough, onOpen, streaming = false, coverage, label = "Introduction", subject }: { walkthrough: Walkthrough; onOpen: (index: number) => void; streaming?: boolean; coverage?: Coverage | null | undefined; label?: string; subject?: ReactNode }) {
+/** What the helper has done so far besides writing, said without a forecast: "Looking through the code · 4 steps so far". */
+export function workingLine(steps: number | undefined): string | null {
+  return steps === undefined || steps <= 0 ? null : `Looking through the code \u00b7 ${steps} ${steps === 1 ? "step" : "steps"} so far`;
+}
+
+export function Introduction({ walkthrough, onOpen, streaming = false, coverage, label = "Introduction", subject, working = null }: { walkthrough: Walkthrough; onOpen: (index: number) => void; streaming?: boolean; coverage?: Coverage | null | undefined; label?: string; subject?: ReactNode; /** An honest line about what the helper is doing while it has not written more yet. */ working?: string | null }) {
   const title = pageTitle(walkthrough);
   return (
     <article>
       <Heading label={label} title={title.text} placeholder={title.placeholder} />
       {subject ? <p className="wt-subject">{subject}</p> : null}
       <Prose text={walkthrough.introduction} context={{ files: walkthrough, codePath: null }} className={streaming ? "wt-streaming" : undefined} />
+      {working ? (
+        <p className="wt-muted wt-pulse" role="status">
+          {working}
+        </p>
+      ) : null}
       {walkthrough.parts.length > 0 ? (
         <ol className="wt-toc" aria-label="Parts">
           {walkthrough.parts.map((part, index) => (
@@ -149,15 +160,38 @@ export function Introduction({ walkthrough, onOpen, streaming = false, coverage,
           ))}
         </ol>
       ) : null}
-      <CoverageStrip coverage={coverage} />
+      <CoverageStrip coverage={coverage} walkthrough={walkthrough} />
     </article>
   );
 }
 
 const EXCLUDED_WORD = { lockfile: "lockfile", generated: "generated", binary: "binary" } as const;
 
+/** The files an overview's figures cite: the understand-mode counterpart of the coverage strip. */
+function FilesReadStrip({ walkthrough }: { walkthrough: Walkthrough }) {
+  const read = filesRead(walkthrough);
+  if (read.length === 0) return null;
+  return (
+    <section className="wt-coverage" aria-label="Files read">
+      <p className="wt-coverage-line">
+        <strong>Files read</strong>
+        <span className="wt-muted"> · {read.length} {read.length === 1 ? "file" : "files"} cited in figures</span>
+      </p>
+      <ul className="wt-coverage-files" aria-label="Files read">
+        {read.map((path) => (
+          <li key={path} data-covered="">
+            {path}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** Which of the changed files the figures cover, so the reader knows what the walkthrough left out. Hidden until the server knows the changed files. */
-export function CoverageStrip({ coverage }: { coverage: Coverage | null | undefined }) {
+export function CoverageStrip({ coverage, walkthrough }: { coverage: Coverage | null | undefined; walkthrough?: Walkthrough }) {
+  // An overview has no change to measure against, so its strip lists the files its figures drew on.
+  if (walkthrough?.intent === "understand") return <FilesReadStrip walkthrough={walkthrough} />;
   if (!coverage || coverage.changed === 0) return null;
   const countable = coverage.files.filter((file) => file.excluded === null);
   const shown = countable.filter((file) => file.covered).length;
@@ -253,7 +287,7 @@ export function PartPage({
       ) : (
         <>
           {part.summary ? <p className="wt-summary">{part.summary}</p> : null}
-          <Skeleton label={part.status === "writing" ? "Writing this part…" : "Not started yet"} />
+          <Skeleton label={part.status === "writing" ? "Writing this part…" : "Waiting for the helper to reach this part"} />
         </>
       )}
     </article>
@@ -381,9 +415,43 @@ export function WrapUpPage({
           </dd>
         </div>
       </dl>
-      <CoverageStrip coverage={coverage} />
+      <CoverageStrip coverage={coverage} walkthrough={walkthrough} />
     </article>
   );
+}
+
+/**
+ * Handing open items to the thread: one flow for every button that does it.
+ * The reader sees the exact message first, can edit it, and sends it with an
+ * explicit Send; nothing leaves the pane before that.
+ */
+export function useSendToThread(walkthrough: Walkthrough, rpc: WalkthroughRpc, notify: (message: string, tone?: "success" | "info" | "error") => void, fail: (cause: unknown) => void) {
+  const [sending, setSending] = useState(false);
+  const [open, setOpen] = useState(false);
+  const send = async (draft: { message: string; noteIds: string[] }) => {
+    setSending(true);
+    try {
+      const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id, ...draft });
+      notify(sent ? "Sent to your thread" : "Nothing new to send", sent ? "success" : "info");
+      setOpen(false);
+    } catch (cause) {
+      fail(cause);
+    } finally {
+      setSending(false);
+    }
+  };
+  const title = walkthrough.intent === "understand" ? "Ask the thread to apply it" : "Send open items to thread";
+  // Rendered once, by the reader, wherever the buttons are.
+  const dialog = <ApplyDialog open={open} onOpenChange={setOpen} title={title} walkthroughId={walkthrough.id} rpc={rpc} sending={sending} onSend={(draft) => void send(draft)} />;
+  return { title, sending, openDialog: () => setOpen(true), dialog };
+}
+
+/** What the reader's saved notes were when they were saved, so the button knows when saving again would change something. */
+function notesSignature(notes: Note[]): string {
+  return notes
+    .filter((note) => note.status === "open")
+    .map((note) => `${note.id}:${note.updatedAt}`)
+    .join("|");
 }
 
 /**
@@ -391,60 +459,46 @@ export function WrapUpPage({
  * pager so it is reachable without scrolling. Handing items to the thread is
  * only enabled while there is something new to hand over, and then reads "Sent".
  */
-export function WrapUpActions({ walkthrough, notes, draft, rpc }: { walkthrough: Walkthrough; notes: Note[]; draft: ReviewDraftView | null; rpc: WalkthroughRpc }) {
+export function WrapUpActions({ walkthrough, notes, draft, rpc, send }: { walkthrough: Walkthrough; notes: Note[]; draft: ReviewDraftView | null; rpc: WalkthroughRpc; send: ReturnType<typeof useSendToThread> }) {
   const intent = walkthrough.intent;
   const notify = useNotify();
   const fail = useFail();
-  const [sending, setSending] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [saved, setSaved] = useState<SavedNotes | null>(null);
+  const [saved, setSaved] = useState<{ result: SavedNotes; signature: string } | null>(null);
   const unsent = unsentItems(notes).length;
   const sentBefore = notes.some((note) => note.sentAt);
-  const sentLabel = sentBefore ? "Sent to thread" : null;
-  const handOff = async (draft?: { message: string; noteIds: string[] }) => {
-    setSending(true);
-    try {
-      const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id, ...(draft ?? {}) });
-      notify(sent ? "Sent to your thread" : "Nothing new to send", sent ? "success" : "info");
-      setApplying(false);
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      setSending(false);
-    }
-  };
+  const signature = notesSignature(notes);
+  const openNotes = notes.filter((note) => note.status === "open").length;
+  const savedNow = saved !== null && saved.signature === signature;
   const saveNotes = async () => {
     try {
-      setSaved(await rpc.call("saveNotes", { walkthroughId: walkthrough.id }));
+      setSaved({ result: await rpc.call("saveNotes", { walkthroughId: walkthrough.id }), signature });
       notify("Notes saved");
     } catch (cause) {
       fail(cause);
     }
   };
   if (intent === "review") return <PostReviewControl walkthrough={walkthrough} draft={draft} rpc={rpc} />;
-  const send = (
-    <button type="button" className="wt-btn wt-btn-primary" disabled={sending || unsent === 0} onClick={() => void handOff()} data-sent={unsent === 0 && sentBefore ? "" : undefined}>
-      {unsent === 0 && sentLabel ? sentLabel : "Send open items to thread"}
+  const sentAll = unsent === 0 && sentBefore;
+  const sendButton = (primary: boolean) => (
+    <button type="button" className={cn("wt-btn", primary ? "wt-btn-primary" : "wt-btn-quiet")} disabled={send.sending || unsent === 0} onClick={send.openDialog} data-sent={sentAll ? "" : undefined}>
+      {sentAll ? "Sent to thread" : send.title}
     </button>
   );
-  if (intent === "own-change") return send;
+  if (intent === "own-change") return sendButton(true);
   return (
     <>
-      <button type="button" className="wt-btn wt-btn-primary" onClick={() => void saveNotes()}>
-        Save notes
+      <button type="button" className={cn("wt-btn", savedNow ? "wt-btn-quiet" : "wt-btn-primary")} disabled={savedNow || openNotes === 0} data-sent={savedNow ? "" : undefined} onClick={() => void saveNotes()}>
+        {savedNow ? "Saved" : "Save notes"}
       </button>
-      <button type="button" className="wt-btn wt-btn-quiet" disabled={sending || unsent === 0} onClick={() => setApplying(true)} data-sent={unsent === 0 && sentBefore ? "" : undefined}>
-        {unsent === 0 && sentLabel ? sentLabel : "Ask the thread to apply it"}
-      </button>
+      {sendButton(false)}
       {saved ? (
         <span className="wt-muted wt-saved" role="status">
-          Saved to{" "}
-          <FileLink target={{ kind: "thread-storage", threadId: saved.threadId, path: saved.path }} className="wt-loc">
-            {saved.path}
+          Saved to this thread&rsquo;s storage:{" "}
+          <FileLink target={{ kind: "thread-storage", threadId: saved.result.threadId, path: saved.result.path }} className="wt-loc">
+            {saved.result.path.split("/").pop()}
           </FileLink>
         </span>
       ) : null}
-      <ApplyDialog open={applying} onOpenChange={setApplying} walkthroughId={walkthrough.id} rpc={rpc} sending={sending} onSend={(draft) => void handOff(draft)} />
     </>
   );
 }
@@ -453,6 +507,7 @@ export function WrapUpActions({ walkthrough, notes, draft, rpc }: { walkthrough:
 function ApplyDialog({
   open,
   onOpenChange,
+  title,
   walkthroughId,
   rpc,
   sending,
@@ -460,6 +515,7 @@ function ApplyDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  title: string;
   walkthroughId: string;
   rpc: WalkthroughRpc;
   sending: boolean;
@@ -491,7 +547,7 @@ function ApplyDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="wt-portal wt-dialog wt-apply">
         <DialogHeader>
-          <DialogTitle>Ask the thread to apply it</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription>This is the message your thread will receive. Edit it, then send it. Nothing is sent until you press Send.</DialogDescription>
         </DialogHeader>
         <textarea

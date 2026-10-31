@@ -61,6 +61,8 @@ export function ConcernsSheet({
   onClose,
   onJump,
   sheetRef,
+  send,
+  pinnedSend,
 }: {
   view: WalkthroughView;
   rpc: WalkthroughRpc;
@@ -70,6 +72,10 @@ export function ConcernsSheet({
   onClose: () => void;
   onJump: (note: Note) => void;
   sheetRef: MutableRefObject<HTMLElement | null>;
+  /** The reader's one flow for handing items to the thread (a previewed, editable message). */
+  send: { title: string; sending: boolean; openDialog: () => void };
+  /** The same action is already pinned above the composer (the wrap-up), so the sheet does not repeat it. */
+  pinnedSend: boolean;
 }) {
   const { walkthrough, notes } = view;
   const reviewable = hasReview(walkthrough);
@@ -77,25 +83,11 @@ export function ConcernsSheet({
   const resolved = notes.filter((note) => note.status === "resolved");
   const [showResolved, setShowResolved] = useState(false);
   const comments = view.reviewDraft?.comments ?? [];
-  const [sending, setSending] = useState(false);
   const activeTab = reviewable ? tab : "open";
-  const notify = useNotify();
-  const fail = useFail();
   const unsent = unsentItems(notes).length;
   const sentBefore = notes.some((note) => note.sentAt);
   // Handing items to the thread only means something when there are todos or questions to hand over.
-  const offerSend = unsent > 0 || sentBefore;
-  const handOff = async () => {
-    setSending(true);
-    try {
-      const { sent } = await rpc.call("handOff", { walkthroughId: walkthrough.id });
-      notify(sent ? "Sent to your thread" : "Nothing new to send", sent ? "success" : "info");
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      setSending(false);
-    }
-  };
+  const offerSend = !pinnedSend && (unsent > 0 || sentBefore);
   return (
     <aside
       ref={sheetRef}
@@ -149,8 +141,8 @@ export function ConcernsSheet({
           </div>
           {offerSend ? (
             <div className="wt-sheet-foot">
-              <button type="button" className="wt-btn wt-btn-quiet" disabled={sending || unsent === 0} onClick={() => void handOff()}>
-                {unsent === 0 ? "Sent to thread" : "Send open items to thread"}
+              <button type="button" className="wt-btn wt-btn-quiet" disabled={send.sending || unsent === 0} onClick={send.openDialog}>
+                {unsent === 0 ? "Sent to thread" : send.title}
               </button>
             </div>
           ) : null}
@@ -421,10 +413,10 @@ export function PostReviewDialog({
         <div className="wt-post-target">
           {pr?.url ? (
             <p>
-              <UrlLink href={pr.url} className="break-all underline underline-offset-2">
+              <UrlLink href={pr.url} className="wt-link">
                 {target}
               </UrlLink>
-              {pr.title ? <span className="text-muted-foreground"> · {pr.title}</span> : null}
+              {pr.title ? <span className="wt-muted"> · {pr.title}</span> : null}
             </p>
           ) : null}
           {pr?.state && pr.state !== "open" ? <p className="wt-post-warn">This PR is already {pr.state}.</p> : null}

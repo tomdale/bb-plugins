@@ -54,8 +54,8 @@
 /* The note composer says what it is making. */
 .wt .wt-flag-kind { display: flex; flex-direction: column; gap: 1px; margin: 0; font: 12px/1.35 var(--wt-sans); color: var(--wt-mute); }
 .wt .wt-flag-kind b { color: var(--wt-ink); font-weight: 600; }
-.wt .wt-flag > button:disabled { opacity: 0.5; cursor: not-allowed; }
-.wt .wt-flag > button:disabled:hover { background: none; color: inherit; }
+.wt .wt-flag > button:disabled, .wt .wt-flag > button[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
+.wt .wt-flag > button:disabled:hover, .wt .wt-flag > button[aria-disabled="true"]:hover { background: none; color: inherit; }
 
 /* Title placeholder until the plan names the walkthrough. */
 .wt .wt-title[data-placeholder], .wt .wt-head h2[data-placeholder] { color: var(--wt-mute); font-style: italic; }
@@ -106,3 +106,18 @@
 }
 .wt .wt-it-proposal { margin-top: 4px; padding: 6px 8px; border-radius: 8px; background: var(--wt-yhi); }
 .wt .wt-it-proposal .wt-it-res { margin: 0; color: var(--wt-ink); }
+
+/* The starter's Continue card: the walkthrough that is under way, first. */
+.wt-continue { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 0 0 28px; padding: 16px 18px; border-radius: 14px; background: var(--wt-fill); box-shadow: inset 0 0 0 1px var(--wt-hair); }
+.wt-continue .wt-lbl { margin: 0; }
+.wt-continue-title { margin: 0; font: 600 20px/1.25 var(--wt-serif); color: var(--wt-ink); }
+.wt-continue .wt-muted { margin: 0 0 6px; }
+.wt-start-field { display: flex; flex-direction: column; gap: 6px; }
+
+/* One focus ring on the question field: the pill shows it; the input inside does not draw a second. */
+.wt .wt-input input:focus, .wt .wt-input input:focus-visible { outline: none; box-shadow: none; }
+
+/* Next names where it leads; only the title ever shortens, never the word Next. */
+.wt .wt-next-label { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.wt .wt-next-kicker { flex: none; }
+.wt .wt-next-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; opacity: 0.85; }

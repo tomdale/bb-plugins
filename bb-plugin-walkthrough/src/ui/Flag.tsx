@@ -1,9 +1,11 @@
 // Flagging a selection or a line: a small toolbar that opens a note composer
 // without taking focus from the selection until the reader chooses a kind.
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { NoteKind } from "../schemas.ts";
 import type { FlagTarget } from "./Figure.tsx";
+import { Hint } from "./Hint.tsx";
+import { flagTop, type FlagPlacement } from "./place-flag.ts";
 
 export type FlagChoice = NoteKind | "ask";
 const LABEL: Record<FlagChoice, string> = { note: "Note", todo: "Todo", comment: "Comment", question: "Question", ask: "Ask" };
@@ -25,7 +27,7 @@ export function FlagPopover({
   onDismiss,
 }: {
   target: FlagTarget;
-  position: { top: number; left: number; above?: boolean };
+  position: FlagPlacement & { left: number };
   /** Why Comment is unavailable (shown beside the disabled option), or null when it is offered. */
   commentReason: string | null;
   onSave: (kind: NoteKind, text: string) => Promise<void>;
@@ -37,6 +39,13 @@ export function FlagPopover({
   const [busy, setBusy] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const reasonId = useId();
+  const box = useRef<HTMLDivElement>(null);
+  // Placed from the box's real height, which changes when the composer opens: it never runs under the top bar or the pager.
+  const [top, setTop] = useState(position.anchorTop);
+  useLayoutEffect(() => {
+    const height = box.current?.offsetHeight ?? 0;
+    setTop(flagTop(position, height));
+  }, [position, kind, text]);
   useEffect(() => {
     if (kind) area.current?.focus();
   }, [kind]);
@@ -52,12 +61,12 @@ export function FlagPopover({
   };
   return (
     <div
+      ref={box}
       role={kind ? "dialog" : "toolbar"}
       aria-label={kind ? `New ${LABEL[kind].toLowerCase()}` : "Flag this"}
       data-flag=""
       className={cn("wt-flag wt-glass", kind && "wt-flag-open")}
-      data-above={position.above || undefined}
-      style={{ top: position.top, left: position.left }}
+      style={{ top, left: position.left, transform: "none" }}
       // Pressing a button here must not collapse the selection it was made from.
       onMouseDown={(event) => {
         if (!(event.target instanceof HTMLTextAreaElement)) event.preventDefault();
@@ -73,17 +82,18 @@ export function FlagPopover({
         <>
           {TOOLBAR.map((candidate) => {
             const blocked = candidate === "comment" && commentReason !== null;
-            return (
-              <button
-                key={candidate}
-                type="button"
-                disabled={blocked}
-                data-tip={blocked ? commentReason : undefined}
-                aria-describedby={blocked ? reasonId : undefined}
-                onClick={() => setKind(candidate)}
-              >
+            // aria-disabled rather than disabled: a disabled button gets no pointer or focus events, so it could not show why.
+            const button = (
+              <button key={candidate} type="button" aria-disabled={blocked || undefined} aria-describedby={blocked ? reasonId : undefined} onClick={() => (blocked ? undefined : setKind(candidate))}>
                 {LABEL[candidate]}
               </button>
+            );
+            return blocked ? (
+              <Hint key={candidate} label={commentReason} side="bottom">
+                {button}
+              </Hint>
+            ) : (
+              button
             );
           })}
           <button type="button" onClick={onAsk}>

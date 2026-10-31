@@ -117,7 +117,7 @@ describe("figures", () => {
     const slot = await mountPage("wt_1", { ...viewOf(codeWalkthrough(code({ snapshot }))), addNote: () => note({ id: "n2", kind: "todo" }) });
     fireEvent.click(await slot.findByRole("button", { name: "Flag line 4" }));
     const toolbar = await slot.findByRole("toolbar", { name: "Flag this" });
-    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => [button.textContent, button.disabled])).toEqual([["Note", false], ["Todo", false], ["Comment", true], ["Ask", false]]);
+    expect(Array.from(toolbar.querySelectorAll("button")).map((button) => [button.textContent, button.disabled || button.getAttribute("aria-disabled") === "true"])).toEqual([["Note", false], ["Todo", false], ["Comment", true], ["Ask", false]]);
     expect(toolbar.textContent).toContain("Comments are for pull requests");
     fireEvent.click(slot.getByRole("button", { name: "Todo" }));
     expect(slot.getByRole("dialog", { name: "New todo" }).textContent).toContain("New todo");
@@ -173,9 +173,13 @@ describe("concerns", () => {
   });
 
   it("sends open items to the thread", async () => {
-    const slot = await mountPage("wt_1", { ...viewOf(base(), notes), handOff: () => ({ sent: true }) });
+    const slot = await mountPage("wt_1", { ...viewOf(base(), notes), prepareHandOff: () => ({ draft: { message: "From my walkthrough.", noteIds: ["n2"] } }), handOff: () => ({ sent: true }) });
     fireEvent.click(await slot.findByRole("button", { name: /Concerns/u }));
     fireEvent.click(slot.getByRole("button", { name: "Send open items to thread" }));
+    // The same previewed flow as everywhere else: nothing is sent until Send.
+    await slot.findByRole("textbox", { name: "Message to your thread" });
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(0);
+    fireEvent.click(await slot.findByRole("button", { name: "Send to thread" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
   });
 
@@ -340,7 +344,7 @@ describe("pager and keyboard", () => {
     const slot = await mountPage("wt_1", viewOf(two({ currentPart: null, introduction: "Hello." })));
     await slot.findByText("Hello.");
     // The input stays put, saying why it cannot take a question here.
-    const input = slot.getByRole("textbox", { name: "Open a part to ask about it" });
+    const input = slot.getByRole("textbox", { name: "Press Next, then ask about any part" });
     expect(input.getAttribute("aria-disabled")).toBe("true");
     expect((input as HTMLInputElement).readOnly).toBe(true);
     expect(slot.getByRole("button", { name: "Previous part" }).hasAttribute("disabled")).toBe(true);
@@ -429,10 +433,11 @@ describe("wrap-up", () => {
   });
 
   it("own-change: the one primary action sends open items to the thread", async () => {
-    const slot = await mountPage("wt_1", { ...viewOf(wrapped(), notes), handOff: () => ({ sent: true }) });
+    const slot = await mountPage("wt_1", { ...viewOf(wrapped(), notes), prepareHandOff: () => ({ draft: { message: "From my walkthrough.", noteIds: ["n1"] } }), handOff: () => ({ sent: true }) });
     await slot.findByText("That is the change.");
     expect(slot.queryByRole("button", { name: "Post review" })).toBeNull();
     fireEvent.click(slot.container.querySelector<HTMLElement>(".wt-pager .wt-pager-actions .wt-btn-primary")!);
+    fireEvent.click(await slot.findByRole("button", { name: "Send to thread" }));
     await waitFor(() => expect(slot.inspection.rpcCalls.filter((call) => call.method === "handOff")).toHaveLength(1));
     expect(slot.queryByRole("button", { name: /^Finish/u })).toBeNull();
   });
@@ -451,7 +456,10 @@ describe("wrap-up", () => {
     const slot = await mountPage("wt_1", { ...viewOf(wrapped({ intent: "understand" }), notes), saveNotes: () => saved, prepareHandOff: () => ({ draft: { message: "From my walkthrough of Branch feature. These are notes I recorded while reading; act on the todos and answer the questions here, in this thread:\n\n- n1 todo: \"Check this\"", noteIds: ["n1", "n2"] } }), handOff: () => ({ sent: true }) });
     await slot.findByText("That is the change.");
     fireEvent.click(slot.getByRole("button", { name: "Save notes" }));
-    await slot.findByText("walkthrough-notes/branch-feature-1.md");
+    await slot.findByText("branch-feature-1.md");
+    expect(slot.container.querySelector(".wt-saved")!.textContent).toContain("Saved to this thread\u2019s storage");
+    // Saved is a state, not a standing invitation: the button settles until the notes change.
+    expect((slot.getByRole("button", { name: "Saved" }) as HTMLButtonElement).disabled).toBe(true);
     expect(slot.inspection.rpcCalls.filter((call) => call.method === "saveNotes")).toHaveLength(1);
     fireEvent.click(slot.getByRole("button", { name: "Ask the thread to apply it" }));
     // The message is shown, prefilled and editable, and nothing is sent until the reader presses Send.

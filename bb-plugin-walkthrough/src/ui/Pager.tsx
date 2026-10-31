@@ -12,6 +12,8 @@ export interface PagerProps {
   prevTitle: string | null;
   /** What the Next button says; null when there is nothing after this page. */
   nextLabel: string | null;
+  /** The title of the page Next leads to, shown after the label and the only part that is ever shortened. */
+  nextTitle?: string | null;
   /** Next is shown but cannot be pressed yet: the page it leads to, or this one, is still being written. */
   nextWaiting?: boolean;
   onPrev: () => void;
@@ -20,10 +22,10 @@ export interface PagerProps {
   placeholder: string;
   /** The input explains why it cannot take a question right now instead of disappearing. */
   inputDisabled?: boolean;
-  suggestions: string[];
-  /** Suggestions are shown but cannot be asked yet: the part is still being written. */
   /** The walkthrough is over: nothing can be asked, so the input gives way to a plain statement instead of a dead field. */
   finished?: boolean;
+  suggestions: string[];
+  /** Suggestions are shown but cannot be asked yet: the part is still being written. */
   suggestionsLocked?: boolean;
   /** Text from the selection the next question is about. */
   scope: string | null;
@@ -109,8 +111,11 @@ export const Pager = forwardRef<HTMLInputElement, PagerProps>(function Pager(
           </label>
         )}
         {nextLabel !== null ? (
-          <button type="button" className="wt-btn wt-btn-primary wt-next" disabled={nextWaiting} aria-live="polite" onClick={onNext}>
-            <span className="wt-next-label">{nextLabel}</span>
+          <button type="button" className="wt-btn wt-btn-primary wt-next" disabled={nextWaiting} aria-live="polite" aria-label={nextTitle ? `${nextLabel}: ${nextTitle}` : undefined} onClick={onNext}>
+            <span className="wt-next-label">
+              <span className="wt-next-kicker">{nextLabel}</span>
+              {nextTitle ? <span className="wt-next-title">{nextTitle}</span> : null}
+            </span>
             {nextWaiting ? <span className="wt-live" aria-hidden /> : <Icon name="ChevronRight" className="size-4" aria-hidden />}
           </button>
         ) : null}

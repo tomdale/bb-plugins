@@ -316,10 +316,10 @@ describe("counting and titles", () => {
 describe("the ask input", () => {
   it("is present on every page and says why it is unavailable", async () => {
     const writing = await mountPage("wt_1", viewOf(walkthrough({ parts: [part("A", { status: "writing", blocks: [] })] })));
-    expect((await writing.findByRole("textbox", { name: "You can ask once this page is written" })).getAttribute("aria-disabled")).toBe("true");
+    expect((await writing.findByRole("textbox", { name: "You can ask as soon as this part is written" })).getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("explains itself on a finished walkthrough", async () => {
+  it("says a walkthrough is finished in place of the input, not in a dead field", async () => {
     const closed = await mountPage("wt_1", viewOf(walkthrough({ status: "done" })));
     expect((await closed.findByText("This walkthrough is finished")).className).toBe("wt-finished");
     expect(closed.queryByRole("textbox")).toBeNull();

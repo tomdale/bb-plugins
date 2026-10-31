@@ -10,19 +10,20 @@ import { Icon } from "@/components/ui/icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { comparedWith, parseCommand } from "../model.ts";
+import { comparedWith, parseCommand, tabTitle } from "../model.ts";
 import { PAGE_PATH, PANEL_ACTION_ID, type DeliveredNote, type DeliveredWalkthrough as Walkthrough, type NoteKind, type WalkthroughView } from "../schemas.ts";
 import { ConcernsSheet, countedOpen, hasReview, type ConcernsTab } from "./Concerns.tsx";
 import { BoundaryContext, ReaderContext } from "./context.ts";
 import { figureSelection, type FlagTarget } from "./Figure.tsx";
 import { FlagPopover } from "./Flag.tsx";
+import type { FlagPlacement } from "./place-flag.ts";
 import { PART_STATE_LABEL, flagGlyphs, pageAt, pagePosition, partState, suggestionsFor, type PageId, type PartState } from "./fields.ts";
 import { cssEscape, findQuote, snapRangeToWords } from "./highlight.ts";
 import { Hint } from "./Hint.tsx";
-import { errorMessage, useStreams, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { OpenMargin, ReadingMargin } from "./Marginalia.tsx";
+import { errorMessage, useStreams, useWidth, type WalkthroughRpc } from "./hooks.ts";
 import { NoticeContext, useNotices } from "./notices.tsx";
-import { Introduction, PartPage, pageTitle, Skeleton, Thread, WrapUpActions, WrapUpPage } from "./Pages.tsx";
+import { Introduction, PartPage, pageTitle, Skeleton, Thread, useSendToThread, workingLine, WrapUpActions, WrapUpPage } from "./Pages.tsx";
 import { Pager } from "./Pager.tsx";
 import { Prose } from "./prose.tsx";
 import { stripReplyWrapper } from "./reply.ts";
@@ -126,10 +127,10 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const fail = useCallback((cause: unknown) => notify(errorMessage(cause), "error"), [notify]);
   const [rootRef, width] = useWidth<HTMLDivElement>();
   const wide = width >= WIDE_FROM;
-  // The concerns sheet and the toasts stop above the pager so its controls stay reachable.
   // Overlays that portal out of the reader stay inside it (see BoundaryContext).
   const [boundary, setBoundary] = useState<Element[]>([]);
   useEffect(() => setBoundary(rootRef.current ? [rootRef.current] : []), [rootRef]);
+  // The concerns sheet and the toasts stop above the pager so its controls stay reachable.
   useEffect(() => {
     const root = rootRef.current;
     const pager = root?.querySelector<HTMLElement>(".wt-pager");
@@ -144,15 +145,15 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   // Wrap-up is a state of the walkthrough, but the reader can still go back to
   // the parts from it; this only picks what is shown.
   const [leftWrapUp, setLeftWrapUp] = useState(false);
-  const [flag, setFlag] = useState<{ target: FlagTarget; top: number; left: number; above: boolean } | null>(null);
+  const [flag, setFlag] = useState<(FlagPlacement & { target: FlagTarget; left: number }) | null>(null);
   const [scope, setScope] = useState<FlagTarget | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const threadEndRef = useRef<HTMLDivElement>(null);
   const currentPartRef = useRef<HTMLButtonElement>(null);
+  const threadEndRef = useRef<HTMLDivElement>(null);
 
   const streams = useStreams(walkthrough.id, walkthrough.inFlight ? String(walkthrough.inFlight.sentAt) : null, rpc);
   const partCount = walkthrough.parts.length;
@@ -167,6 +168,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const title = pageTitle(walkthrough);
   const glyphs = useMemo(() => flagGlyphs(notes), [notes]);
   const canComment = hasReview(walkthrough);
+  const send = useSendToThread(walkthrough, rpc, notify, fail);
+  // On the wrap-up the same action is pinned above the composer; the sheet then leaves it there.
+  const pinnedSend = page.kind === "wrap-up" && !preparing && walkthrough.intent !== "review";
   const readerContext = useMemo(() => ({ glyphs, canComment, commentReason: "Comments are for pull requests" }), [glyphs, canComment]);
 
   // Keep the tab title in step with the walkthrough once it has one.
@@ -174,7 +178,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   useEffect(() => {
     if (surface !== "panel" || !retitle || walkthrough.title === "Walkthrough" || titled.current === walkthrough.title) return;
     titled.current = walkthrough.title;
-    navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title: walkthrough.title, params: { walkthroughId: walkthrough.id } });
+    navigate.openThreadPanel({ actionId: PANEL_ACTION_ID, title: tabTitle(walkthrough.title), params: { walkthroughId: walkthrough.id } });
   }, [navigate, surface, retitle, walkthrough.id, walkthrough.title]);
 
   useEffect(() => {
@@ -286,14 +290,14 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const pending = (status: string) => status === "writing" || status === "pending";
   const currentWriting = !closed && page.kind === "part" && pending(walkthrough.parts[page.index]!.status);
   const next = (() => {
-    if (preparing || position >= total - 1) return { label: null as string | null, waiting: false };
+    if (preparing || position >= total - 1) return { label: null as string | null, title: null as string | null, waiting: false };
     if (position === total - 2) {
       const label = canWrapUp && !closed ? "Wrap up" : walkthrough.wrapUp ? "Wrap-up" : null;
-      return currentWriting && label !== null ? { label: "Writing…", waiting: true } : { label, waiting: false };
+      return currentWriting && label !== null ? { label: "Writing…", title: null, waiting: true } : { label, title: null, waiting: false };
     }
     const upcoming = walkthrough.parts[position]!;
-    if (currentWriting || (!closed && upcoming.status === "writing")) return { label: "Writing…", waiting: true };
-    return { label: `Next: ${upcoming.title}`, waiting: false };
+    if (currentWriting || (!closed && upcoming.status === "writing")) return { label: "Writing…", title: null, waiting: true };
+    return { label: "Next", title: upcoming.title, waiting: false };
   })();
   const prevTitle = (() => {
     if (preparing || position === 0) return null;
@@ -307,9 +311,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const input = (() => {
     if (replying) return { placeholder: "Reply…", disabled: false };
     if (closed) return { placeholder: "This walkthrough is finished", disabled: true };
-    if (preparing) return { placeholder: "You can ask once the first part is ready", disabled: true };
-    if (page.kind === "intro") return { placeholder: "Open a part to ask about it", disabled: true };
-    if (activePart?.status !== "ready") return { placeholder: "You can ask once this page is written", disabled: true };
+    if (preparing) return { placeholder: "Questions open when part 1 is ready", disabled: true };
+    if (page.kind === "intro") return { placeholder: "Press Next, then ask about any part", disabled: true };
+    if (activePart?.status !== "ready") return { placeholder: "You can ask as soon as this part is written", disabled: true };
     return { placeholder: page.kind === "wrap-up" ? "Ask anything" : "Ask about this part", disabled: false };
   })();
   const askable = !input.disabled && !replying;
@@ -331,15 +335,30 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
   const pagePreview = useStreamedView(page.kind === "part" ? partPreview(streams, walkthrough, page.index) : null);
   const suggestionsLocked = !askable && !preparing && !closed && (pagePreview?.suggestions?.length ?? 0) > 0;
   const suggestions = askable && activePart ? suggestionsFor(activePart) : suggestionsLocked ? (pagePreview?.suggestions?.slice(0, 3) ?? []) : [];
-  const introPreview = useStreamedView(preparing ? previewFor(streams, walkthrough, "plan", 0) : null);
+  const planStream = preparing ? previewFor(streams, walkthrough, "plan", 0) : null;
+  const introPreview = useStreamedView(planStream);
+  const working = workingLine(planStream?.steps);
 
   // Flagging: a selection in prose or code, or a code line.
-  // The toolbar sits above the selection so it never covers the next line; at the top edge of the page it drops below.
+  // The toolbar sits above the selection when there is room and drops below it otherwise; the box measures itself (see FlagPopover) so it stays inside what is visible.
   const placeFlag = (target: FlagTarget, rect: { top: number; bottom: number; left: number }) => {
     const origin = pageRef.current?.getBoundingClientRect();
     if (!origin) return;
-    const above = rect.top - (scrollRef.current?.getBoundingClientRect().top ?? 0) > 56;
-    setFlag({ target, above, top: above ? rect.top - origin.top - 6 : rect.bottom - origin.top + 6, left: Math.max(0, Math.min(rect.left - origin.left, origin.width - COMPOSER_WIDTH)) });
+    const measured = scrollRef.current?.getBoundingClientRect();
+    const scroller = measured && measured.height > 0 ? measured : undefined;
+    const pager = rootRef.current?.querySelector(".wt-pager")?.getBoundingClientRect();
+    // Not over the page's own heading either: a selection below it keeps the toolbar from covering the title.
+    const head = pageRef.current?.querySelector(".wt-head")?.getBoundingClientRect();
+    const viewTop = Math.max(scroller?.top ?? origin.top, head !== undefined && rect.top > head.top ? head.bottom : -Infinity);
+    const viewBottom = Math.min(scroller?.bottom ?? Infinity, pager && pager.height > 0 ? pager.top : Infinity);
+    setFlag({
+      target,
+      anchorTop: rect.top - origin.top,
+      anchorBottom: rect.bottom - origin.top,
+      visibleTop: viewTop - origin.top,
+      visibleBottom: Number.isFinite(viewBottom) ? viewBottom - origin.top : Number.MAX_SAFE_INTEGER,
+      left: Math.max(0, Math.min(rect.left - origin.left, origin.width - COMPOSER_WIDTH)),
+    });
   };
   const onMouseUp = (event: MouseEvent) => {
     if ((event.target as HTMLElement).closest("[data-flag]")) return;
@@ -464,9 +483,9 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 
   const body = (() => {
     if (preparing && introPreview && introPreview.intro !== "") {
-      return <Introduction walkthrough={{ ...walkthrough, introduction: introPreview.intro }} onOpen={openPart} streaming={introPreview.introOpen} label={view.copy?.introduction ?? "Introduction"} />;
+      return <Introduction walkthrough={{ ...walkthrough, introduction: introPreview.intro }} onOpen={openPart} streaming={introPreview.introOpen} working={working} label={view.copy?.introduction ?? "Introduction"} />;
     }
-    if (preparing) return <Preparing walkthrough={walkthrough} skeleton={view.copy?.skeleton} />;
+    if (preparing) return <Preparing walkthrough={walkthrough} skeleton={working ?? view.copy?.skeleton} />;
     if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} coverage={view.coverage} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
     if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} coverage={view.coverage} label={view.copy?.introduction ?? "Introduction"} subject={<Subject walkthrough={walkthrough} subtitle={view.copy?.subtitle} />} />;
     return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} />;
@@ -477,6 +496,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
 
   return (
     <TooltipProvider delayDuration={400}>
+      <BoundaryContext.Provider value={boundary}>
       <StreamContext.Provider value={streams}>
         <NoticeContext.Provider value={notify}>
           <ReaderContext.Provider value={readerContext}>
@@ -493,7 +513,6 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                 {sheetOpen ? `Concerns open. ${openCount} open ${openCount === 1 ? "item" : "items"}.` : preparing ? "" : `${progressLabel}${page.kind === "part" ? `: ${walkthrough.parts[page.index]!.title}` : ""}`}
               </p>
               <header className="wt-top wt-glass">
-      <BoundaryContext.Provider value={boundary}>
                 <h1 className="wt-title" data-placeholder={title.placeholder || undefined}>
                   {title.text}
                 </h1>
@@ -516,6 +535,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       {partItems.map((item) => (
                         <li key={item.key}>
                           <button
+                            ref={item.go === position ? currentPartRef : undefined}
                             type="button"
                             aria-current={item.go === position ? "step" : undefined}
                             disabled={item.key === "wrap" && !canWrapUp}
@@ -532,7 +552,6 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                       ))}
                     </ol>
                   </PopoverContent>
-                            ref={item.go === position ? currentPartRef : undefined}
                 </Popover>
                 <button
                   ref={toggleRef}
@@ -578,6 +597,8 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                     </div>
                   ) : null}
                   {body}
+                  {wide && !preparing && page.kind === "intro" ? <ReadingMargin /> : null}
+                  {wide && !preparing && page.kind === "wrap-up" ? <OpenMargin notes={countedOpen(notes).filter((note) => note.author === "user")} glyphs={glyphs} onJump={jumpTo} onMore={() => openSheet("open")} /> : null}
                   {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
                   <div ref={threadEndRef} />
                   <ProseFlags pageRef={pageRef} notes={pageNotes} glyphs={glyphs} onOpen={() => openSheet("open")} />
@@ -597,37 +618,37 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                     />
                   ) : null}
                 </div>
-                  {wide && !preparing && page.kind === "intro" ? <ReadingMargin /> : null}
-                  {wide && !preparing && page.kind === "wrap-up" ? <OpenMargin notes={countedOpen(notes).filter((note) => note.author === "user")} glyphs={glyphs} onJump={jumpTo} onMore={() => openSheet("open")} /> : null}
               </div>
 
               <Pager
                 ref={inputRef}
                 prevTitle={prevTitle}
                 nextLabel={next.label}
+                nextTitle={next.title}
                 nextWaiting={next.waiting || (navBusy && next.label !== null)}
                 onPrev={() => goTo(position - 1)}
                 onNext={() => goTo(position + 1)}
                 placeholder={input.placeholder}
                 inputDisabled={input.disabled}
+                finished={closed}
                 suggestions={suggestions}
                 suggestionsLocked={suggestionsLocked}
                 scope={scope?.quote ?? null}
                 onClearScope={() => setScope(null)}
                 busy={busy}
                 onSubmit={submit}
-                actions={page.kind === "wrap-up" && !preparing ? <WrapUpActions walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} /> : undefined}
+                actions={page.kind === "wrap-up" && !preparing ? <WrapUpActions walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} send={send} /> : undefined}
               />
               {stack}
 
-              <ConcernsSheet view={view} rpc={rpc} open={sheetOpen} tab={tab} onTab={setTab} onClose={closeSheet} onJump={jumpTo} sheetRef={sheetRef} />
+              <ConcernsSheet view={view} rpc={rpc} open={sheetOpen} tab={tab} onTab={setTab} onClose={closeSheet} onJump={jumpTo} sheetRef={sheetRef} send={send} pinnedSend={pinnedSend} />
+              {send.dialog}
 
               <Dialog open={finishing} onOpenChange={setFinishing}>
                 <DialogContent className="wt-portal wt-dialog">
                   <DialogHeader>
                     <DialogTitle>Finish this walkthrough?</DialogTitle>
                     <DialogDescription>
-                finished={closed}
                       This stops the helper agent, so no more parts are written and you can’t ask it more questions. You can still read what is already written.
                       {(() => {
                         const unwritten = walkthrough.parts.filter((part) => part.status !== "ready").length;
@@ -656,6 +677,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
           </ReaderContext.Provider>
         </NoticeContext.Provider>
       </StreamContext.Provider>
+      </BoundaryContext.Provider>
     </TooltipProvider>
   );
 }
@@ -674,7 +696,6 @@ function Preparing({ walkthrough, skeleton }: { walkthrough: Walkthrough; skelet
       </article>
     );
   }
-      </BoundaryContext.Provider>
   if (walkthrough.status === "failed") return <p className="wt-muted">The walkthrough could not be started.</p>;
   return (
     <article aria-busy>
