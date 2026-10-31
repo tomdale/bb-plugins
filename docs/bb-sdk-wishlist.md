@@ -389,6 +389,23 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   original body only after the replacement mounts and restores it on cleanup
   or a rendering failure. This depends on host row identifiers and DOM markup.
 
+## Keep a timeline card anchored while expanding
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0, Plugin SDK 0.6.5
+- **Use case:** Workstreams' read-only question card should expand below its
+  disclosure without moving the card's top, even at the bottom of a thread.
+- **Limit:** the timeline's scroll position keeper pins the conversation to the
+  bottom when content grows, but the SDK does not expose its reading-position
+  controls to timeline renderers or app overlays. In the running app, opening a
+  tall card at the bottom moved its top upward by the card's added height.
+- **Workaround:** none supported. Manipulating the host's private scroll element
+  and synthesizing user scroll input can detach the bottom pin, but depends on
+  implementation details and can interfere with real user scrolling.
+- **Possible API:** a scoped timeline scroll controller that can preserve an
+  element's top edge across a plugin-driven layout change, including while the
+  timeline is bottom-attached, without simulating user input.
+
 ## Mount plugin content in the native thread conversation
 
 - **Status:** not filed
