@@ -277,7 +277,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
     }
     if (preparing) return <Preparing walkthrough={walkthrough} />;
     if (page.kind === "wrap-up") return <WrapUpPage walkthrough={walkthrough} notes={notes} draft={view.reviewDraft} rpc={rpc} wide={wide} onFlag={placeFlag} onOpenPart={openPart} onOpenConcerns={() => openSheet("open")} />;
-    if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} />;
+    if (page.kind === "intro") return <Introduction walkthrough={walkthrough} onOpen={openPart} subject={<Subject walkthrough={walkthrough} />} />;
     return <PartPage walkthrough={walkthrough} index={page.index} notes={notes} rpc={rpc} wide={wide} onFlag={placeFlag} />;
   })();
   const marginNumber = page.kind === "part" ? String(page.index + 1) : "·";
@@ -369,12 +369,9 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
 
           <div ref={scrollRef} className="wt-scroll">
             <div ref={pageRef} className="wt-page" onMouseUp={onMouseUp}>
-              <div className="wt-pn" aria-hidden>
+              <div className="wt-pn" data-bare={preparing || page.kind !== "part" || undefined} aria-hidden>
                 PART<b>{preparing ? "·" : marginNumber}</b>
               </div>
-              {page.kind === "intro" && (!preparing || introPreview !== null) ? (
-                <p className="wt-subject">{preparing ? "\u00a0" : <Subject walkthrough={walkthrough} />}</p>
-              ) : null}
               {body}
               {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
               <div ref={threadEndRef} />

@@ -19,7 +19,7 @@ export function LoadingPage({ message }: { message?: string | null }) {
     <div className="wt">
       <div className="wt-scroll">
         <div className="wt-page">
-          <div className="wt-pn" aria-hidden>
+          <div className="wt-pn" data-bare aria-hidden>
             PART<b>·</b>
           </div>
           {message ? <p className="wt-muted">{message}</p> : <Skeleton label="Opening the walkthrough…" />}

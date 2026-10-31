@@ -1,6 +1,6 @@
 // The pages of the reader: the introduction, one part, the wrap-up, and the
 // skeleton shown before anything is written.
-import { useContext, useState } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { experimental_FileLink as FileLink } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";

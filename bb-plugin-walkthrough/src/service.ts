@@ -84,6 +84,8 @@ const MERGE_BASE_TTL_MS = 60_000;
 const WRITE_AHEAD = 1;
 /** Longest the snapshots of one part may take; a block still unread then is saved without code. */
 const SNAPSHOT_BUDGET_MS = 25_000;
+/** Longest the plan request waits for the working-tree summary. */
+const BRIEF_WAIT_MS = 1500;
 const INTERRUPTED = "The helper was stopped before it finished.";
 const HELPER_GONE = "The helper for this walkthrough is no longer running, so it can't write or answer any more.";
 
@@ -104,6 +106,8 @@ function errorText(cause: unknown): string {
 }
 
 export class WalkthroughService {
+  /** The working-tree summary for each walkthrough's plan request, started when the walkthrough launches. */
+  private readonly briefs = new Map<string, Promise<string | null>>();
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
@@ -284,6 +288,8 @@ export class WalkthroughService {
   /** Forks the helper from the user's thread (or spawns one) and sends the plan request. */
   private async launch(id: string, threadId: string): Promise<void> {
     let walkthrough = this.get(id);
+    // Read the working tree while the fork provisions, so the plan request never waits on git.
+    this.briefs.set(id, this.workspaceBrief(walkthrough).catch(() => null));
     try {
       const worker = await this.bb.sdk.threads.fork({
         sourceThreadId: threadId,
@@ -301,7 +307,7 @@ export class WalkthroughService {
         const worker = await this.bb.sdk.threads.spawn({
           projectId: thread.projectId,
           environment: thread.environmentId ? { type: "reuse", environmentId: thread.environmentId } : { type: "project-default" },
-          prompt: planMessage(walkthrough, await this.workspaceBrief(walkthrough)),
+          prompt: planMessage(walkthrough, await this.takeBrief(id)),
           parentThreadId: threadId,
           lifecycleOwnerThreadId: threadId,
           visibility: "hidden",
@@ -355,7 +361,7 @@ export class WalkthroughService {
         if (!ready(walkthrough)) return;
       }
       const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
-      const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.workspaceBrief(walkthrough) : null);
+      const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.takeBrief(id) : null);
       if (body === null) {
         this.save({ ...walkthrough, queue: rest });
         void this.pump(id);
@@ -1102,7 +1108,7 @@ export class WalkthroughService {
     const beforeRange = change ? oldRange(change) : { start: low, end: high };
     const before = sides && beforeRange ? contextPatch(file.path, sides.old.content, beforeRange.start, beforeRange.end) : null;
     if (change === null && after === null) throw new WalkthroughError("There is no code in that range.");
-    return { path: file.path, change, after, before };
+    return { path: file.path, change: clampLongLines(change), after: clampLongLines(after), before: clampLongLines(before) };
   }
 
   private async mergeBase(walkthrough: Walkthrough): Promise<string | null> {
@@ -1249,6 +1255,18 @@ export class WalkthroughService {
     if (changed) this.save({ ...latest, parts });
   }
 
+  /** The brief started at launch, waiting at most BRIEF_WAIT_MS for it: a slow git must not delay the first words. */
+  private async takeBrief(id: string): Promise<string | null> {
+    const pending = this.briefs.get(id);
+    this.briefs.delete(id);
+    if (pending === undefined) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), BRIEF_WAIT_MS);
+    });
+    return Promise.race([pending, late]).finally(() => clearTimeout(timer));
+  }
+
   /** What the working tree holds right now, for the plan request: the helper cannot see staged or untracked work in a plain diff. */
   private async workspaceBrief(walkthrough: Walkthrough): Promise<string | null> {
     const found = await this.changedFiles({ ...walkthrough, baseRef: "HEAD", includeUncommitted: true, pr: null });
@@ -1373,6 +1391,18 @@ export function snapshotReason(cause: unknown): string {
   if (/timed? ?out|abort/iu.test(text)) return "Reading this code took too long.";
   if (/no file at|ENOENT|does not exist|unknown revision|bad revision|not a valid object|exists on disk, but not in/iu.test(text)) return "This code isn't in the reviewed revisions.";
   return "This code couldn't be read.";
+}
+
+/** Longest code line kept in a saved excerpt; minified or generated lines run to megabytes. */
+export const MAX_EXCERPT_LINE = 2000;
+
+/** Cuts code lines of a patch that run past MAX_EXCERPT_LINE, marking each cut; line counts are unchanged. */
+export function clampLongLines(patch: string | null): string | null {
+  if (patch === null || patch.length <= MAX_EXCERPT_LINE) return patch;
+  return patch
+    .split("\n")
+    .map((line) => (line.length > MAX_EXCERPT_LINE + 1 ? `${line.slice(0, MAX_EXCERPT_LINE + 1)} \u2026 [line cut at ${MAX_EXCERPT_LINE} characters]` : line))
+    .join("\n");
 }
 
 /** A context-only patch showing lines [start, end] of `content`. */
