@@ -26,7 +26,7 @@ async function handle<T>(run: () => T | Promise<T>): Promise<T> {
 }
 
 export default function plugin(bb: BbPluginApi) {
-  bb.settings.define({
+  const settings = bb.settings.define({
     autoOpenPanel: {
       type: "boolean",
       label: "Open the Walkthrough pane when a walkthrough starts",
@@ -49,7 +49,7 @@ export default function plugin(bb: BbPluginApi) {
     createdAt: walkthrough.createdAt,
   });
 
-  registerTools(bb, service);
+  registerTools(bb, service, async () => (await settings.get()).autoOpenPanel !== false);
   bb.agents.configure((context) =>
     isWorker(context.pluginMetadata)
       ? { tools: [...WORKER_TOOLS], skills: [], instructions: WORKER_GUIDE }

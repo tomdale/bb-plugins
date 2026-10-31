@@ -7,7 +7,7 @@ export function Hint({ label, children, side = "top" }: { label: string; childre
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side={side}>{label}</TooltipContent>
+      <TooltipContent side={side} className="wt-portal wt-tip">{label}</TooltipContent>
     </Tooltip>
   );
 }

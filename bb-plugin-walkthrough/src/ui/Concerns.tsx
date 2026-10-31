@@ -220,7 +220,7 @@ function ConcernItem({ walkthrough, note, rpc, onJump }: { walkthrough: Walkthro
             <span className="wt-sp" />
             {reviewable ? (
               <label className="wt-include">
-                <Checkbox checked={included} onCheckedChange={(next) => void update({ includeInReview: next === true })} aria-label="Include in review" />
+                <Checkbox className="wt-check" checked={included} onCheckedChange={(next) => void update({ includeInReview: next === true })} aria-label="Include in review" />
                 In review
               </label>
             ) : null}
@@ -395,7 +395,7 @@ export function PostReviewDialog({
   const inline = comments.length === 1 ? "1 inline comment" : `${comments.length} inline comments`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="wt-portal wt-dialog">
         <DialogHeader>
           <DialogTitle>Post review to GitHub as {EVENT_LABEL[event]}</DialogTitle>
           <DialogDescription>
@@ -452,11 +452,11 @@ export function PostReviewDialog({
             </button>
           ))}
         </div>
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="wt-dialog-actions">
+          <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" disabled={sending} onClick={onPost}>
+          <Button type="button" className="wt-btn wt-btn-primary" disabled={sending} onClick={onPost}>
             Post review
           </Button>
         </DialogFooter>

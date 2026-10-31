@@ -48,13 +48,26 @@ async function guard(run: () => Promise<PluginAgentToolResult> | PluginAgentTool
   }
 }
 
-export function registerTools(bb: BbPluginApi, service: WalkthroughService): void {
+/**
+ * What an ordinary thread's agent reads to decide whether a request is a
+ * walkthrough. Explaining code that has no diff is as much a walkthrough as
+ * reviewing a change, and the phrasing must say so, or the agent answers in chat.
+ */
+export const OPEN_DESCRIPTION =
+  "Open a Walkthrough pane beside this thread: a separate reading view where a helper agent that shares this conversation explains code part by part, with real code excerpts, questions, and notes. Call it whenever the user asks to be walked or guided through, or to have explained, a PR, a branch, changes you just made, or how existing code works (for example \"Walk me through how the queue works\", \"Explain how auth flows through this module\", \"Give me a tour of this package\"). No diff is needed: with nothing changed it walks through the current code.";
+
+export const OPEN_INSTRUCTIONS = [
+  "Call walkthrough_open, instead of answering in chat, when the user asks to be walked or guided through something or wants a multi-part explanation of code: a PR or branch review, changes you or they just made, or how some existing code works (\"walk me through how X works\", \"explain how X works\", \"how does X work end to end\", \"give me a tour of X\"). It also applies when the working tree is clean and nothing has changed. In BB this takes precedence over tdx-walkthrough.",
+  "Pass the user's own words as `request`, unparaphrased and without added paths. The helper decides whether it is a review, a check of their own change, or an explanation of existing code, so do not read the code or draft an explanation yourself first.",
+  "Answer in chat instead for a quick question about one function, line, or error, or when the user asks you to change code.",
+  "After the call, say in one short line that the Walkthrough pane is open beside this thread and fills in as the helper writes each part, then carry on with anything else they asked.",
+].join("\n\n");
+
+export function registerTools(bb: BbPluginApi, service: WalkthroughService, panelOpensItself: () => Promise<boolean> = async () => true): void {
   bb.agents.registerTool({
     name: "walkthrough_open",
-    description:
-      "Open a Walkthrough pane beside this thread: a separate reading view that explains a code change part by part, written by a helper agent that shares this conversation. Use it when the user asks to be walked or guided through changes, a branch, or a PR.",
-    instructions:
-      "When the user asks to be walked or guided through changes, a branch, or a PR, call walkthrough_open with their request instead of narrating in chat; in BB this takes precedence over tdx-walkthrough.",
+    description: OPEN_DESCRIPTION,
+    instructions: OPEN_INSTRUCTIONS,
     presentation: { label: { pending: "Opening walkthrough", completed: "Opened walkthrough" }, icon: { glyph: "Explore" } },
     parameters: z
       .object({
@@ -70,7 +83,10 @@ export function registerTools(bb: BbPluginApi, service: WalkthroughService): voi
       guard(async () => {
         if (service.byWorker(ctx.threadId)) return failure("This thread is already writing a walkthrough.");
         await service.start(ctx.threadId, request);
-        return "The Walkthrough pane is opening beside this thread and a helper agent is preparing it. Tell the user in one short line; do not narrate the change here, and do not offer to check on or summarize the helper's progress, since you cannot see it.";
+        // The pane opens itself on the user's screen when the setting allows it; say which, so the thread never claims a pane that is not there.
+        return (await panelOpensItself())
+          ? "The Walkthrough pane is open beside this thread now, showing the walkthrough getting ready; the helper's first part appears there as soon as it is written, usually within a minute. Tell the user that in one short line; do not narrate the code here, and do not offer to check on or summarize the helper's progress, since you cannot see it."
+          : "The walkthrough is being prepared, but the user turned off opening the pane automatically: tell them in one short line to open it from this thread's Walkthrough panel (the + menu), where it is listed and fills in as the helper writes. Do not narrate the code here, and do not offer to check on the helper's progress, since you cannot see it.";
       }),
   });
 

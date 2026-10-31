@@ -1,6 +1,9 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { makePluginAgentConfigurationContext } from "@get-bb/plugin-sdk/testing";
 import { readNote, readWalkthrough } from "../src/store.ts";
+import { OPEN_DESCRIPTION, OPEN_INSTRUCTIONS } from "../src/tools.ts";
+import { PLAN_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } from "../src/worker.ts";
 import { PART, PLAN, setup, settle, THREAD } from "./helpers.ts";
 
 const patch = "--- a/tts.ts\n+++ b/tts.ts\n@@ -1,2 +1,2 @@\n a\n-old\n+new\n";
@@ -276,5 +279,37 @@ describe("delivered instructions", () => {
     expect(texts.length).toBeGreaterThanOrEqual(6);
     for (const text of texts) expect(text.length).toBeLessThan(4096);
     expect(worker.tools.map((tool) => tool.name)).toContain("walkthrough_suggest");
+  });
+
+  it("measures the open tool's description, its instructions and the skill the same way", () => {
+    const skill = readFileSync(new URL("../skills/bb-walkthrough/SKILL.md", import.meta.url), "utf8");
+    for (const text of [OPEN_DESCRIPTION, OPEN_INSTRUCTIONS, skill]) expect(text.length).toBeLessThan(4096);
+  });
+
+  it("routes explain-the-code requests, with no diff, to walkthrough_open", async () => {
+    const { harness } = await setup();
+    const user = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
+    const open = user.tools.find((tool) => tool.name === "walkthrough_open")!;
+    const skill = readFileSync(new URL("../skills/bb-walkthrough/SKILL.md", import.meta.url), "utf8");
+    for (const text of [open.description, open.instructions ?? "", skill]) {
+      expect(text).toMatch(/walk me through how/iu);
+      expect(text).toMatch(/existing code|nothing (has )?changed|clean working tree|no change/iu);
+    }
+    expect(open.instructions).toMatch(/instead of answering in chat/u);
+  });
+
+  it("says in the tool result whether the pane is already open beside the thread", async () => {
+    const { tool } = await setup();
+    const opened = await tool("walkthrough_open", { request: "Walk me through how the queue works" }, THREAD);
+    expect(JSON.stringify(opened)).toContain("pane is open beside this thread now");
+  });
+});
+
+describe("understand intent instructions", () => {
+  it("asks for excerpts of the current code and keeps change-review language out of the plan and write instructions", () => {
+    expect(PLAN_INSTRUCTIONS).toMatch(/understand[^.]*baseRef to HEAD/u);
+    expect(PLAN_INSTRUCTIONS).toMatch(/Never use change-review words/u);
+    expect(WRITE_PART_INSTRUCTIONS).toMatch(/understand walkthrough every code block is view "code"/u);
+    expect(WRITE_PART_INSTRUCTIONS).toMatch(/Staged, unstaged, and untracked files are all current code/u);
   });
 });

@@ -539,7 +539,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
                       </button>
                     </DropdownMenuTrigger>
                   </Hint>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="wt-portal wt-menu">
                     {surface === "panel" ? (
                       <DropdownMenuItem onSelect={() => navigate.toPluginPanel(PAGE_PATH, { subPath: walkthrough.id })}>Open as full page</DropdownMenuItem>
                     ) : (
@@ -615,7 +615,7 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
               <ConcernsSheet view={view} rpc={rpc} open={sheetOpen} tab={tab} onTab={setTab} onClose={closeSheet} onJump={jumpTo} sheetRef={sheetRef} />
 
               <Dialog open={finishing} onOpenChange={setFinishing}>
-                <DialogContent>
+                <DialogContent className="wt-portal wt-dialog">
                   <DialogHeader>
                     <DialogTitle>Finish this walkthrough?</DialogTitle>
                     <DialogDescription>
@@ -626,12 +626,13 @@ export function Reader({ threadId, view, rpc, surface }: { threadId: string; vie
                       })()}
                     </DialogDescription>
                   </DialogHeader>
-                  <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={() => setFinishing(false)}>
+                  <DialogFooter className="wt-dialog-actions">
+                    <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" onClick={() => setFinishing(false)}>
                       Keep reading
                     </Button>
                     <Button
                       type="button"
+                      className="wt-btn wt-btn-primary"
                       onClick={() => {
                         setFinishing(false);
                         rpc.call("close", { walkthroughId: walkthrough.id }).catch(fail);

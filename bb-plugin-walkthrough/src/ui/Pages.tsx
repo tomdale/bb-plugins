@@ -422,17 +422,17 @@ function ApplyDialog({ open, onOpenChange, walkthrough, notes, sending, onSend }
         onOpenChange(next);
       }}
     >
-      <DialogContent>
+      <DialogContent className="wt-portal wt-dialog">
         <DialogHeader>
           <DialogTitle>Ask the thread to apply it</DialogTitle>
           <DialogDescription>This is the message your thread will receive. Edit it, then send it. Nothing is sent until you press Send.</DialogDescription>
         </DialogHeader>
         <textarea className="wt-apply-text" aria-label="Message to your thread" rows={10} value={text} onChange={(event) => setDraft(event.target.value)} />
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="wt-dialog-actions">
+          <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" disabled={sending || text.trim() === ""} onClick={() => onSend(text, text !== generated)}>
+          <Button type="button" className="wt-btn wt-btn-primary" disabled={sending || text.trim() === ""} onClick={() => onSend(text, text !== generated)}>
             Send to thread
           </Button>
         </DialogFooter>
