@@ -20,6 +20,7 @@ import { PART_STATE_LABEL, flagGlyphs, pageAt, pagePosition, partState, suggesti
 import { cssEscape, findQuote, snapRangeToWords } from "./highlight.ts";
 import { Hint } from "./Hint.tsx";
 import { errorMessage, useStreams, useWidth, type WalkthroughRpc } from "./hooks.ts";
+import { OpenMargin, ReadingMargin } from "./Marginalia.tsx";
 import { NoticeContext, useNotices } from "./notices.tsx";
 import { Introduction, PartPage, pageTitle, Skeleton, Thread, WrapUpActions, WrapUpPage } from "./Pages.tsx";
 import { Pager } from "./Pager.tsx";
@@ -596,6 +597,8 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                     />
                   ) : null}
                 </div>
+                  {wide && !preparing && page.kind === "intro" ? <ReadingMargin /> : null}
+                  {wide && !preparing && page.kind === "wrap-up" ? <OpenMargin notes={countedOpen(notes).filter((note) => note.author === "user")} glyphs={glyphs} onJump={jumpTo} onMore={() => openSheet("open")} /> : null}
               </div>
 
               <Pager

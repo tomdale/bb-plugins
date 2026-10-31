@@ -18,6 +18,8 @@
   --wt-fill: rgba(0, 0, 0, 0.05);
   --wt-add: rgba(52, 199, 89, 0.16);
   --wt-del: rgba(255, 59, 48, 0.12);
+  --wt-add-word: rgba(52, 199, 89, 0.34);
+  --wt-del-word: rgba(255, 59, 48, 0.28);
   --wt-add-ink: #1d8a3a;
   --wt-del-ink: #c9372c;
   --wt-add-edge: rgba(52, 199, 89, 0.8);
@@ -53,6 +55,8 @@
   --wt-fill: rgba(255, 255, 255, 0.08);
   --wt-add: rgba(48, 209, 88, 0.1);
   --wt-del: rgba(255, 69, 58, 0.12);
+  --wt-add-word: rgba(48, 209, 88, 0.24);
+  --wt-del-word: rgba(255, 69, 58, 0.26);
   --wt-add-ink: #5bd778;
   --wt-del-ink: #ff8a80;
   --wt-add-edge: rgba(48, 209, 88, 0.7);
@@ -279,6 +283,9 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 }
 .wt-code:focus-visible { outline-offset: -2px; }
 .wt-code-rows { min-width: max-content; }
+/* Switching between Diff, After and Before fades the new lines in instead of cutting. */
+.wt-swap { animation: wt-swap 0.22s ease-out; }
+@keyframes wt-swap { from { opacity: 0.15; } }
 .wt-row { display: flex; gap: 14px; height: 20px; padding: 0 var(--wt-fig-pad) 0 calc(var(--wt-fig-l) + 28px); position: relative; white-space: pre; }
 .wt-row b { flex: none; width: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 2px; font-weight: 400; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
 /* Note markers have their own column left of the line numbers, so a flagged line keeps its number. */
@@ -299,6 +306,10 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-add .wt-text::before, .wt-del .wt-text::before { position: absolute; left: -12px; width: 10px; text-align: center; font-weight: 600; }
 .wt-add .wt-text::before { content: "+"; color: var(--wt-add-ink); }
 .wt-del .wt-text::before { content: "\2212"; color: var(--wt-del-ink); }
+/* Within a replaced line, the words that changed carry a deeper tint of the line's own colour. */
+.wt-w { color: inherit; border-radius: 3px; box-shadow: 0 0 0 1px var(--wt-w-bg); background: var(--wt-w-bg); }
+.wt-add .wt-w { --wt-w-bg: var(--wt-add-word); }
+.wt-del .wt-w { --wt-w-bg: var(--wt-del-word); }
 .wt-gap { color: var(--wt-mute); }
 .wt-hot, .wt-row.wt-hot { background: var(--wt-yhi); }
 .wt-row.wt-hot.wt-add, .wt-row.wt-hot.wt-del { background: linear-gradient(var(--wt-yhi), var(--wt-yhi)), var(--wt-page); }
@@ -325,6 +336,17 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px var(--wt-fig-l); display: flex; flex-direction: column; gap: 10px; }
 .wt[data-wide] .wt-margin { position: absolute; top: 0; left: calc(100% + 18px); width: 210px; }
 .wt[data-wide] .wt-margin-slot { position: absolute; left: 0; right: 0; }
+
+/* Marginalia on the introduction and wrap-up: set in the page's right margin, beside the first paragraph. */
+.wt-aside { display: none; }
+.wt[data-wide] .wt-aside { display: block; position: absolute; top: 34px; left: calc(62px + var(--wt-measure) + 64px); width: 210px; padding-left: 14px; border-left: 0.5px solid var(--wt-hair); }
+.wt-aside .wt-lbl { margin-bottom: 10px; }
+.wt-aside-line { margin: 0 0 8px; font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-mute); }
+.wt-aside kbd { display: inline-block; min-width: 1.5em; padding: 0 4px; border-radius: 4px; background: var(--wt-fill); box-shadow: inset 0 0 0 0.5px var(--wt-hair); font: 500 11px/1.6 var(--wt-sans); font-style: normal; text-align: center; color: var(--wt-ink); }
+.wt-aside-item { display: block; width: 100%; margin: 0 0 12px; padding-top: 0; padding-right: 0; padding-bottom: 0; border: 0; background: none; text-align: left; cursor: pointer; }
+.wt-aside-item:hover { opacity: 1; background: var(--wt-yhi); }
+.wt-aside-loc { display: block; font: 11px var(--wt-mono); font-style: normal; color: var(--wt-mute); }
+.wt-aside .wt-link-btn { font-size: 12px; }
 
 /* Selection toolbar and note composer */
 /* Dense glass: over serif text a thin one leaves a ghost of the line behind it. */
@@ -379,8 +401,9 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions, .wt-finished)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
 /* Panel width: the question gets its own row and Prev and Next share the one below, so no label is clipped. */
 @container wt (max-width: 460px) {
-  .wt-pager-row { flex-wrap: wrap; }
-  .wt-pager-row .wt-input { order: -1; flex: 1 0 100%; }
+  /* Only a row that also carries Next needs the second line; Prev and the question share one when there is no Next. */
+  .wt-pager-row:has(.wt-next) { flex-wrap: wrap; }
+  .wt-pager-row:has(.wt-next) .wt-input { order: -1; flex: 1 0 100%; }
   .wt-pager-row .wt-prev { flex: none; }
   .wt-pager-row .wt-next { flex: 1; max-width: none; }
   .wt-pager:has(.wt-pager-actions) .wt-pager-row { grid-column: 1 / -1; grid-row: 4; }
@@ -405,11 +428,15 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
   box-shadow: 0 16px 40px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair);
   -webkit-backdrop-filter: blur(40px) saturate(1.1); backdrop-filter: blur(40px) saturate(1.1);
   transform: translateX(calc(100% + 24px)); visibility: hidden;
-  transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02), visibility 0s 0.38s;
+  transition: transform 0.26s cubic-bezier(0.4, 0, 1, 1), visibility 0s 0.26s;
 }
 /* In the narrow panel the sheet spans the page. */
 .wt:not([data-wide]) .wt-sheet { left: calc(var(--wt-inset) + 10px); width: auto; }
-.wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1.02); }
+/* It arrives on a damped spring (about 3 percent overshoot, settled in half a second) and leaves on a short ease-in; engines without linear() get the plain curve. */
+.wt-sheet[data-open] { transform: none; visibility: visible; transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.25, 1); }
+@supports (transition-timing-function: linear(0, 1)) {
+  .wt-sheet[data-open] { transition: transform 0.5s linear(0, 0.0469, 0.158, 0.2982, 0.4441, 0.5808, 0.7, 0.7983, 0.8754, 0.9329, 0.9736, 1.0006, 1.0169, 1.0254, 1.0283, 1.0276, 1.0248, 1.0209, 1.0168, 1.0128, 1.0093, 1.0064, 1.004, 1.0023, 1); }
+}
 @media (prefers-reduced-transparency: reduce) { .wt-sheet { background: var(--wt-glass-solid); -webkit-backdrop-filter: none; backdrop-filter: none; } }
 .wt-tabs { display: flex; align-items: center; gap: 16px; padding-bottom: 6px; border-bottom: 0.5px solid var(--wt-hair); }
 .wt-tabs [role="tab"] { border: 0; border-radius: 6px; background: none; padding: 1px 4px; margin: 0 -4px; color: var(--wt-mute); }
@@ -457,7 +484,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 /* Part picker (portaled) */
 .wt-picker { width: min(440px, 92vw); padding: 6px !important; background: var(--wt-glass-solid) !important; color: var(--wt-ink) !important; font: 13px/1.4 var(--wt-sans); border: 0 !important; border-radius: 12px !important; box-shadow: 0 12px 32px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair) !important; }
 .wt-picker ol { list-style: none; margin: 0; padding: 0; max-height: 60vh; overflow-y: auto; }
-.wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px 6px 14px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 /* One highlight at a time: hover fills a row, the current part is marked by its dot and weight, and keyboard focus is a ring inside the row (the list scrolls, so an outer outline would be clipped). */
 .wt-picker button:hover:not(:disabled) { background: var(--wt-fill); }
 .wt-picker button:focus-visible { outline: none; background: none; box-shadow: inset 0 0 0 1.5px var(--wt-ring); }

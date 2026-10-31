@@ -2,7 +2,7 @@
 // note markers, with each note hanging in the right margin on wide pages and
 // stacked under the code on narrow ones. Rows have a fixed height, so a note's
 // offset is arithmetic instead of measurement and nothing reflows after paint.
-import { useContext, useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useContext, useEffect, useId, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { UrlLink } from "@get-bb/plugin-sdk/app";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { useWalkthroughRpc } from "./hooks.ts";
 import { useNotify } from "./notices.tsx";
 import { LocationLink } from "./parts.tsx";
 import { parsePatchRows, rowIndexForLine, type PatchRow } from "./patch-lines.ts";
+import { rowEmphasis, type Emphasis } from "./word-diff.ts";
 
 const VIEW_LABEL: Record<ExcerptView, string> = { change: "Diff", after: "After", before: "Before" };
 const VIEWS: ExcerptView[] = ["change", "after", "before"];
@@ -124,6 +125,24 @@ function marginOffsets(annotations: Annotation[]): number[] {
   });
 }
 
+/** A line of code with the words that changed marked (see word-diff.ts); the text itself is untouched, so selecting and copying it read the same. */
+function EmphasizedText({ text, ranges }: { text: string; ranges: Emphasis | undefined }) {
+  if (!ranges || ranges.length === 0) return <>{text}</>;
+  const parts: ReactNode[] = [];
+  let at = 0;
+  ranges.forEach(([start, end], index) => {
+    if (start > at) parts.push(text.slice(at, start));
+    parts.push(
+      <mark key={index} className="wt-w">
+        {text.slice(start, end)}
+      </mark>,
+    );
+    at = end;
+  });
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
+}
+
 /**
  * The hairline from a code row to its margin note. A note level with its row
  * gets a short tick; one pushed down past the note above it gets an elbow that
@@ -178,6 +197,7 @@ export function Figure({
   const patch = data ? (isCode ? (data.after ?? data.change) : data[view]) : null;
   const copyView: ExcerptView = isCode ? (data?.after ? "after" : "change") : view;
   const rows = useMemo(() => (patch ? parsePatchRows(patch) : []), [patch]);
+  const emphasis = useMemo(() => rowEmphasis(rows), [rows]);
   const annotations = useMemo(() => annotationsFor(block, notes, rows, glyphs), [block, notes, rows, glyphs]);
   const offsets = useMemo(() => marginOffsets(annotations), [annotations]);
   // A note below the clamp stretches it to just past that note; the rest stays folded so flagging never opens the whole figure.
@@ -250,7 +270,7 @@ export function Figure({
       <div className="wt-margin" aria-label="Notes on this code">
         {annotations.map((annotation, index) => (
           <div key={annotation.key} className="wt-margin-slot" style={{ top: offsets[index] }}>
-            {note(annotation)}
+            {note(annotation, (offsets[index] ?? 0) - (HEADER_HEIGHT + CODE_PAD + annotation.row * ROW_HEIGHT))}
           </div>
         ))}
       </div>
@@ -330,7 +350,7 @@ export function Figure({
             <span className="wt-sr" role="status" aria-live="polite">
               {cursorLine === null ? "" : `Line ${cursorLine}. Press C to flag it.`}
             </span>
-            <div className="wt-code-rows">
+            <div key={view} className={cn("wt-code-rows", chosen !== null && "wt-swap")}>
               {rows.map((row, index) => {
                 const line = row.newNo ?? row.oldNo;
                 const markers = markerRows.get(index) ?? [];
@@ -399,7 +419,7 @@ export function Figure({
                     </b>
                     <span className="wt-text">
                       {row.kind === "add" ? <span className="wt-sr">Added: </span> : row.kind === "del" ? <span className="wt-sr">Removed: </span> : null}
-                      {row.text === "" ? " " : row.text}
+                      {row.text === "" ? " " : <EmphasizedText text={row.text} ranges={emphasis.get(index)} />}
                     </span>
                   </div>
                 );

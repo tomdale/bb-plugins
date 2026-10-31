@@ -4,7 +4,7 @@
 import { fireEvent } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mountPage, mounted, part, stubWidth, viewOf, walkthrough } from "./helpers.tsx";
+import { mountPage, mounted, note, part, stubWidth, viewOf, walkthrough } from "./helpers.tsx";
 
 const css = readFileSync("app.css", "utf8").replace(/\/\*[\s\S]*?\*\//gu, "");
 /** The declarations of every rule whose selector list names `selector` exactly. */
@@ -90,7 +90,7 @@ describe("the concerns sheet, pager and shared controls", () => {
   });
 
   it("goes to a compact pager at panel width and fades suggestions that overflow", () => {
-    expect(css).toMatch(/@container wt \(max-width: 460px\)[^}]*\.wt-pager-row \{ flex-wrap: wrap; \}/u);
+    expect(css).toMatch(/@container wt \(max-width: 460px\)[^}]*\.wt-pager-row:has\(\.wt-next\) \{ flex-wrap: wrap; \}/u);
     expect(css).toMatch(/\.wt-suggest \{[^}]*animation-timeline: scroll\(self inline\)/u);
   });
 
@@ -232,3 +232,56 @@ describe("round two: geometry, stacking and focus", () => {
   it("gives the figure header its own line up to 540px, and clips a long path at its start", () => {
     expect(css).toMatch(/@container wt \(max-width: 540px\) \{\s*\.wt-fh \{ flex-wrap: wrap/u);
     expect(rule(".wt-fh-loc")).toContain("direction: rtl");
+  });
+});
+
+describe("round two: detail and motion", () => {
+  const diff = ["diff --git a/src/a.ts b/src/a.ts", "--- a/src/a.ts", "+++ b/src/a.ts", "@@ -3,3 +3,3 @@", " one", "-const delay = base * attempt;", "+const delay = base * 2 ** attempt + jitter();", " three", ""].join("\n");
+  const block = { kind: "code" as const, caption: "c", path: "src/a.ts", startLine: 3, endLine: 5, notes: [], snapshot: { change: diff, after: null, before: null, baseSha: null, headSha: null, capturedAt: 1 }, view: "diff" as const };
+
+  it("marks the words that changed inside a replaced line, without changing its text", async () => {
+    const slot = await mountPage("wt_1", viewOf(walkthrough({ parts: [part("A", { blocks: [block] })] })));
+    await slot.findByText("three");
+    const marks = Array.from(slot.container.querySelectorAll(".wt-add mark.wt-w")).map((mark) => mark.textContent);
+    expect(marks).toEqual(["2 **", "+ jitter()"]);
+    expect(slot.container.querySelector(".wt-add .wt-text")!.textContent).toContain("const delay = base * 2 ** attempt + jitter();");
+    expect(rule(".wt-w")).toContain("var(--wt-w-bg)");
+  });
+
+  it("fades the lines in when the reader switches between Diff, After and Before, and only then", async () => {
+    const withBoth = { ...block, snapshot: { ...block.snapshot, after: diff.replace("-const delay = base * attempt;\n", ""), before: diff } };
+    const slot = await mountPage("wt_1", viewOf(walkthrough({ parts: [part("A", { blocks: [withBoth] })] })));
+    await slot.findByText("three");
+    expect(slot.container.querySelector(".wt-code-rows")!.className).not.toContain("wt-swap");
+    fireEvent.click(slot.getByRole("button", { name: "After" }));
+    expect(slot.container.querySelector(".wt-code-rows")!.className).toContain("wt-swap");
+    expect(rule(".wt-swap")).toContain("animation: wt-swap");
+  });
+
+  it("brings the concerns sheet in on a damped spring where the engine can, and leaves on a short ease-in", () => {
+    expect(css).toMatch(/@supports \(transition-timing-function: linear\(0, 1\)\) \{\s*\.wt-sheet\[data-open\] \{ transition: transform 0\.5s linear\(0, /u);
+    expect(rule(".wt-sheet")).toContain("0.26s cubic-bezier(0.4, 0, 1, 1)");
+    // Reduced motion drops every transition and animation under the reader, the sheet's spring included.
+    expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.wt \*:not\(\.wt-code\)[^}]*transition: none !important/u);
+  });
+
+  it("tells a first-time reader how to read, in the introduction's margin on a wide page, and not on a narrow one", async () => {
+    stubWidth(1300);
+    const wide = await mountPage("wt_1", viewOf(walkthrough({ currentPart: null, introduction: "Hello there." })));
+    expect((await wide.findByLabelText("How to read")).textContent).toContain("turn the pages");
+    wide.unmount();
+    mounted.pop();
+    stubWidth(480);
+    const narrow = await mountPage("wt_1", viewOf(walkthrough({ currentPart: null, introduction: "Hello there." })));
+    await narrow.findByText("Hello there.");
+    expect(narrow.queryByLabelText("How to read")).toBeNull();
+  });
+
+  it("lists the reader's open items in the wrap-up's margin, each one a way to its place", async () => {
+    stubWidth(1300);
+    const slot = await mountPage("wt_1", viewOf(walkthrough({ status: "wrapping-up", wrapUp: part("Wrap", { blocks: [{ kind: "prose", text: "All done." }] }) }), [note({ id: "n1", text: "Check the 429 path", kind: "todo" })]));
+    const margin = await slot.findByLabelText("Still open");
+    expect(margin.textContent).toContain("Todo · Check the 429 path");
+    expect(margin.querySelector("button.wt-aside-item")).not.toBeNull();
+  });
+});
