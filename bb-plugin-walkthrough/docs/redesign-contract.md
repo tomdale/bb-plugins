@@ -115,3 +115,15 @@ suggestions:
 - Prose appears as it arrives. The open prose block and an open figure carry a subtle pulsing dot (`wt-streaming`, `data-streaming`), which reduced motion removes. A figure appears when its header is complete and renders from the `excerpt` RPC until the saved snapshot exists. Suggestions appear above the pager, disabled, when their block closes.
 - An answer streams into its exchange in the margin thread; the exchange's `status` and saved `answer` take over when it settles.
 - Streamed and committed content render through the same components with the same keys, so when `get` returns the ready part the elements stay in place and only their content settles.
+
+## Polish requests
+
+### From UX (open)
+The pane builds against these shapes and degrades when they are absent.
+
+- `view.coverage`: `{ files: Array<{ path: string; covered: boolean }> } | null`. Every file the reviewed change touches, and whether at least one figure shows lines of it. `null` or absent hides the coverage strip. The introduction and wrap-up list covered and not-covered files.
+- `part.staleFiles?: string[]`: on a delivered part, the files that part cites which changed after it was written (empty when none did). When the field is present the "out of date" notice and picker status appear only if it is non-empty; when absent the pane falls back to the whole-change fingerprint.
+- `handOff` accepts optional `message: string`: the text sent to the thread in place of the generated one. "Ask the thread to apply it" prefills the generated text, lets the reader edit it, and sends the edit only when it differs from the generated text.
+- `detectTarget` `uncommitted` target gains optional `staged: number` (files with staged changes, counted within `files`). The starter reads "5 files, 3 staged" and re-polls while it is open, so detection must be cheap to repeat.
+- A snapshot `headSha`/`baseSha` is read as the revision a figure was captured at. In PR mode `walkthrough.pr.url` is the base for "Open on GitHub" (`<pr url>/files`; there is no per-file permalink without the repo slug, so the figure links to the PR's blob for `headSha` when `pr.url` parses as `https://github.com/<owner>/<repo>/pull/<n>`).
+- SDK limit (for `docs/bb-sdk-wishlist.md`): a thread panel tab cannot change its own `params` or be replaced. The starter therefore renders the new walkthrough inside its own tab; a reload of that tab shows the starter again, with the walkthrough listed under Earlier walkthroughs.
