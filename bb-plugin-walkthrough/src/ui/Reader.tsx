@@ -617,7 +617,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                     )}
                     <DropdownMenuSeparator />
                     {!closed ? <DropdownMenuItem onSelect={() => setFinishing(true)}>Finish walkthrough</DropdownMenuItem> : null}
-                    <DropdownMenuItem onSelect={() => setDeleting(true)}>Delete walkthrough…</DropdownMenuItem>
+                    <DropdownMenuItem className="wt-menu-danger" onSelect={() => setDeleting(true)}>Delete walkthrough…</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </header>

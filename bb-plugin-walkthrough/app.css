@@ -32,7 +32,17 @@
   --wt-btnt: #fff;
   --wt-shadow: rgba(0, 0, 0, 0.12);
   --wt-focus: rgba(0, 0, 0, 0.75);
-  --wt-ring: #b88a00;
+  /* The one focus language: a soft halo of the accent, never a brown line. */
+  --wt-ring: color-mix(in srgb, #ffcc00 70%, transparent);
+  --wt-danger: #ff3b30;
+  --wt-danger-ink: #d70015;
+  /* Motion: three durations, an arrival curve and a departure curve, and one pulse rate for everything that breathes. */
+  --wt-dur-1: 120ms;
+  --wt-dur-2: 220ms;
+  --wt-dur-3: 350ms;
+  --wt-ease-out: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --wt-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --wt-pulse: 1.6s;
   --wt-select: rgba(255, 204, 0, 0.4);
   /* One reading width for prose, contents, ledger, captions and the question thread: 62 to 68 characters at 17px. */
   --wt-measure: 480px;
@@ -66,7 +76,10 @@
   --wt-btnt: #2a2100;
   --wt-shadow: rgba(0, 0, 0, 0.6);
   --wt-focus: rgba(255, 255, 255, 0.85);
-  --wt-ring: #ffcc00;
+  --wt-ring: color-mix(in srgb, #ffcc00 58%, transparent);
+  --wt-danger: #ff453a;
+  --wt-danger-ink: #ff6961;
+  color-scheme: dark;
   --wt-select: rgba(255, 204, 0, 0.34);
 }
 
@@ -97,11 +110,23 @@
   :where(.wt) button { font: inherit; color: inherit; cursor: pointer; }
   :where(.wt) button:disabled { cursor: default; opacity: 0.45; }
 }
-/* No border-radius here: the ring follows each control's own shape, so focus never squares off a pill. */
-.wt :focus-visible, .wt-portal :focus-visible { outline: 2px solid var(--wt-ring); outline-offset: 2px; }
-.wt-chip[data-selected]:focus-visible, .dark .wt-btn-primary:focus-visible { outline-color: var(--wt-ink); }
+/* No border-radius here: the halo follows each control's own shape, so focus never squares off a pill. */
+.wt :focus-visible, .wt-portal :focus-visible { outline: 3px solid var(--wt-ring); outline-offset: 1px; }
+/* Yellow on yellow: a control that is itself the accent is haloed in ink instead. */
+.wt-chip[data-selected]:focus-visible, .dark .wt-btn-primary:focus-visible { outline-color: color-mix(in srgb, var(--wt-ink) 55%, transparent); }
 /* A control that sits in a track rings inside it, so the ring never spills over the track's edge. */
-.wt-seg button:focus-visible, .wt-portal.wt-dialog [role="radiogroup"] button:focus-visible, .wt-radios button:focus-visible { outline-offset: -2px; }
+.wt-seg button:focus-visible, .wt-portal.wt-dialog [role="radiogroup"] button:focus-visible, .wt-radios button:focus-visible { outline-width: 2px; outline-offset: -2px; }
+/* Text fields draw the halo themselves, inside their own fill. */
+.wt textarea:focus-visible, .wt-portal textarea:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--wt-ring); }
+/*
+ * Focus is for the keyboard. A surface the pointer opened (a dialog, the part
+ * picker, the Concerns sheet) still moves focus into itself so Escape and Tab
+ * work, but shows no ring until a key is pressed; src/ui/modality.ts keeps
+ * the flag on <html>. Text fields keep theirs: they are where typing goes.
+ */
+html[data-wt-pointer] :is(.wt, .wt-portal) :focus-visible:not(input, textarea, [contenteditable]) { outline: none; }
+html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
+.wt .wt-start-input:focus-within { box-shadow: 0 0 0 3px var(--wt-ring); }
 .wt ::selection, .wt-portal ::selection { background: var(--wt-select); }
 .wt-sp { flex: 1; }
 .wt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -147,6 +172,7 @@
 .wt-chip:hover:not(:disabled) { background: var(--wt-hair); }
 .wt-chip[aria-expanded="true"] { background: var(--wt-hair); }
 .wt-chip[data-selected="true"] { background: var(--wt-y); color: var(--wt-yt); }
+.wt-chip[data-selected="true"]:hover:not(:disabled) { background: color-mix(in srgb, var(--wt-y) 88%, #000); color: var(--wt-yt); }
 .wt-chip-icon { padding: 0 6px; }
 .wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-y); animation: wt-pulse 1.4s ease-in-out infinite; }
 
@@ -366,6 +392,8 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 /* Buttons */
 .wt-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 30px; padding: 0 14px; border: 0; border-radius: 15px; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
 .wt-btn-primary { background: var(--wt-btn); color: var(--wt-btnt); }
+.wt-btn-danger { background: var(--wt-danger); color: #fff; }
+.wt-btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--wt-danger) 90%, #000); }
 .wt-btn-quiet { background: var(--wt-fill); }
 .wt-btn-quiet:hover:not(:disabled) { background: var(--wt-hair); }
 .wt-btn-icon { width: 30px; padding: 0; flex: none; }
@@ -394,7 +422,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-finished { flex: 1; min-width: 0; margin: 0; text-align: center; font: italic 13px var(--wt-serif); color: var(--wt-mute); }
 .wt-input { flex: 1; min-width: 0; display: flex; align-items: center; height: 30px; border-radius: 15px; padding: 0 4px 0 14px; background: var(--wt-fill); }
 .wt-input input { flex: 1; min-width: 0; border: 0; background: none; outline: none; height: 100%; padding: 0; }
-.wt-input:focus-within { box-shadow: 0 0 0 2px var(--wt-ring); }
+.wt-input:focus-within { box-shadow: 0 0 0 3px var(--wt-ring); }
 .wt-input[data-disabled] { opacity: 0.6; }
 .wt-input[data-disabled] input { cursor: default; }
 /* A pager with nothing to ask and nowhere to go is not a bar. */
@@ -487,7 +515,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
 .wt-picker button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; border-radius: 8px; background: none; padding: 6px 8px 6px 14px; text-align: left; color: inherit; font: inherit; cursor: pointer; }
 /* One highlight at a time: hover fills a row, the current part is marked by its dot and weight, and keyboard focus is a ring inside the row (the list scrolls, so an outer outline would be clipped). */
 .wt-picker button:hover:not(:disabled) { background: var(--wt-fill); }
-.wt-picker button:focus-visible { outline: none; background: none; box-shadow: inset 0 0 0 1.5px var(--wt-ring); }
+.wt-picker button:focus-visible { outline: none; background: none; box-shadow: inset 0 0 0 2px var(--wt-ring); }
 .wt-picker button[aria-current="step"] .wt-picker-t { font-weight: 600; }
 .wt-picker button:disabled { opacity: 0.45; cursor: default; }
 .wt-picker-n { position: relative; width: 16px; flex: none; text-align: right; font: 500 15px var(--wt-serif); color: var(--wt-mute); font-variant-numeric: tabular-nums; }
@@ -548,6 +576,7 @@ button.wt-it-loc:hover { text-decoration: underline; }
   box-shadow: 0 12px 32px var(--wt-shadow), inset 0 0 0 0.5px var(--wt-hair); font: 13px/1.4 var(--wt-sans);
 }
 .wt-portal.wt-menu [role="menuitem"] { border-radius: 8px; padding: 6px 10px; font: inherit; color: inherit; cursor: pointer; }
+.wt-portal.wt-menu [role="menuitem"].wt-menu-danger { color: var(--wt-danger-ink); }
 .wt-portal.wt-menu [role="menuitem"][data-highlighted] { background: var(--wt-fill); color: var(--wt-ink); outline: none; }
 .wt-portal.wt-menu [role="separator"] { margin: 4px 6px; background: var(--wt-hair); }
 .wt-portal.wt-dialog {

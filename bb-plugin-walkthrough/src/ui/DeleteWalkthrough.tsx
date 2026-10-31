@@ -89,7 +89,7 @@ export function DeleteWalkthroughDialog({
           <Button type="button" variant="ghost" className="wt-btn wt-btn-quiet" disabled={busy} onClick={() => onOpenChange(false)}>
             Keep
           </Button>
-          <Button type="button" className="wt-btn wt-btn-primary" disabled={busy} onClick={() => void remove()}>
+          <Button type="button" className="wt-btn wt-btn-danger" disabled={busy} onClick={() => void remove()}>
             {busy ? "Deleting…" : "Delete walkthrough"}
           </Button>
         </DialogFooter>

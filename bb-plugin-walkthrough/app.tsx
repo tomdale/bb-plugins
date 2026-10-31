@@ -3,6 +3,7 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import "./app.css";
 import "./src/ui/ux.css";
+import "./src/ui/modality.ts";
 import { PAGE_PATH, PANEL_ACTION_ID } from "./src/schemas.ts";
 import { WalkthroughPane } from "./src/ui/Pane.tsx";
 import { WalkthroughAutoOpener } from "./src/ui/Starter.tsx";
