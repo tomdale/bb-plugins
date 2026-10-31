@@ -1,11 +1,24 @@
 import { execFile } from "node:child_process";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
-import type { CodeSnapshot } from "./code-contract.ts";
+import type { ChangedFile, ChangedFiles, ChangedFilesInput, ChangeOrigin, CodeSnapshot } from "./code-contract.ts";
 import { EMPTY_TREE_SHA } from "./empty-tree.ts";
 
 const MAX_BYTES = 1_000_000;
+/** Untracked files larger than this are listed without a line count. */
+const MAX_COUNTED_BYTES = 1_000_000;
+const MAX_LISTED_FILES = 2000;
 
+type Git = (cwd: string, args: string[]) => Promise<string>;
+
+function gitRunner(signal: AbortSignal): Git {
+  return (cwd, args) => new Promise<string>((resolve, reject) => {
+    execFile("git", ["--literal-pathspecs", "-C", cwd, ...args], { signal, timeout: 15_000, maxBuffer: 16 * MAX_BYTES, encoding: "utf8" }, (error, stdout, stderr) => {
+      if (error) reject(new Error(stderr.trim() || error.message));
+      else resolve(stdout);
+    });
+  });
+}
 
 /** Read the repository named by an absolute excerpt, not the conversation's cwd. */
 export async function readCode(
@@ -13,12 +26,7 @@ export async function readCode(
   signal: AbortSignal,
 ): Promise<CodeSnapshot> {
   if (!isAbsolute(input.path)) throw new Error("Code paths on the host must be absolute.");
-  const git = (cwd: string, args: string[]) => new Promise<string>((resolve, reject) => {
-    execFile("git", ["--literal-pathspecs", "-C", cwd, ...args], { signal, timeout: 15_000, maxBuffer: MAX_BYTES, encoding: "utf8" }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr.trim() || error.message));
-      else resolve(stdout);
-    });
-  });
+  const git = gitRunner(signal);
   const root = (await git(dirname(input.path), ["rev-parse", "--show-toplevel"])).trim();
   const absolute = join(await realpath(dirname(input.path)), basename(input.path));
   const path = relative(root, absolute).split("\\").join("/");
@@ -78,5 +86,161 @@ export async function readCode(
     patch: patch || addition,
     truncated: false,
     sides: input.withFullFile ? { old: { path, content: old ?? "" }, new: { path, content: current ?? "" } } : null,
+  };
+}
+
+/** Splits a NUL-terminated git listing, dropping the empty tail. */
+function fields(output: string): string[] {
+  const parts = output.split("\0");
+  if (parts.at(-1) === "") parts.pop();
+  return parts;
+}
+
+/** `git status --porcelain=v1 -z`: which paths are staged, unstaged, or untracked. */
+function parseStatus(output: string) {
+  const staged = new Set<string>();
+  const unstaged = new Set<string>();
+  const untracked = new Set<string>();
+  const entries = fields(output);
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!;
+    const x = entry[0] ?? " ";
+    const y = entry[1] ?? " ";
+    const path = entry.slice(3);
+    // A rename or copy is followed by its source path.
+    if (x === "R" || x === "C" || y === "R" || y === "C") index += 1;
+    if (x === "?" && y === "?") untracked.add(path);
+    else if (x === "!" ) continue;
+    else {
+      if (x !== " ") staged.add(path);
+      if (y !== " ") unstaged.add(path);
+    }
+  }
+  return { staged, unstaged, untracked };
+}
+
+/** `git diff --numstat -z -M`: "adds\tdels\tpath\0" or "adds\tdels\t\0old\0new\0" for a rename. */
+function parseNumstat(output: string): Map<string, { additions: number | null; deletions: number | null; oldPath: string | null }> {
+  const result = new Map<string, { additions: number | null; deletions: number | null; oldPath: string | null }>();
+  const entries = fields(output);
+  for (let index = 0; index < entries.length; index += 1) {
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/su.exec(entries[index]!);
+    if (!match) continue;
+    let path = match[3]!;
+    let oldPath: string | null = null;
+    if (path === "") {
+      oldPath = entries[index + 1] ?? null;
+      path = entries[index + 2] ?? "";
+      index += 2;
+    }
+    result.set(path, { additions: match[1] === "-" ? null : Number(match[1]), deletions: match[2] === "-" ? null : Number(match[2]), oldPath });
+  }
+  return result;
+}
+
+/** `git diff --name-status -z -M`: "M\0path\0", "R100\0old\0new\0". */
+function parseNameStatus(output: string): Map<string, { status: ChangedFile["status"]; oldPath: string | null }> {
+  const result = new Map<string, { status: ChangedFile["status"]; oldPath: string | null }>();
+  const entries = fields(output);
+  for (let index = 0; index < entries.length; index += 1) {
+    const code = entries[index]![0];
+    if (code === "R" || code === "C") {
+      const oldPath = entries[index + 1] ?? null;
+      const path = entries[index + 2] ?? "";
+      index += 2;
+      result.set(path, { status: code === "R" ? "renamed" : "added", oldPath: code === "R" ? oldPath : null });
+    } else {
+      const path = entries[index + 1] ?? "";
+      index += 1;
+      result.set(path, { status: code === "A" ? "added" : code === "D" ? "deleted" : "modified", oldPath: null });
+    }
+  }
+  return result;
+}
+
+async function countUntracked(root: string, path: string): Promise<{ additions: number | null; binary: boolean }> {
+  try {
+    const file = await open(join(root, path), "r");
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile()) return { additions: 0, binary: false };
+      const bytes = Buffer.alloc(Math.min(stat.size, MAX_COUNTED_BYTES));
+      const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
+      const slice = bytes.subarray(0, bytesRead);
+      if (slice.includes(0)) return { additions: null, binary: true };
+      if (stat.size > MAX_COUNTED_BYTES) return { additions: null, binary: false };
+      let lines = 0;
+      for (const byte of slice) if (byte === 10) lines += 1;
+      if (slice.length > 0 && slice.at(-1) !== 10) lines += 1;
+      return { additions: lines, binary: false };
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return { additions: null, binary: false };
+  }
+}
+
+/**
+ * Every file that differs from the base, wherever its change lives: commits,
+ * the index, the working tree, or not yet tracked. The comparison is the one
+ * a reader's excerpts use (base against the pinned head, or against the
+ * working tree), so a staged-only change is as visible as a committed one.
+ */
+export async function changedFiles(input: ChangedFilesInput, signal: AbortSignal): Promise<ChangedFiles> {
+  if (!isAbsolute(input.path)) throw new Error("Code paths on the host must be absolute.");
+  const git = gitRunner(signal);
+  const root = (await git(input.path, ["rev-parse", "--show-toplevel"])).trim();
+  const emptyBase = input.baseRef.trim().toLowerCase() === EMPTY_TREE_SHA;
+  const baseCommit = emptyBase ? EMPTY_TREE_SHA : (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.baseRef}^{commit}`])).trim();
+  const head = input.headRef ? (await git(root, ["rev-parse", "--verify", "--end-of-options", `${input.headRef}^{commit}`])).trim() : "HEAD";
+  const base = emptyBase ? EMPTY_TREE_SHA : (await git(root, ["merge-base", baseCommit, head])).trim();
+  const worktree = input.includeUncommitted && !input.headRef;
+  const range = [base, ...(worktree ? [] : [head])];
+  const diff = (flag: string) => git(root, ["diff", "--no-ext-diff", "--no-textconv", "-M", flag, "-z", ...range, "--"]);
+  const [numstat, nameStatus, status, branch, committedNames] = await Promise.all([
+    diff("--numstat"),
+    diff("--name-status"),
+    git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]),
+    git(root, ["symbolic-ref", "--short", "-q", "HEAD"]).then((text) => text.trim() || null, () => null),
+    // Paths changed by commits alone, to say which changes are already committed.
+    emptyBase ? Promise.resolve("") : git(root, ["diff", "--name-only", "-z", "--no-renames", base, head, "--"]),
+  ]);
+  const counts = parseNumstat(numstat);
+  const statuses = parseNameStatus(nameStatus);
+  const state = parseStatus(status);
+  const committed = new Set(fields(committedNames));
+  const files: ChangedFile[] = [];
+  for (const [path, change] of statuses) {
+    const count = counts.get(path);
+    const origins: ChangeOrigin[] = [];
+    if (committed.has(path) || input.headRef || emptyBase) origins.push("committed");
+    if (worktree && state.staged.has(path)) origins.push("staged");
+    if (worktree && state.unstaged.has(path)) origins.push("unstaged");
+    files.push({
+      path,
+      oldPath: change.oldPath,
+      status: change.status,
+      additions: count?.additions ?? null,
+      deletions: count?.deletions ?? null,
+      binary: count !== undefined && count.additions === null && count.deletions === null,
+      origins: origins.length === 0 ? ["committed"] : origins,
+    });
+  }
+  if (worktree) {
+    for (const path of [...state.untracked].sort()) {
+      if (statuses.has(path)) continue;
+      const counted = await countUntracked(root, path);
+      files.push({ path, oldPath: null, status: "added", additions: counted.additions, deletions: counted.additions === null ? null : 0, binary: counted.binary, origins: ["untracked"] });
+    }
+  }
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    files: files.slice(0, MAX_LISTED_FILES),
+    staged: state.staged.size,
+    unstaged: state.unstaged.size,
+    untracked: state.untracked.size,
+    truncated: files.length > MAX_LISTED_FILES,
+    branch,
   };
 }
