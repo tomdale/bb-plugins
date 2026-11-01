@@ -1,0 +1,118 @@
+---
+name: handoff
+description:
+  Hand work off to a new BB thread, in its own Workforest worktree for new work
+  or in this thread's environment when it continues the work in progress, then
+  either stay on this thread's own task or publish, clean up, and archive this
+  thread. Use when asked to hand off, to move work into a new thread, to clear
+  this thread while the work continues elsewhere, or to delegate a side task.
+---
+
+# Hand off to a new thread
+
+Text after `/handoff` is the handoff instruction. `bb` reads this thread and
+project from `BB_THREAD_ID`, `BB_PROJECT_ID`, and `BB_ENVIRONMENT_ID`.
+
+## 1. Classify the handoff
+
+Continuation: the successor carries on the work in progress here. It attaches
+to this environment with `--environment "$BB_ENVIRONMENT_ID"`, so uncommitted
+edits, the branch, and background state stay exactly where they are.
+
+Independent: the successor owns a separate task. It gets a fresh Workforest
+worktree and leaves this checkout alone.
+
+Ask which one the user means when the instruction could be either.
+
+## 2. Spawn the successor
+
+Spawn a top-level thread: no `--parent-self`, no `--parent-thread`, no
+`--lifecycle-owner-thread`. The successor outlives this thread's archive and
+reports to the user.
+
+Match this thread's model so the successor runs as this one is running:
+
+```sh
+bb thread show --self --json | jq -r .thread.providerId
+bb thread log --self --json --all | jq -r '[.. | objects | select(has("execution")) | .execution] | last | [.model, .reasoningLevel] | @tsv'
+```
+
+Leave `--permission-mode` out; BB resolves one the provider accepts (Pi runs
+only in `full`).
+
+An independent handoff creates its workspace first, for the repository in
+`git remote get-url origin` (`git@github.com:tomdale/bb-plugins.git` is
+`tomdale/bb-plugins`). Worktree initialization continues in the background, so
+the next command can run as soon as `wf new` returns:
+
+```sh
+wf new <slug> <owner/repo> --branch tomdale/<slug>
+path=$(wf status <repo-name>/<slug> --json | jq -r .data.path)
+```
+
+Workforest owns that worktree and its branch. It starts at the repository's
+committed HEAD, so commit or push anything the successor must read there.
+`<repo-name>` is the repository without its owner (`tomdale/bb-plugins` is
+`bb-plugins`). Its `wf delete <repo-name>/<slug>` later removes the worktree and
+keeps the branch and cached mirror; it refuses a dirty or unmerged worktree.
+
+Write the prompt to a file and pass `--prompt-file`, which keeps backticks and
+`$` literal:
+
+```sh
+# continuation: this thread's environment
+env=$BB_ENVIRONMENT_ID
+# independent: the Workforest worktree from `wf new`
+env=$(wf status <repo-name>/<slug> --json | jq -r .data.path)
+
+bb thread spawn --project "$BB_PROJECT_ID" --environment "$env" \
+  --title "<title>" --provider <id> --model <id> --reasoning-level <level> \
+  --prompt-file handoff-prompt.md --json
+```
+
+The successor starts with no conversation history, so the prompt carries:
+
+- `@thread:<this thread ID>`, with one line on what its transcript holds
+- the user's handoff instruction verbatim
+- the task: goal, done criteria, what is finished, what remains, decisions
+  already made
+- the state to build on: workspace path, branch, commits, PR, files it will
+  edit, the verification run and its result
+- ownership: a takeover successor owns the task and its publish; a delegated
+  successor owns its own piece and reports to the user
+- the paths and resources it must leave alone
+
+Confirm the successor started: `bb thread show <id>` reports `starting` or
+`active` with the prompt delivered, and `bb thread open <id>` brings it up for
+the user. If the spawn fails, report the failure and keep the work here.
+
+## 3. Finish this thread's part
+
+Delegation, a side task that frees this thread: this thread keeps its own task.
+Ask the user which concrete next steps to take here, offering two or three it
+can start now, then begin the chosen one.
+
+Takeover, where the successor owns the work: make this thread's share durable,
+then stop.
+
+1. Commit completed work on the current branch. A bb-managed worktree deletes
+   its directory, uncommitted files, and untracked files five minutes after its
+   last thread is archived, and keeps only the branch.
+2. Push it and merge or open the PR under the repository's rules, including a
+   repository skill that owns publish and cleanup. A successor in its own
+   worktree starts from origin, not from this disk.
+3. Remove only what nothing else uses: merged local branches, finished task
+   worktrees, temporary files, environments whose threads are gone. A finished
+   Workforest worktree closes with `wf delete <repo-name>/<slug>`, which keeps
+   the branch and cached mirror and refuses dirty or unmerged work.
+4. `bb thread archive --self`.
+
+Never delete or move what the successor relies on. A continuation successor
+shares this workspace, so its files, branch, untracked files, and environment
+stay. A separate successor still reads files this thread created, such as
+transcripts, plans, drafts, and generated artifacts, so carry what it needs
+into the prompt or a tracked file before removing the original. Secrets stay
+out of both, since a prompt is read by later readers and a tracked file is
+committed.
+Ask the user before deleting a worktree or branch that holds unmerged commits,
+which would lose work that exists nowhere else.

@@ -7,6 +7,7 @@ configure it.
 | Plugin                                               | What it does                                                          |
 | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | [Dynamic environment](bb-plugin-dynamic-environment) | Manage command-backed variables and BB's static `env.json` with forms |
+| [Handoff](bb-plugin-handoff)                         | Hand work off to a new thread, in its own worktree for new work       |
 | [Sidebar Switcher](bb-plugin-sidebar-switcher)       | Switch which plugin renders BB's sidebar thread list                  |
 | [Subagents](bb-plugin-subagents)                     | Background subagents with live transcripts and user takeover          |
 | [Todo](bb-plugin-todo)                               | Show the agent's per-thread todo plan in the composer                 |
@@ -14,8 +15,7 @@ configure it.
 | [Walkthrough](bb-plugin-walkthrough)                 | Walk through a changeset one conceptual group at a time               |
 | [Workforest](bb-plugin-workforest)                   | Workforest workspaces, task lanes, and BB threads in one place        |
 
-The Vercel Sandbox plugin moved to a private repository and is no longer
-distributed here.
+The Vercel Sandbox plugin is maintained in a private repository.
 
 ## Install a plugin
 
