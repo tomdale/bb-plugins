@@ -10,7 +10,8 @@ afterEach(async () => { vi.useRealTimers(); vi.restoreAllMocks(); for (const dis
 function setup() {
   let defaultProvider: string | null = "direct";
   let ready = false, enabled = false, missing = false, losePrepare = false;
-  let expiresAt = Date.now() + 600_000;
+  let expiresAt: number | null = Date.now() + 600_000;
+  let observedStatus = "command-pending-or-running";
   let key: string | null = null;
   const calls: { method: string; input: unknown }[] = [];
   const { bb, harness } = createFakePluginHost({ pluginId: "environment-vercel-sandbox" });
@@ -28,11 +29,11 @@ function setup() {
   const driver = (method: string, input?: { key?: string }) => {
     calls.push({ method, input });
     if (missing) throw new Error("secret-token must not escape");
-    const view = { key, phase: "ready", expiresAt, computeEnded: false, metadataDeleted: false, connectorPrivateKey: "PRIVATE SECRET" };
+    const view = { key, phase: "ready", expiresAt, observedStatus, computeEnded: false, metadataDeleted: false, connectorPrivateKey: "PRIVATE SECRET" };
     switch (method) {
       case "setup.current": return { key };
       case "setup.status": return { stages: [{ stage: "readiness", state: ready ? "verified" : "closed" }] };
-      case "setup.prepare": key = input!.key!; if (losePrepare) throw new Error("lost reply"); expiresAt = Date.now() + 600_000; return { ...view, key, expiresAt };
+      case "setup.prepare": key = input!.key!; if (losePrepare) throw new Error("lost reply"); expiresAt = Date.now() + 600_000; observedStatus = "command-pending-or-running"; return { ...view, key, expiresAt, observedStatus };
       case "setup.stop": ready = false; enabled = false; return { ...view, phase: "removed", computeEnded: true, metadataDeleted: true };
       default: return view;
     }
@@ -44,7 +45,7 @@ function setup() {
     setup: Object.fromEntries(["current", "status", "prepare", "inspect", "apply", "stop"].map(name => [`setup.${name}`, (input: { key?: string }) => driver(`setup.${name}`, input)])),
   } as unknown as Awaited<ReturnType<typeof createRelayAccess>>;
   bb.rpc.register(defineRpcContract(accessMethods), accessHandlers(bb, relay));
-  return { harness, relay, enable, disable, calls, setLostReply: (value: boolean) => { losePrepare = value; }, setReady: () => { ready = true; }, setMissing: () => { missing = true; },
+  return { harness, relay, enable, disable, calls, setStopped: () => { expiresAt = null; observedStatus = "stopped"; }, setMissingExpiry: () => { expiresAt = null; }, setLostReply: (value: boolean) => { losePrepare = value; }, setReady: () => { ready = true; }, setMissing: () => { missing = true; },
     changeDefault: (value: string | null) => { defaultProvider = value; },
     rpc: (method: keyof typeof accessMethods, input: JsonValue = {}) => harness.behavior.callRpc(method, input) };
 }
@@ -101,6 +102,36 @@ it("retains the same key after a lost preparation reply", async () => {
   t.setLostReply(false); await t.rpc("access.enable");
   expect(t.calls.find(c => c.method === "setup.inspect")!.input).toMatchObject({ key: first.key });
 });
+it("cleans a stopped relay whose journal still says ready and expiry is missing before preparing a replacement", async () => {
+  const t = setup();
+  await t.rpc("access.prepare", { key: "old-relay", approveAllocation: true });
+  t.setStopped();
+  t.calls.length = 0;
+  expect(await t.rpc("access.enable")).toMatchObject({ ready: true, selected: true });
+  const methods = t.calls.map(call => call.method);
+  expect(methods.indexOf("setup.stop")).toBeLessThan(methods.indexOf("setup.prepare"));
+  expect(t.calls.find(call => call.method === "setup.prepare")!.input).not.toMatchObject({ key: "old-relay" });
+});
+
+it("does not treat a ready journal with unknown expiry as a live relay", async () => {
+  const t = setup();
+  await t.rpc("access.prepare", { key: "unknown-relay", approveAllocation: true });
+  t.setMissingExpiry(); t.calls.length = 0;
+  await expect(t.rpc("access.enable")).rejects.toThrow("Couldn't connect the relay");
+  expect(t.calls.some(call => call.method === "setup.prepare")).toBe(false);
+  expect(t.enable).not.toHaveBeenCalled();
+});
+
+it("reports cleanup failure without allocating another relay or exposing raw errors", async () => {
+  const t = setup();
+  await t.rpc("access.prepare", { key: "old-relay", approveAllocation: true });
+  t.setStopped(); t.calls.length = 0;
+  t.relay.setup["setup.stop"] = async () => { throw new Error("secret-token must not escape"); };
+  await expect(t.rpc("access.enable")).rejects.toThrow("Couldn't confirm cleanup of the old relay");
+  expect(t.calls.some(call => call.method === "setup.prepare")).toBe(false);
+  expect(await t.rpc("access.status")).toMatchObject({ phase: "stopped", ready: false });
+});
+
 it("replaces expired compute only after confirmed cleanup", async () => {
   const t = setup(); await t.rpc("access.enable");
   const now = Date.now(); vi.spyOn(Date, "now").mockReturnValue(now + 700_000);

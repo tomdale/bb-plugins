@@ -23,7 +23,7 @@ it("imports private identity and receipts without emitting keys, starting transp
   expect(await t.harness.behavior.callRpc("access.importLegacy", t.input)).toEqual({ imported: true });
   expect(await t.relay.settings.get()).toMatchObject({ enabled: false, preparedConnectorPrivateKey: t.pair.private });
   expect(await t.bb.storage.kv.get("relay-setup")).toMatchObject(t.record);
-  expect(t.harness.registrations.settingsDescriptors.relayIdentity).toMatchObject({ secret: true });
+  expect(t.harness.registrations.settingsDescriptors).toEqual({});
   expect(t.harness.inspection.sdk.callsTo("plugins.callRpc")).toHaveLength(0);
   expect(t.harness.experimental_hostRpcCalls).toHaveLength(0);
   await t.relay.settings.experimental_set({ enabled: true });
@@ -56,8 +56,11 @@ it("restores the prior connection when the retired provider was selected", async
 });
 
 it("keeps Sandbox account and worker management loaded when its managed relay identity is malformed", async () => {
-  const t = createFakePluginHost({ pluginId: "environment-vercel-sandbox", settings: { relayIdentity: "invalid-private-config" } });
+  const t = createFakePluginHost({ pluginId: "environment-vercel-sandbox" });
   disposals.push(() => t.harness.lifecycle.dispose());
+  const db = t.bb.storage.database();
+  db.exec("CREATE TABLE private_relay_config (id INTEGER PRIMARY KEY, config TEXT NOT NULL)");
+  db.prepare("INSERT INTO private_relay_config VALUES (1, ?)").run("invalid-private-config");
   await sandbox(t.bb);
   expect(await t.harness.behavior.callRpc("account.saved", {})).toMatchObject({ hostId: null });
   const status = await t.harness.behavior.callRpc("setup.status", {});

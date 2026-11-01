@@ -5,15 +5,21 @@ import { ACCESS_PROVIDER, setupKeySchema } from "./access-contract.js";
 import { setupContract } from "./relay-access/setup.ts";
 import type { createRelayAccess } from "./relay-access/server.ts";
 import { registerLegacyImport } from "./relay-access/legacy-import.ts";
+import { enableErrors } from "./access-errors.js";
 
 const relaySchema = z.object({
   key: setupKeySchema, phase: z.string().max(32), expiresAt: z.number().finite().nullable(),
+  observedStatus: z.string().max(32).nullable().default(null),
 });
 const restoreSchema = z.object({ previous: z.string().nullable() }).strict();
 const restoreKey = "vercel-access/default-restore";
 const pendingKey = "vercel-access/enable-key";
 const ownedRelaySchema = relaySchema.extend({ computeEnded: z.boolean(), metadataDeleted: z.boolean() });
 const failure = "Relay setup was not confirmed. Retry to resume the saved setup, or disable the relay to clean up.";
+const stopped = (view: { observedStatus: string | null }) => view.observedStatus === "stopped" || view.observedStatus === "command-exited";
+const perform = async <T>(stage: keyof typeof enableErrors, run: () => Promise<T>) => {
+  try { return await run(); } catch { throw new Error(enableErrors[stage]); }
+};
 
 export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof createRelayAccess>>) {
   let tail: Promise<unknown> = Promise.resolve();
@@ -50,10 +56,12 @@ export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof
       const observation = value === undefined ? null : relaySchema.parse(value);
       const view = observation?.key === key ? observation : null;
       const expired = view?.expiresAt != null && view.expiresAt <= Date.now();
-      const ready = !expired && provider?.availability?.status === "available" && snapshot.stages.some(s => s.stage === "readiness" && s.state === "verified");
+      const ended = view !== null && stopped(view);
+      const ready = !expired && !ended && provider?.availability?.status === "available" && snapshot.stages.some(s => s.stage === "readiness" && s.state === "verified");
       const failed = snapshot.stages.find(s => s.state === "failed");
-      return { ...base, available: relay.supported, ready, key, phase: view?.phase ?? null, expiresAt: view?.expiresAt ?? null,
+      return { ...base, available: relay.supported, ready, key, phase: ended ? "stopped" : view?.phase ?? null, expiresAt: view?.expiresAt ?? null,
         message: ready ? (selected ? "Ready for new machines through the local BB app." : "Relay ready. Enable it to use it for new machines.")
+          : ended ? "The previous relay has stopped. Enable it to confirm cleanup and start a new relay."
           : expired ? "Relay expired. Enable it to finish cleanup and start a new relay."
           : failed ? `Relay unavailable at ${failed.stage}. Enable it again to resume setup, or disable it to clean up.`
           : "Enable the relay to connect new machines to this BB app." };
@@ -63,7 +71,8 @@ export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof
     }
   };
   const observed = async (method: "setup.prepare" | "setup.inspect" | "setup.stop", input: JsonValue) => {
-    const view = await call(method, input, relaySchema.nullable());
+    const stage = method === "setup.stop" ? "cleanup" : method === "setup.prepare" ? "prepare" : "inspect";
+    const view = await perform(stage, () => call(method, input, relaySchema.nullable()));
     if (view) await bb.storage.kv.set("vercel-access/observation", view);
     return status();
   };
@@ -82,11 +91,12 @@ export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof
       let key = pending === undefined ? current.key : setupKeySchema.parse(pending);
       let provisioned = null;
       if (key) {
-        const view = await call("setup.inspect", { key }, ownedRelaySchema.nullable());
+        const view = await perform("inspect", () => call("setup.inspect", { key }, ownedRelaySchema.nullable()));
         provisioned = view;
-        if (view && (view.phase === "removed" || view.computeEnded || (view.expiresAt !== null && view.expiresAt <= Date.now()))) {
-          const removed = await call("setup.stop", { key }, ownedRelaySchema);
-          if (removed.phase !== "removed" || !removed.computeEnded || !removed.metadataDeleted) throw new Error("Previous relay cleanup is still running. Try again shortly.");
+        if (view) await bb.storage.kv.set("vercel-access/observation", relaySchema.parse(view));
+        if (view && (view.phase === "removed" || view.computeEnded || stopped(view) || (view.expiresAt !== null && view.expiresAt <= Date.now()))) {
+          const removed = await perform("cleanup", () => call("setup.stop", { key }, ownedRelaySchema));
+          if (removed.phase !== "removed" || !removed.computeEnded || !removed.metadataDeleted) throw new Error(enableErrors.cleanup);
           key = null;
           provisioned = null;
         }
@@ -94,21 +104,22 @@ export function accessHandlers(bb: BbPluginApi, relay: Awaited<ReturnType<typeof
       key ??= randomUUID();
       // Keep the chosen key before provisioning so a lost reply resumes this relay.
       await bb.storage.kv.set(pendingKey, key);
-      const view = provisioned?.phase === "ready" ? provisioned : await call("setup.prepare", { key, approveAllocation: true, image: "vercel/sandbox/node:24" }, relaySchema);
+      if (provisioned?.phase === "ready" && (provisioned.expiresAt === null || provisioned.observedStatus !== "command-pending-or-running")) throw new Error(enableErrors.connect);
+      const view = provisioned?.phase === "ready" ? provisioned : await perform("prepare", () => call("setup.prepare", { key, approveAllocation: true, image: "vercel/sandbox/node:24" }, relaySchema));
       await bb.storage.kv.set("vercel-access/observation", view);
-      await connect(key);
+      await perform("connect", () => connect(key));
       for (let attempt = 0; attempt < 40; attempt++) {
         current = await status();
         if (current.ready) break;
         await new Promise(resolve => setTimeout(resolve, 250));
       }
-      if (!current.ready) throw new Error("The relay is still connecting. Try enabling again to resume the same setup.");
+      if (!current.ready) throw new Error(enableErrors.readiness);
     }
     const config = await bb.sdk.system.config();
-    if (config.generalSettings.defaultMachineAccess !== originalDefault) throw new Error("The machine connection changed elsewhere. Try enabling again to use the relay.");
+    if (config.generalSettings.defaultMachineAccess !== originalDefault) throw new Error(enableErrors.select);
     if (originalDefault !== ACCESS_PROVIDER) {
       await bb.storage.kv.set(restoreKey, { previous: originalDefault });
-      await bb.sdk.system.updateGeneralSettings({ ...config.generalSettings, defaultMachineAccess: ACCESS_PROVIDER });
+      await perform("select", () => bb.sdk.system.updateGeneralSettings({ ...config.generalSettings, defaultMachineAccess: ACCESS_PROVIDER }));
     }
     await bb.storage.kv.delete(pendingKey);
     await bb.storage.kv.delete("vercel-access/connect-key");

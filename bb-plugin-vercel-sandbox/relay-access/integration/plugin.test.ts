@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { mkdir, writeFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { http, freePort, isolatedCore } from "./isolated.ts";
 import { syntheticKeys } from "./keys.ts";
 import { openRelayAdapter } from "../bridge.ts";
@@ -20,9 +22,6 @@ for (const transport of ["loopback-test", "ssh-ws"]) test(`throwaway plugin acti
   };
   const status = await cli(["status"]);
   assert.ok(status.stdout.includes(core.directory), "CLI confirmed isolated data directory");
-  await cli(["plugin", "install", pluginRoot, "--yes"]);
-  const disabled = await cli(["plugin", "list"]);
-  assert.match(disabled.stdout, /environment-vercel-sandbox.*running/);
   const port = await freePort();
   let serverUrl = `http://127.0.0.1:${port}`;
   const extra: string[][] = [];
@@ -36,19 +35,18 @@ for (const transport of ["loopback-test", "ssh-ws"]) test(`throwaway plugin acti
     serverUrl = adapter.url;
     extra.push(["transport", "ssh-ws"], ["relayUrl", serverUrl.replace("http:", "ws:")], ["relayFingerprint", hostFingerprint(host.privateKey)], ["connectorPrivateKey", client.privateKey], ["reversePort", String(reversePort)]);
   }
-  const values = { ...Object.fromEntries(extra.map(([key, value]) => [key, key === "reversePort" ? Number(value) : value])), port, serverUrl, enabled: false };
-  const settingsBody = JSON.stringify({ values: { relayIdentity: JSON.stringify(values) } });
-  const settingsReply = await http(core.baseUrl, "/api/v1/plugins/environment-vercel-sandbox/settings", {
-    method: "PUT", body: settingsBody, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(settingsBody)) },
-  });
+  const values = { ...Object.fromEntries(extra.map(([key, value]) => [key, key === "reversePort" ? Number(value) : value])), port, serverUrl, enabled: true };
+  const secrets = join(core.directory, "plugins/environment-vercel-sandbox/secrets");
+  await mkdir(secrets, { recursive: true, mode: 0o700 });
+  await writeFile(join(secrets, "relayIdentity"), JSON.stringify(values), { mode: 0o600 });
+  await cli(["plugin", "install", pluginRoot, "--yes"]);
+  const listing = await cli(["plugin", "list"]);
+  assert.match(listing.stdout, /environment-vercel-sandbox.*running/);
+  const settingsReply = await http(core.baseUrl, "/api/v1/plugins/environment-vercel-sandbox/settings");
   assert.equal(settingsReply.status, 200);
-  assert.ok(!settingsReply.body.includes("BEGIN RSA PRIVATE KEY"), "Secret settings are redacted");
-  await cli(["plugin", "reload", "environment-vercel-sandbox"]);
-  const enableBody = JSON.stringify({ values: { relayIdentity: JSON.stringify({ ...values, enabled: true }) } });
-  const activated = await http(core.baseUrl, "/api/v1/plugins/environment-vercel-sandbox/settings", {
-    method: "PUT", body: enableBody, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(enableBody)) },
-  });
-  assert.equal(activated.status, 200, "Integrated transport starts from a settings change without reloading worker management");
+  assert.ok(!settingsReply.body.includes("relayIdentity"), "No internal identity field is declared to the frontend");
+  const privateDb = join(core.directory, "plugins/environment-vercel-sandbox/data.db");
+  assert.equal((await stat(privateDb)).mode & 0o777, 0o600);
   const configuration = JSON.parse((await http(core.baseUrl, "/api/v1/system/config")).body.toString());
   const accessSettings = JSON.stringify({ ...configuration.generalSettings, defaultMachineAccess: "vercel-sandbox-relay" });
   assert.equal((await http(core.baseUrl, "/api/v1/settings/general", {
@@ -83,6 +81,9 @@ for (const transport of ["loopback-test", "ssh-ws"]) test(`throwaway plugin acti
   const enabled = await cli(["plugin", "list"]);
   assert.match(enabled.stdout, /environment-vercel-sandbox.*running/);
   // Disabling does not wait for a reload to close admitted streams/listener.
-  await cli(["plugin", "config", "environment-vercel-sandbox", "set", "relayIdentity", JSON.stringify({ ...values, enabled: false })]);
+  const stopped = await http(core.baseUrl, "/api/v1/plugins/environment-vercel-sandbox/rpc/access.disable", {
+    method: "POST", body: "{}", headers: { "content-type": "application/json", "content-length": "2" },
+  });
+  assert.equal(stopped.status, 200);
   await assert.rejects(http(`http://127.0.0.1:${port}`, "/install/version"));
 });

@@ -4,6 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { AccessSettings } from "./access-settings.js";
+import { enableErrors } from "./access-errors.js";
 
 const app = await loadPluginApp(async () => ({ default: definePluginApp(app => {
   app.slots.settingsSection({ id: "access", component: AccessSettings });
@@ -57,6 +58,23 @@ it("offers one enable action to renew an expired selected relay", async () => {
     "access.enable": () => ({ ...initial, ready: true, selected: true }),
   });
   await slot.findByText("Expired");
+  fireEvent.click(slot.getByRole("button", { name: "Enable relay" }));
+  await slot.findByText("Enabled");
+});
+
+it("shows the safe server-side failure stage instead of hiding it behind a generic setup error", async () => {
+  const slot = render({ "access.enable": () => { throw new Error(enableErrors.cleanup); } });
+  await slot.findByText("Off");
+  fireEvent.click(slot.getByRole("button", { name: "Enable relay" }));
+  expect((await slot.findByRole("alert")).textContent).toBe(enableErrors.cleanup);
+});
+
+it("offers enable for a stopped selected relay even when its expiry is missing", async () => {
+  const slot = render({
+    "access.status": () => ({ ...initial, selected: true, phase: "stopped", expiresAt: null }),
+    "access.enable": () => ({ ...initial, ready: true, selected: true }),
+  });
+  await slot.findByText("Stopped");
   fireEvent.click(slot.getByRole("button", { name: "Enable relay" }));
   await slot.findByText("Enabled");
 });

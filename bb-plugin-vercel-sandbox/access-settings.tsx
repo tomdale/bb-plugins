@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { SETTINGS_PANEL_CLASS } from "./settings-rows.js";
 import type { vercelRpcContract } from "./rpc.js";
+import { safeAccessError } from "./access-errors.js";
 
 type Contract = typeof vercelRpcContract;
 type Status = PluginRpcResult<Contract["access.status"]>;
@@ -34,18 +35,20 @@ export function AccessSettings() {
   }, [read, status?.expiresAt]);
   const enabled = status?.selected === true;
   const expired = status?.expiresAt != null && status.expiresAt <= Date.now();
-  const action: Action = retry ?? (enabled && !expired ? "disable" : "enable");
+  const stopped = status?.phase === "stopped";
+  const action: Action = retry ?? (enabled && !expired && !stopped ? "disable" : "enable");
   const run = async (request: () => Promise<Status>, operation?: Action) => {
     setBusy(true);
     setError(null);
     try {
       setStatus(await request());
       setRetry(null);
-    } catch {
+    } catch (cause) {
       if (operation) setRetry(operation);
-      setError(operation === "disable"
+      setError(safeAccessError(cause) ?? (operation === "disable"
         ? "Couldn't finish disabling the relay. Retry to finish cleanup; no replacement will be created."
-        : "Couldn't finish setting up the relay. Retry to resume the same setup, or open Details to inspect it.");
+        : "Couldn't finish setting up the relay. Retry to resume the same setup, or open Details to inspect it."));
+      try { setStatus(await read()); } catch {}
     } finally { setBusy(false); }
   };
   const label = busy ? "Working…" : retry ? `Retry ${retry}` : action === "disable" ? "Disable relay" : "Enable relay";
@@ -59,7 +62,7 @@ export function AccessSettings() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="space-y-1">
             <p role="status" className="text-xs font-medium">
-              {busy ? "Updating relay…" : status === null ? "Loading…" : expired ? "Expired" : enabled && status.ready ? "Enabled" : enabled ? "Unavailable" : status.ready ? "Ready to enable" : "Off"}
+              {busy ? "Updating relay…" : status === null ? "Loading…" : stopped ? "Stopped" : expired ? "Expired" : enabled && status.ready ? "Enabled" : enabled ? "Unavailable" : status.ready ? "Ready to enable" : "Off"}
             </p>
             <p className="text-xs text-muted-foreground">
               {status?.ready && status.expiresAt ? `Stops at ${new Date(status.expiresAt).toLocaleTimeString()}` : "1 vCPU · Stops after 10 minutes"}

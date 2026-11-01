@@ -18,8 +18,9 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   server-managed field presentation; `experimental_serverAccess.register`
   returns void and has no unregister operation. Registering another CLI root in
   the same plugin is also rejected as a duplicate CLI registration
-- **Workaround:** one secret setting labelled as managed automatically; one
-  persistent provider whose availability follows the in-process service;
+- **Workaround:** generated identities live in a private plugin database with
+  mode 0600, not an editable settings descriptor; existing native secret files
+  are read only for migration. One persistent provider follows the service;
   disabling resolves an Automatic selection to Direct so the disabled provider
   cannot be chosen again by core fallback. Relay CLI subcommands join the
   existing `vercel-sandbox` command
