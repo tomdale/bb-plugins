@@ -165,6 +165,12 @@ parser and prints time to first block, delta-to-publish delay and publish
 cadence; pass a JSON-lines recording instead of `--synthetic` (see the script
 header).
 
+`node --experimental-transform-types --no-warnings scripts/measure-requests.ts`
+reads the record each walkthrough keeps of its own requests to the hidden worker
+— which model ran, how long, what it cost in tokens, and what the reader got —
+and prints the durations, models and outcomes. No model or BB server needed; see
+`docs/telemetry.md`.
+
 `scripts/bb-plugin-smoke .` (from the repository root) activates the built
 plugin in a throwaway BB. To look at the real pane, boot a throwaway server with
 `NODE_ENV=production` (so it serves the web app), install the build, seed a

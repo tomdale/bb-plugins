@@ -31,8 +31,11 @@ function deliverPart(part: Part, workspacePath: string | null, repoRoots: readon
 
 export function deliverWalkthrough(walkthrough: Walkthrough): DeliveredWalkthrough {
   const repoRoots = repoRootsOf(walkthrough);
+  // The per-request record measures the helper; the pane never renders it, so it does
+  // not travel with every re-read of the page.
+  const { requests: _runs, usage: _usage, ...measured } = walkthrough;
   return {
-    ...walkthrough,
+    ...measured,
     intent: walkthrough.intent ?? defaultIntent(walkthrough.mode),
     parts: walkthrough.parts.map((part) => deliverPart(part, walkthrough.workspacePath, repoRoots)),
     wrapUp: walkthrough.wrapUp && deliverPart(walkthrough.wrapUp, walkthrough.workspacePath, repoRoots),

@@ -124,6 +124,20 @@ in the DOM and the server's `timing`, for comparison with the table above.
 names the idle thread to fork; `idle-medium@new` and `idle-xhigh@old` need the two prompt
 files that `render-plan-prompt.mjs` writes).
 
+A walkthrough also records every request it makes to the helper, so the second half of the
+wait — each turn's duration, the model that ran, what it cost in tokens — is available
+from the record itself:
+
+```sh
+git -C ~/Code/Repos/bb-plugins/main pull    # the record ships with the build that writes it
+node --experimental-transform-types --no-warnings scripts/measure-requests.ts
+```
+
+prints duration percentiles, tokens and outcomes per kind of request, and `--walkthrough
+<id>` prints one walkthrough's requests in order. `docs/telemetry.md` describes the fields
+and what the record cannot see. It starts at the first walkthrough measured after this
+build is deployed: rows written before it have none.
+
 ## The helper's model
 
 The helper reads a diff and writes prose, so it does not need the frontier model the user

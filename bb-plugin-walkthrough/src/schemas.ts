@@ -212,6 +212,74 @@ export const requestSchema = z.discriminatedUnion("kind", [
 ]);
 export type WorkerRequest = z.infer<typeof requestSchema>;
 
+/** The kinds of request `requestSchema` allows, for the per-request record below. */
+export const requestKindSchema = z.enum(["plan", "write", "ask", "reply", "wrap-up"]);
+export type RequestKind = z.infer<typeof requestKindSchema>;
+
+/**
+ * How a request ended, in terms of what the reader got: a planned walkthrough, a part
+ * on the page, an answer, a recap. `empty` is a turn that finished having produced
+ * nothing usable; `abandoned` is a request the plugin never saw settle, because the
+ * walkthrough was closed or the plugin restarted while it was in flight.
+ */
+export const requestOutcomeSchema = z.enum(["planned", "wrote", "answered", "replied", "wrapped-up", "nudged", "empty", "failed", "interrupted", "abandoned"]);
+export type RequestOutcome = z.infer<typeof requestOutcomeSchema>;
+
+/**
+ * One request to the hidden worker: what the plugin asked for, what actually ran, and
+ * how long and how much it took. Nothing in the plugin could answer "which model ran
+ * this turn, and what did it cost" before this: the pin in HELPER_MODELS is a
+ * preference the server may ignore, and the turn's token counts only exist in the
+ * worker's own events. Those are read back when the request settles (see
+ * `settleRun` in service.ts); a field the provider did not report stays null rather
+ * than being guessed.
+ */
+export const requestRunSchema = z
+  .object({
+    /** 1-based within the walkthrough. */
+    n: z.number().int().positive(),
+    kind: requestKindSchema,
+    /** The part a `write` wrote, or the part an `ask` was asked about; null for a plan, a reply, and an ask at the wrap-up. */
+    part: z.number().int().nonnegative().nullable(),
+    /** Epoch milliseconds, the same value the record's `inFlight.sentAt` held. */
+    sentAt: z.number(),
+    /** Epoch milliseconds when the request ended; null while it is in flight. */
+    settledAt: z.number().nullable(),
+    /** settledAt minus sentAt, kept so a duration survives a clock adjustment between the two. */
+    ms: z.number().nonnegative().nullable(),
+    /** The model and reasoning level the plugin asked for: its preference, not what the server chose. */
+    askedModel: z.string().nullable(),
+    askedReasoning: z.string().nullable(),
+    /** The model and level the worker's own request event names: what actually ran. */
+    model: z.string().nullable(),
+    reasoning: z.string().nullable(),
+    outcome: requestOutcomeSchema.nullable(),
+    /** The worker turn's own status from `turn/completed`, such as completed or interrupted. */
+    turnStatus: z.string().nullable(),
+    /** Tokens this request added: input sent, the cached part of it, and output generated. */
+    inputTokens: z.number().int().nonnegative().nullable(),
+    cachedInputTokens: z.number().int().nonnegative().nullable(),
+    outputTokens: z.number().int().nonnegative().nullable(),
+    /** A short reason for an outcome that is not a plain success. */
+    detail: z.string().nullable(),
+  })
+  .strict();
+export type RequestRun = z.infer<typeof requestRunSchema>;
+
+/**
+ * The worker thread's token accounting, cumulative over the walkthrough, as of the last
+ * settled request. A request's own tokens are the difference from the value before it.
+ */
+export const workerUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+  })
+  .strict();
+export type WorkerUsage = z.infer<typeof workerUsageSchema>;
+
 /** Why the reader is here; drives the wrap-up. */
 export const intentSchema = z.enum(["review", "own-change", "understand"]);
 export type Intent = z.infer<typeof intentSchema>;
@@ -305,6 +373,15 @@ export const walkthroughSchema = z
      */
     timing: z.record(z.string(), z.number()).optional().catch(undefined),
     /**
+     * One row per request to the hidden worker, oldest first and capped at
+     * REQUEST_RUNS_KEPT (service.ts): model, tokens, duration and outcome, so the
+     * plugin can measure itself without an external harness. Absent in older rows and
+     * kept out of what the pane receives.
+     */
+    requests: z.array(requestRunSchema).optional().catch(undefined),
+    /** The worker's cumulative token counts at the last settled request; absent until one settles. */
+    usage: workerUsageSchema.optional().catch(undefined),
+    /**
      * What the working tree held when the walkthrough launched, so the pane can say what was found
      * while the helper is still reading; absent until the first look and in older rows.
      */
@@ -391,13 +468,17 @@ const deliveredPartSchema = partSchema.extend({
   /** Files this part cites whose contents changed after it was written; the server always sends it (empty when none did). */
   staleFiles: z.array(z.string()).optional(),
 });
-const deliveredWalkthroughSchema = walkthroughSchema.extend({
-  intent: intentSchema,
-  parts: z.array(deliveredPartSchema),
-  wrapUp: deliveredPartSchema.nullable(),
-  /** Directories the figures' code was read from, outside or inside the workspace; the pane strips them from any absolute path it must name. */
-  repoRoots: z.array(z.string()).optional(),
-});
+const deliveredWalkthroughSchema = walkthroughSchema
+  // The per-request record is a measuring instrument, not something the pane reads: it is
+  // kept out of every `get` (deliver.ts drops it too) so a page open costs no more.
+  .omit({ requests: true, usage: true })
+  .extend({
+    intent: intentSchema,
+    parts: z.array(deliveredPartSchema),
+    wrapUp: deliveredPartSchema.nullable(),
+    /** Directories the figures' code was read from, outside or inside the workspace; the pane strips them from any absolute path it must name. */
+    repoRoots: z.array(z.string()).optional(),
+  });
 const deliveredNoteSchema = noteSchema.extend({ includeInReview: z.boolean(), proposedResolution: z.string().nullable().optional() });
 export type DeliveredCodeBlock = z.infer<typeof deliveredCodeBlockSchema>;
 export type DeliveredPart = z.infer<typeof deliveredPartSchema>;

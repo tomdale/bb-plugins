@@ -39,9 +39,12 @@ import {
   type NoteStatus,
   type Part,
   type Place,
+  type RequestOutcome,
+  type RequestRun,
   type ReviewDraft,
   type Walkthrough,
   type WorkerRequest,
+  type WorkerUsage,
 } from "./schemas.ts";
 import { committedMessage, type CommittedMessage } from "./stream-commit.ts";
 import { extractContent, hasStreamMarkup } from "./stream-markup.ts";
@@ -89,6 +92,16 @@ const MAX_FULL_FILE_BYTES = 1_000_000;
 const MERGE_BASE_TTL_MS = 60_000;
 /** Parts written ahead of the one on screen. */
 const WRITE_AHEAD = 1;
+/**
+ * Requests whose rows the record keeps. A walkthrough sends one per part plus the plan
+ * and the wrap-up, and one per question the reader asks, so this holds a long one whole;
+ * past it the oldest rows go, since the newest are the ones a measurement is about.
+ */
+const REQUEST_RUNS_KEPT = 40;
+/** The event types a settled request is read back for: what ran, how it ended, what it cost. */
+const RUN_EVENT_TYPES = ["client/turn/requested", "turn/completed", "thread/tokenUsage/updated", "provider/error"] as const;
+/** Longest reason kept on a request row, and in its log line. */
+const DETAIL_CHARS = 200;
 /** Longest the snapshots of one part may take; a block still unread then is saved without code. */
 const SNAPSHOT_BUDGET_MS = 25_000;
 /** How long a write tool waits for the message it was told to read: attempts times interval. */
@@ -184,6 +197,69 @@ function threadUpdateMessage(updates: string[]): string {
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** A reason short enough for a record field and for one log line. */
+function oneLine(text: string | null | undefined): string | null {
+  const flat = (text ?? "").replace(/\s+/gu, " ").trim();
+  if (flat === "") return null;
+  return flat.length > DETAIL_CHARS ? `${flat.slice(0, DETAIL_CHARS - 1)}\u2026` : flat;
+}
+
+/** The worker's cumulative token counts from a `thread/tokenUsage/updated` payload, or null when it carries none. */
+function readUsage(value: unknown): WorkerUsage | null {
+  const total = (value as { total?: Record<string, unknown> } | null | undefined)?.total;
+  if (total === null || typeof total !== "object" || total === undefined) return null;
+  const count = (key: string) => {
+    const raw = total[key];
+    return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
+  };
+  return { inputTokens: count("inputTokens"), cachedInputTokens: count("cachedInputTokens"), outputTokens: count("outputTokens"), totalTokens: count("totalTokens") };
+}
+
+/**
+ * What one request added, from the cumulative counts and the reading before it. Counts
+ * that went down mean the provider restarted them, so the whole of the new reading is
+ * this request's rather than a negative difference.
+ */
+function addedUsage(usage: WorkerUsage, previous: WorkerUsage | null): WorkerUsage {
+  if (previous === null || usage.totalTokens < previous.totalTokens) return usage;
+  const added = (key: keyof WorkerUsage) => Math.max(0, usage[key] - previous[key]);
+  return { inputTokens: added("inputTokens"), cachedInputTokens: added("cachedInputTokens"), outputTokens: added("outputTokens"), totalTokens: added("totalTokens") };
+}
+
+/**
+ * The request rows with one of them patched, by its `sentAt`; undefined when no row
+ * matches, so a caller can leave the record exactly as it was.
+ */
+function patchRun(rows: RequestRun[] | undefined, sentAt: number, patch: Partial<RequestRun>): RequestRun[] | undefined {
+  const list = rows ?? [];
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    if (list[index]!.sentAt !== sentAt) continue;
+    return list.map((run, position) => (position === index ? { ...run, ...patch } : run));
+  }
+  return undefined;
+}
+
+/** The last row sent at `sentAt`, which is the one a settle is about. */
+function lastRunAt(rows: RequestRun[] | undefined, sentAt: number): RequestRun | undefined {
+  const list = rows ?? [];
+  for (let index = list.length - 1; index >= 0; index -= 1) if (list[index]!.sentAt === sentAt) return list[index];
+  return undefined;
+}
+
+/** One settled request, as the plugin log carries it: what ran, how long, what it cost, how it ended. */
+function runLine(id: string, run: RequestRun): string {
+  const ran =
+    run.model === null
+      ? `model unknown${run.askedModel === null ? "" : ` (asked for ${run.askedModel})`}`
+      : `ran ${run.model}${run.reasoning === null ? "" : ` at ${run.reasoning}`}${run.askedModel === null || run.askedModel === run.model ? "" : ` (asked for ${run.askedModel})`}`;
+  const tokens =
+    run.outputTokens === null && run.inputTokens === null
+      ? "tokens unreported"
+      : `${(run.inputTokens ?? 0) + (run.cachedInputTokens ?? 0)} in (${run.cachedInputTokens ?? 0} cached), ${run.outputTokens ?? 0} out`;
+  const where = run.part === null ? "" : ` part ${run.part + 1}`;
+  return `request ${id} #${run.n} ${run.kind}${where}: ${run.outcome ?? "unsettled"} in ${run.ms === null ? "an unknown time" : `${run.ms} ms`}, ${ran}, ${tokens}${run.detail === null ? "" : ` \u2014 ${run.detail}`}`;
 }
 
 const NOT_WORK = new Set(["reasoning", "agentMessage", "userMessage", "plan", "contextCompaction"]);
@@ -330,6 +406,133 @@ export class WalkthroughService {
       this.store.save({ ...walkthrough, timing: { ...walkthrough.timing, [stage]: Math.max(0, this.now() - walkthrough.createdAt) } });
     } catch (cause) {
       this.bb.log.debug(`timing mark skipped: ${errorText(cause)}`);
+    }
+  }
+
+  // -- measuring itself -----------------------------------------------------
+
+  /**
+   * Appends the row for the request about to be sent, and closes a row an earlier run
+   * left open: a request the plugin never saw end (a restart, a dead server) would
+   * otherwise look in flight forever, and its duration would keep growing.
+   */
+  private openRun(walkthrough: Walkthrough, request: WorkerRequest, asked: HelperExecution | null, sentAt: number): Walkthrough {
+    const rows = (walkthrough.requests ?? []).map((run) =>
+      run.settledAt === null
+        ? { ...run, settledAt: sentAt, ms: Math.max(0, sentAt - run.sentAt), outcome: "abandoned" as const, detail: "the plugin never saw this request end" }
+        : run,
+    );
+    const run: RequestRun = {
+      n: (rows.at(-1)?.n ?? 0) + 1,
+      kind: request.kind,
+      part: request.kind === "write" ? request.part : request.kind === "ask" && typeof request.place === "number" ? request.place : null,
+      sentAt,
+      settledAt: null,
+      ms: null,
+      askedModel: asked?.model ?? null,
+      askedReasoning: asked?.reasoningLevel ?? null,
+      model: null,
+      reasoning: null,
+      outcome: null,
+      turnStatus: null,
+      inputTokens: null,
+      cachedInputTokens: null,
+      outputTokens: null,
+      detail: null,
+    };
+    return { ...walkthrough, requests: [...rows, run].slice(-REQUEST_RUNS_KEPT) };
+  }
+
+  /**
+   * Reads what a settled request actually ran and cost, from the worker's own events
+   * over the sequence window the request occupied, and writes it onto the row. The
+   * plugin cannot ask the server which model it used or what the turn billed, so both
+   * are read back here; a field the events do not carry stays null, which the record
+   * says instead of guessing. Nothing in this path can fail a walkthrough.
+   */
+  private async settleRun(id: string, sentAt: number, afterSeq: number): Promise<void> {
+    let run: RequestRun | undefined;
+    try {
+      const before = this.store.get(id);
+      const workerThreadId = before?.workerThreadId ?? null;
+      const open = lastRunAt(before?.requests, sentAt);
+      if (before === null || workerThreadId === null || open === undefined || open.outcome === "abandoned") return;
+      const events = (await this.bb.sdk.threads.events.list({
+        threadId: workerThreadId,
+        afterSeq: String(afterSeq),
+        limit: "100",
+        types: [...RUN_EVENT_TYPES],
+      })) as unknown as Array<{
+        type: string;
+        data?: { execution?: { model?: unknown; reasoningLevel?: unknown }; status?: unknown; tokenUsage?: unknown; code?: unknown; message?: unknown };
+      }>;
+      // Read the record again after the wait, and write it under the walkthrough's lock: the
+      // turn ending may have finished the walkthrough, and the next request may already be
+      // on its way, so a copy read before either would undo one of them.
+      await this.locked(id, async () => {
+        const walkthrough = this.store.get(id);
+        run = lastRunAt(walkthrough?.requests, sentAt);
+        if (walkthrough === null || run === undefined || run.outcome === "abandoned") return;
+        const last = (type: string) => (Array.isArray(events) ? events.filter((event) => event.type === type).at(-1)?.data : undefined);
+        const execution = last("client/turn/requested")?.execution;
+        const status = last("turn/completed")?.status;
+        const providerError = last("provider/error");
+        const usage = readUsage(last("thread/tokenUsage/updated")?.tokenUsage);
+        const added = usage === null ? null : addedUsage(usage, walkthrough.usage ?? null);
+        const failure =
+          providerError === undefined
+            ? null
+            : oneLine(typeof providerError.code === "string" ? providerError.code : typeof providerError.message === "string" ? providerError.message : null);
+        const requests = patchRun(walkthrough.requests, sentAt, {
+          model: typeof execution?.model === "string" ? execution.model : null,
+          reasoning: typeof execution?.reasoningLevel === "string" ? execution.reasoningLevel : null,
+          turnStatus: typeof status === "string" ? status : null,
+          inputTokens: added?.inputTokens ?? null,
+          cachedInputTokens: added?.cachedInputTokens ?? null,
+          outputTokens: added?.outputTokens ?? null,
+          // A provider code adds to the plugin's own reason rather than replacing it: the
+          // reason is what the reader saw, the code is what an operator needs.
+          detail: failure === null || run.detail === null || run.detail.includes(failure) ? run.detail : `${run.detail} (${failure})`,
+        });
+        if (requests === undefined) return;
+        this.store.save({ ...walkthrough, requests, ...(usage === null ? {} : { usage }) });
+        run = lastRunAt(requests, sentAt) ?? run;
+      });
+    } catch (cause) {
+      this.bb.log.debug(`request record not completed for ${id}: ${errorText(cause)}`);
+    }
+    // One line per settled request, whatever the reads above managed: this is the instrument.
+    if (run !== undefined) this.bb.log.debug(runLine(id, run));
+  }
+
+  /**
+   * What a settled request achieved, in terms of what the reader got, read from the
+   * record it left behind rather than from the turn's text: the same whether the turn
+   * streamed its part, passed it as arguments, or failed.
+   */
+  private settleOutcome(request: WorkerRequest, after: Walkthrough, failed: boolean, message: string | null): { outcome: RequestOutcome; detail: string | null } {
+    if (failed && message === INTERRUPTED) return { outcome: "interrupted", detail: oneLine(INTERRUPTED) };
+    switch (request.kind) {
+      case "plan":
+        if (after.parts.length > 0 && after.status !== "failed") return { outcome: "planned", detail: null };
+        // The plan turn wrote its message but called nothing: a second ask is now queued.
+        if (after.queue.some((queued) => queued.kind === "plan")) return { outcome: "nudged", detail: oneLine(message ?? "the turn called no walkthrough tool") };
+        return { outcome: failed ? "failed" : "empty", detail: oneLine(after.message ?? message) };
+      case "write": {
+        const part = after.parts[request.part];
+        if (part?.status === "ready") return { outcome: "wrote", detail: null };
+        return { outcome: failed ? "failed" : "empty", detail: oneLine(part?.message ?? message) };
+      }
+      case "ask": {
+        const exchange = this.findExchange(after, request.place, request.exchangeId);
+        if (exchange?.status === "done" && exchange.answer.trim() !== "") return { outcome: "answered", detail: null };
+        return { outcome: failed ? "failed" : "empty", detail: oneLine(message) };
+      }
+      case "wrap-up":
+        if (after.wrapUp?.status === "ready") return { outcome: "wrapped-up", detail: null };
+        return { outcome: failed ? "failed" : "empty", detail: oneLine(after.wrapUp?.message ?? message) };
+      case "reply":
+        return { outcome: failed ? "failed" : "replied", detail: oneLine(message) };
     }
   }
 
@@ -567,10 +770,13 @@ export class WalkthroughService {
     const updates = walkthrough.threadUpdates ?? [];
     const text = updates.length > 0 ? `${threadUpdateMessage(updates)}\n\n${body}` : body;
     const workerThreadId = walkthrough.workerThreadId!;
+    const asked = await this.helperExecution(walkthrough);
     const afterSeq = await this.latestSeq(workerThreadId);
+    const sentAt = this.now();
     // Re-read: waiting for the brief let other work (the first look at the tree) save in between.
-    let next: Walkthrough = { ...this.get(id), queue: rest, threadUpdates: [], inFlight: { request, sentAt: this.now(), afterSeq } };
+    let next: Walkthrough = { ...this.get(id), queue: rest, threadUpdates: [], inFlight: { request, sentAt, afterSeq } };
     next = this.markStarted(next, request);
+    next = this.openRun(next, request, asked, sentAt);
     this.save(next);
     try {
       await this.sendToHelper(walkthrough, workerThreadId, { mode: "queue-if-active" as const, input: [{ type: "text" as const, text, mentions: [] }] });
@@ -756,6 +962,7 @@ export class WalkthroughService {
   /** Marks the walkthrough done and fails every answer and part still owed. */
   private finish(id: string, reason: string): Walkthrough {
     const current = this.get(id);
+    const abandonedAt = this.now();
     const failOpen = (part: Part): Part => ({
       ...part,
       discussion: part.discussion.map((exchange) =>
@@ -769,6 +976,9 @@ export class WalkthroughService {
       message: current.status === "planning" ? reason : current.message,
       queue: [],
       inFlight: null,
+      // A request still in flight when the walkthrough ends never reports back, so it is
+      // recorded as abandoned with the reason the walkthrough was closed.
+      requests: current.requests?.map((run) => (run.settledAt === null ? { ...run, settledAt: abandonedAt, ms: Math.max(0, abandonedAt - run.sentAt), outcome: "abandoned" as const, detail: oneLine(reason) } : run)),
       parts: current.parts.map(failOpen),
       wrapUp: current.wrapUp && (current.wrapUp.status === "writing" ? { ...current.wrapUp, status: "failed", message: reason } : failOpen(current.wrapUp)),
     });
@@ -843,7 +1053,14 @@ export class WalkthroughService {
         }
         break;
     }
+    // The row for this request is settled in the same write as the outcome it produced.
+    const settledAt = this.now();
+    const settled = this.settleOutcome(request, next, failed, message);
+    next = { ...next, requests: patchRun(next.requests, inFlight.sentAt, { settledAt, ms: Math.max(0, settledAt - inFlight.sentAt), ...settled }) ?? next.requests };
     this.save(next);
+    // The model and the tokens are read back from the worker's events off this path, so a
+    // slow read never holds up the next request.
+    void this.settleRun(id, inFlight.sentAt, inFlight.afterSeq);
   }
 
   /**
