@@ -188,10 +188,23 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
   font-size: 12px;
 }
 .wt-title { margin: 0; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 12px var(--wt-sans); }
+/*
+ * Position is one control, not three: the page marks open the part picker and
+ * carry the current position themselves. The words "3 of 5" are a detail for
+ * windows with room for them, never a second indicator.
+ */
+.wt-chip-dots { gap: 7px; padding: 0 9px; }
+.wt-chip-n { display: none; font-weight: 500; }
+@container wt (min-width: 560px) { .wt-chip-n { display: inline; } }
 .wt-dots { display: flex; gap: 4px; align-items: center; }
 .wt-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-hair); }
 .wt-dots i.wt-past { background: var(--wt-mute); }
-.wt-dots i.wt-on { background: var(--wt-y); width: 16px; }
+/*
+ * Ink, not the highlighter: yellow is reserved for the reader's own marks on the
+ * page (emphasised prose, note anchors), so the current page is drawn in ink and
+ * cannot be confused with something the reader flagged.
+ */
+.wt-dots i.wt-on { background: var(--wt-ink); width: 16px; }
 .wt-chip {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   height: 24px; padding: 0 10px; border: 0; border-radius: 12px;
@@ -199,15 +212,20 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 }
 .wt-chip:hover:not(:disabled) { background: var(--wt-hair); }
 .wt-chip[aria-expanded="true"] { background: var(--wt-hair); }
-.wt-chip[data-selected="true"] { background: var(--wt-y); color: var(--wt-yt); }
-.wt-chip[data-selected="true"]:hover:not(:disabled) { background: color-mix(in srgb, var(--wt-y) 88%, #000); color: var(--wt-yt); }
+/* An open sheet is a control state, not a mark on the page: no highlighter here. */
+.wt-chip[data-selected="true"] { background: var(--wt-hair); color: var(--wt-ink); box-shadow: inset 0 0 0 0.5px var(--wt-hair); }
 .wt-chip-icon { padding: 0 6px; }
-.wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-y); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
+.wt-live { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-ink); animation: wt-pulse var(--wt-pulse) ease-in-out infinite; }
 
 /* The desk and the page */
 .wt-scroll {
   position: relative;
-  flex: 1;
+  /*
+   * The sheet is as tall as the writing on it, not as tall as the window: a part
+   * with one figure leaves desk below the paper instead of a blank page. It still
+   * shrinks to fill the window when the writing is longer than the pane.
+   */
+  flex: 0 1 auto;
   min-height: 0;
   margin: 10px auto;
   width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w));
@@ -463,7 +481,7 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 
 /* Pager */
 /* Suggestions on top; Prev, the question and the page's main action share the row beneath. */
-.wt-pager { position: relative; z-index: 5; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; margin: 0 auto var(--wt-inset); width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w)); padding: 8px 10px; border-radius: 22px; }
+.wt-pager { position: relative; z-index: 5; flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 8px; margin: auto auto var(--wt-inset); width: min(100% - var(--wt-inset) * 2, var(--wt-sheet-w)); padding: 8px 10px; border-radius: 22px; }
 .wt-suggest { grid-column: 1 / -1; grid-row: 1; min-width: 0; margin-bottom: 6px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
 /* Suggestions that run past the pager fade out at the edge, so a clipped chip reads as scrollable. */
 @supports (animation-timeline: scroll()) {
@@ -491,6 +509,20 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 /* A pager with nothing to ask and nowhere to go is not a bar. */
 .wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions, .wt-finished)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
 /* Panel width: the question gets its own row and Prev and Next share the one below, so no label is clipped. */
+/*
+ * Panel width: the notebook gives back the width it was spending on scenery.
+ * The desk inset and the ruled margin shrink, and the part number stays as a
+ * numeral in a narrow rule instead of a column with a label in it, so the prose
+ * measure keeps the width it needs at 460px.
+ */
+@container wt (max-width: 520px) {
+  .wt-top, .wt-scroll, .wt-pager { --wt-inset: 8px; }
+  .wt-top { padding: 0 4px 0 9px; gap: 6px; }
+  .wt-page { padding: 26px 16px 48px 34px; background-image: linear-gradient(90deg, transparent 21px, var(--wt-rule) 21px, var(--wt-rule) 22px, transparent 22px); }
+  .wt-pn { left: 0; width: 26px; top: 30px; font-size: 0; letter-spacing: 0; }
+  .wt-pn:not(:has(b)) { font-size: 8px; letter-spacing: 0.01em; }
+  .wt-pn b { font: 500 17px var(--wt-serif); }
+}
 @container wt (max-width: 460px) {
   /* Only a row that also carries Next needs the second line; Prev and the question share one when there is no Next. */
   .wt-pager-row:has(.wt-next) { flex-wrap: wrap; }

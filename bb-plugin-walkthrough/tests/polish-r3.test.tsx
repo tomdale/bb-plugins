@@ -93,8 +93,9 @@ describe("focus", () => {
 });
 
 describe("selected chip, destructive actions and the dark accent", () => {
-  it("keeps the selected Concerns chip readable on hover", () => {
-    expect(rule('.wt-chip[data-selected="true"]:hover:not(:disabled)')).toContain("color: var(--wt-yt)");
+  it("keeps an open Concerns chip neutral, so yellow still means a mark on the page", () => {
+    expect(rule('.wt-chip[data-selected="true"]')).not.toContain("--wt-y");
+    expect(rule('.wt-chip[data-selected="true"]')).toContain("color: var(--wt-ink)");
   });
   it("paints destructive actions red in both modes", () => {
     expect(css).toMatch(/--wt-danger: #ff3b30/u);

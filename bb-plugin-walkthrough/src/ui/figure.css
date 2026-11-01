@@ -94,12 +94,10 @@
 .wt[data-narrow] .wt-notes-collapsed { padding-inline: 12px; }
 .wt[data-narrow] .wt-fig-empty { padding-inline: 12px; }
 
-/* Top bar at panel width: the title gets the room; the dots and the word "Part" are what give way. */
-.wt[data-narrow] .wt-top { gap: 6px; padding-left: 12px; }
-.wt[data-narrow] .wt-dots { display: none; }
+/* Top bar at panel width: the page marks stay, because they are the picker; the title takes what is left on one line rather than pushing the bar two rows tall. */
+.wt[data-narrow] .wt-top { gap: 6px; padding-left: 10px; }
 .wt[data-narrow] .wt-top > .wt-sp { display: none; }
-/* Two lines of title fit the bar's 36px, so a long name is read rather than cut. */
-.wt[data-narrow] .wt-title { flex: 1 1 auto; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.17; text-wrap: balance; }
+.wt[data-narrow] .wt-title { flex: 1 1 auto; min-width: 0; }
 @container wt (max-width: 460px) {
   .wt .wt-chip-kicker { display: none; }
   .wt[data-narrow] .wt-top { gap: 4px; }

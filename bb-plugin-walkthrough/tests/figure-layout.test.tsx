@@ -204,15 +204,17 @@ describe("the panel layout", () => {
     expect(figureCss).toMatch(/\.wt\[data-narrow\] \.wt-row \{ gap: 12px; padding-left: var\(--wt-fig-l\); \}/u);
   });
 
-  it("gives the title the bar: dots and the word Part give way, and the title may take two lines", async () => {
+  it("makes the page marks the picker at panel width and keeps the title on one line", async () => {
     stubWidth(390);
     const slot = await mountPage("wt_1", viewOf(walkthrough({ currentPart: 0, parts: [part("A"), part("B")] })));
     const chip = await slot.findByRole("button", { name: /^Parts/u });
+    expect(chip.querySelector(".wt-dots")).not.toBeNull();
     expect(chip.textContent).toBe("Part 1 of 2");
-    expect(chip.querySelector(".wt-chip-kicker")!.textContent).toBe("Part ");
-    expect(figureCss).toMatch(/\.wt\[data-narrow\] \.wt-dots \{ display: none; \}/u);
-    expect(figureCss).toMatch(/\.wt\[data-narrow\] \.wt-title \{[^}]*-webkit-line-clamp: 2/u);
-    expect(figureCss).toMatch(/@container wt \(max-width: 460px\) \{\s*\.wt \.wt-chip-kicker \{ display: none; \}/u);
+    // The words are a wide-window detail; the marks carry position at every width.
+    expect(appCss).toMatch(/\.wt-chip-n \{ display: none;/u);
+    expect(appCss).toMatch(/@container wt \(min-width: 560px\) \{ \.wt-chip-n \{ display: inline; \} \}/u);
+    expect(figureCss).not.toMatch(/\.wt\[data-narrow\] \.wt-dots \{ display: none; \}/u);
+    expect(figureCss).toMatch(/\.wt\[data-narrow\] \.wt-title \{ flex: 1 1 auto; min-width: 0; \}/u);
   });
 
   it("sets a figure's notes compactly at panel width: smaller italic, one hairline, the marker on the first line", () => {

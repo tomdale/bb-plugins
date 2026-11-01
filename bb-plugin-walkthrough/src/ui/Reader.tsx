@@ -595,24 +595,18 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                   {title.text}
                 </h1>
                 <span className="wt-sp" />
-                <span className="wt-dots" aria-hidden>
-                  {partItems.map((item) => (
-                    <i key={item.key} className={cn(item.go === position ? "wt-on" : item.go < position ? "wt-past" : "")} />
-                  ))}
-                </span>
-                <span className="wt-sp" />
+                {/* One affordance for position: the page marks are the picker, and they
+                    say where you are; the words "3 of 5" only appear when there is room. */}
                 <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                   <PopoverTrigger asChild>
-                    <button type="button" className="wt-chip" aria-label={`Parts: ${progressLabel}`} disabled={preparing}>
+                    <button type="button" className="wt-chip wt-chip-dots" aria-label={`Parts: ${progressLabel}`} disabled={preparing}>
                       {walkthrough.inFlight ? <span className="wt-live" aria-hidden /> : null}
-                      {page.kind === "part" && !preparing ? (
-                        <span>
-                          <span className="wt-chip-kicker">Part </span>
-                          {page.index + 1} of {partCount}
-                        </span>
-                      ) : (
-                        progressLabel
-                      )}
+                      <span className="wt-dots" aria-hidden>
+                        {partItems.map((item) => (
+                          <i key={item.key} className={cn(item.go === position ? "wt-on" : item.go < position ? "wt-past" : "")} />
+                        ))}
+                      </span>
+                      <span className="wt-chip-n">{progressLabel}</span>
                     </button>
                   </PopoverTrigger>
                   <PopoverContent align="end" sideOffset={14} collisionPadding={8} collisionBoundary={boundary} autoFocusRef={currentPartRef} className="wt-portal wt-picker" mobileTitle="Parts">

@@ -103,11 +103,14 @@ describe("the concerns sheet, pager and shared controls", () => {
 });
 
 describe("accent discipline", () => {
-  it("keeps yellow for markers, highlights, the open Concerns chip and the current position, not for hovers", () => {
+  it("keeps yellow for what the reader marked, and draws position and open controls in ink", () => {
     expect(rule(".wt-suggest button:hover:not(:disabled)")).not.toContain("--wt-y");
     expect(rule(".wt-flag > button:hover:not(:disabled)")).not.toContain("--wt-y");
     expect(rule('.wt-chip[aria-expanded="true"]')).not.toContain("--wt-y");
-    expect(rule('.wt-chip[data-selected="true"]')).toContain("--wt-y");
+    expect(rule('.wt-chip[data-selected="true"]')).not.toContain("--wt-y");
+    expect(rule(".wt-dots i.wt-on")).toContain("var(--wt-ink)");
+    expect(rule(".wt-live")).not.toContain("--wt-y");
+    expect(css).toMatch(/\.wt-mn\.wt-hot \{[^}]*background: var\(--wt-yhi\)/u);
   });
 });
 
