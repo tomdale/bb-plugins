@@ -32,6 +32,11 @@ not ours to shorten.
   reasoning level (medium when the model lists it). The user's thread keeps its own
   model, and a provider that serves none of the preferences leaves the helper on that
   model. "The helper's model" below has the measurements behind the list.
+- **A plan turn that calls nothing is asked once more.** A helper that writes its message and
+  ends the turn without `walkthrough_plan` gets one second ask that saves that message
+  (`planNudged`, `streamedPlan` in service.ts); a second empty turn fails the walkthrough
+  instead of leaving the pane waiting. "A plan turn that writes the message and calls
+  nothing" below has the measurements.
 - **The helper reasons at medium.** `HELPER_REASONING` (service.ts) is sent with every
   request to the helper (`threads.send({ reasoningLevel })`). A model that rejects the
   level gets the request again at its own level. The user's thread is untouched.
@@ -172,9 +177,36 @@ user's own model (Opus 5.5 at xhigh) reached part 1 in 42.9 s on a three-file ch
 pinned helper does about half that on a small one, and it costs a fraction as much.
 
 Not measured: the plugin end to end on a large change, where reading takes longer for any
-model, and whether a model that skipped the first round would recover on a second request —
-the plugin has no such retry, so a model that ends a plan turn without calling
-`walkthrough_plan` leaves the walkthrough unplanned.
+model. Whether a model that skipped the tool call recovers on a second ask is measured below.
+
+### A plan turn that writes the message and calls nothing
+
+`deepseek-v4.1-flash-1017` is the clearest case: it is fast (first words at 10 to 11 s) and
+its message is well formed — two recorded runs score clean on every format check — and it
+still ends the turn without calling `walkthrough_plan`, 0 of 2 runs (`deepseek-v4.1-flash`
+is 0 of 2 as well). The tools are not the problem: the same model calls
+`agent_plugins_list_tools`, calls `walkthrough_open` as an asking agent, and calls
+`walkthrough_plan` correctly in 6.5 s in its own worker session when the request asks for the
+call alone. What changes its behaviour is the worker's standing guidance: eight runs with
+it (four of them adding a single paragraph) wrote the message and stopped, six runs with the
+same plan instructions and no guidance wrote the message and then called the tool. Rewording
+the pacing paragraph, and telling the request outright that the message alone saves nothing,
+did not change it: the model treats the finished message as the end of the turn.
+
+So the plugin no longer depends on that judgement:
+
+- **One second ask.** When a plan turn ends with a walkthrough message and no tool call, the
+  plan request is queued once more (`planNudged` on the record, so it never loops). The ask
+  is the two calls and nothing else, and `committedFromMessage` saves the message the first
+  turn wrote (`streamedPlan`), so nothing the reader already watched is lost or re-written.
+- **A visible failure, not a wait.** If the second turn also ends with no call, the
+  walkthrough ends as `failed` with "The helper wrote the walkthrough but never saved it."
+  rather than sitting in `planning` forever with the raw markup as its message.
+- **The instructions say where the turn ends.** The worker guide's pacing paragraph and the
+  plan request now both end on the calls ("a turn that stops after the message leaves the
+  pane empty"), and the escape hatch for an unclear request is no longer the last thing the
+  model reads. Measured alone, this did not fix `deepseek-v4.1-flash-1017`; the second ask is
+  what does, and the wording is there for the models between.
 
 The checks above are reproducible: `evals/README.md` describes the suite that
 replays the offline half without a model and reruns the live half against a

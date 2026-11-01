@@ -57,10 +57,10 @@ export const streamedMessageChecks: Check[] = [
   {
     // Recorded behaviour of a helper that writes the message and ends its turn
     // without calling walkthrough_plan (deepseek-v4.1-flash-1017 and
-    // deepseek-v4.1-flash, docs/latency.md): nothing re-queues a plan, so the
-    // walkthrough stays in "planning" for good with the raw markup as its
-    // message. The suite pins that dead end rather than inventing a recovery.
-    name: "streamed message: a plan turn without walkthrough_plan stays unplanned",
+    // deepseek-v4.1-flash, docs/latency.md). The plugin asks once more for the
+    // calls alone and keeps the message out of sight meanwhile; a second empty
+    // turn fails the walkthrough instead of leaving the pane waiting.
+    name: "streamed message: a plan turn without walkthrough_plan asks once, then fails",
     async run() {
       const message = messageText("recorded-plan-deepseek-v4.1-flash-1017-a.md");
       const { rpc, idle, sent, view } = await setup({ readCode, deltas: deltasFrom(message) });
@@ -70,19 +70,26 @@ export const streamedMessageChecks: Check[] = [
 
       await idle(message);
       await settle();
-
-      const walkthrough = (await view(walkthroughId)).walkthrough;
+      const nudged = (await view(walkthroughId)).walkthrough;
       equal(
-        { status: walkthrough.status, parts: walkthrough.parts.length, inFlight: walkthrough.inFlight, queue: walkthrough.queue, message: walkthrough.message },
-        { status: "planning", parts: 0, inFlight: null, queue: [], message: message.trim() },
+        { status: nudged.status, parts: nudged.parts.length, message: nudged.message, retry: nudged.inFlight?.request },
+        { status: "planning", parts: 0, message: null, retry: { kind: "plan", retry: true } },
         "the walkthrough after a plan turn that called no tool",
       );
-      equal(walkthrough.timing?.planned, undefined, "plan was never timed");
-      equal(walkthrough.timing?.part1Ready, undefined, "part 1 was never committed");
-      equal(sent.length, 1, "the plugin sends no second request");
+      equal(sent.length, 2, "the plugin asks once more");
+      ok(sent[1].text.includes("walkthrough_plan was never called"), "the second ask names what is missing");
+      ok(sent[1].text.includes("Do not write another message"), "the second ask spends its turn on the calls alone");
+
+      await idle("I have written the walkthrough.");
+      await settle();
+      const failed = (await view(walkthroughId)).walkthrough;
+      equal(failed.status, "failed", "a second empty turn fails the walkthrough");
+      equal(failed.message, "The helper wrote the walkthrough but never saved it.", "the failure says what happened");
+      equal(sent.length, 2, "never a third ask");
+      equal(failed.timing?.part1Ready, undefined, "part 1 was never committed");
       // The message itself is well formed: this failure is the missing tool call, not the format.
       equal(scoreFormat(message).ok, true, "the recorded message scores clean");
-      return "stuck in planning, message holds the raw markup";
+      return "asked once more, then failed with a message the reader can read";
     },
   },
   {

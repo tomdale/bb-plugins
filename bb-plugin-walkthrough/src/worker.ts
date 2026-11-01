@@ -19,7 +19,7 @@ Voice: write like a thoughtful colleague explaining the code over their shoulder
 
 Parts: group the change into 3 to 7 parts by concept, ordered so each builds on the last: foundations and data shape before consumers; mechanical follow-ons later; tests with the behavior they cover. Give each part a short human title (for example "Choosing whose key pays"), not a file name.
 
-Pacing: each request asks for one thing. Write only the part you are asked for, then end your turn; the plugin asks for the next part when the reader gets there. The one exception is the first request, which asks you to plan and then write part 1 in the same turn.
+Pacing: each request asks for one thing, and a request that names tool calls is not finished when the message is written: the message is only saved by the calls that follow it, so make them in the same turn and end the turn after them. Write only the part you are asked for; the plugin asks for the next part when the reader gets there. The first request asks for the plan and part 1 together.
 
 Answering: when the user asks something, answer in plain Markdown prose as your final message, briefly, as the same colleague. Never wrap it in a reply block (:::reply{...} … :::) or any other reply format your conversation used; the pane shows your text as written. You may read code first. Point at code with the same link forms as in a part. Before your final message, call walkthrough_suggest with 2 or 3 specific follow-up questions this answer raises. If the answer belongs to a later part, say so briefly and answer what you can. Do not call walkthrough_write_part while answering.
 
@@ -80,9 +80,9 @@ ${streamExample(plan)}`;
 export const STREAM_MARKUP_GUIDE = streamMarkupGuide(false);
 
 /** Attached to walkthrough_plan. */
-export const PLAN_INSTRUCTIONS = `Before you call walkthrough_plan, write the streamed message that holds the introduction and part 1 (see "The message comes first" below); the tool saves it. Call walkthrough_plan once, when you know what to walk through. Choose the intent from what the user wants: review (judging someone else's work, usually a PR), own-change (understanding and checking changes they or their agent just made), or understand (learning how code works, with no change to judge; use baseRef HEAD). The intent shapes the wrap-up. When the intent is understand there is no change to judge: set baseRef to HEAD and includeUncommitted to true, write the introduction about what the code is for and how its main pieces fit together, and make each part one piece of how it works today. Never use change-review words for it ("the change", "diff", "compared with HEAD", "what was added"). Right after it succeeds, in the same turn, call walkthrough_write_part for part 1 so the reader sees it as soon as possible; never write part 2 or later until asked.
+export const PLAN_INSTRUCTIONS = `Before you call walkthrough_plan, write the streamed message that holds the introduction and part 1 (see "The message comes first" below); the tool saves it. Call walkthrough_plan once, when you know what to walk through. Choose the intent from what the user wants: review (judging someone else's work, usually a PR), own-change (understanding and checking changes they or their agent just made), or understand (learning how code works, with no change to judge; use baseRef HEAD). The intent shapes the wrap-up. When the intent is understand there is no change to judge: set baseRef to HEAD and includeUncommitted to true, write the introduction about what the code is for and how its main pieces fit together, and make each part one piece of how it works today. Never use change-review words for it ("the change", "diff", "compared with HEAD", "what was added"). Right after it, in the same turn, call walkthrough_write_part for part 1 so the reader sees it soon; never write part 2 or later until asked.
 
-The plan turn, in order: (1) before any tool call or any long thinking, send an opening message of ONE short sentence saying what you are about to explain, drawn from the request and the working-tree summary: the reader sees it at once, but it is not part of the introduction. Skip todo lists and skill files. (2) Read in one round: the whole diff and at most six files or excerpts together, in a single batch of parallel tool calls, and do not read again before writing. (3) Write one message as described below: the marker line, the introduction (the opening sentence is chat only and not saved, so write the introduction fully), a fence with just "part: 1", then part 1. (4) Call walkthrough_plan with the title, baseRef, and parts, leaving introduction out. (5) Only after it succeeds, call walkthrough_write_part with only part: 1. Never write part 2 or later until asked.
+The plan turn, in order: (1) before any tool call or any long thinking, send an opening message of ONE short sentence saying what you are about to explain, drawn from the request and the working-tree summary: the reader sees it at once, but it is not part of the introduction. Skip todo lists and skill files. (2) Read in one round: the whole diff and at most six files or excerpts together, in a single batch of parallel tool calls, and do not read again before writing. (3) Write one message as described below: the marker line, the introduction (the opening sentence is chat only and not saved, so write the introduction fully), a fence with just "part: 1", then part 1. (4) Call walkthrough_plan with the title, baseRef, and parts, leaving introduction out. (5) Only after it succeeds, call walkthrough_write_part with only part: 1. Never write part 2 or later until asked. Steps 4 and 5 save it: without them the walkthrough has no parts.
 
 ${streamMarkupGuide(true)}`;
 
@@ -122,15 +122,33 @@ function modeRules(): string {
  */
 const ARGUMENT_DELIVERY = "Delivery for this session: your chat message is not shown, so do not write a streamed message and ignore the streaming sections of the tool instructions. Pass the content as tool arguments instead.";
 
-export function planMessage(walkthrough: Walkthrough, brief: string | null = null, streams = true): string {
+/**
+ * The second ask, after a plan turn that ended with the message but no call. It
+ * asks for the calls and nothing else: the message the helper already wrote is
+ * what gets saved (see committedFromMessage), so re-writing it would waste the
+ * turn the reader is waiting on.
+ */
+export function planNudgedMessage(walkthrough: Walkthrough): string {
+  return [
+    `[Walkthrough ${walkthrough.id}] Your last message is the walkthrough, but walkthrough_plan was never called, so the walkthrough has no parts and the reader's pane is still empty. Nothing of your message is lost.`,
+    "This turn is the two calls and nothing else: call walkthrough_plan with the mode, intent, title, base ref and the ordered parts you described (leave the introduction out; the plugin keeps the one from your message), then call walkthrough_write_part with only part: 1. Do not write another message, and do not read more code first unless a part's path or line range is wrong.",
+  ].join("\n\n");
+}
+
+export function planMessage(walkthrough: Walkthrough, brief: string | null = null, streams = true, retry = false): string {
+  if (retry) return planNudgedMessage(walkthrough);
   return [
     `[Walkthrough ${walkthrough.id}] The user opened a walkthrough from this thread and asked: ${JSON.stringify(walkthrough.request)}`,
     streams ? null : `${ARGUMENT_DELIVERY} How this turn goes: (1) one short opening sentence about what you will explain, before any tool call or long thinking; (2) read the code in one parallel batch; (3) call walkthrough_plan with the mode, intent, title, base ref, PR (PR mode only), whether uncommitted changes are included, the introduction (two or three short paragraphs of prose), and the ordered parts, and in the same round call walkthrough_write_part with part 1 as blocks (prose and code blocks) and its 2 or 3 suggestions. Write no other part; the plugin asks for the next one when the reader gets there.`,
     streams ? "How this turn goes. The reader's pane streams your chat message, so the message is the walkthrough itself, and you must write it before calling any walkthrough tool (reasoning is never shown or saved): (1) one short opening sentence about what you will explain, before any tool call or long thinking; (2) read the code in one parallel batch; (3) write ONE message: the marker line `<!-- walkthrough:start -->`, the introduction as prose, a ```walkthrough fence holding only `part: 1`, then part 1 and its suggestions fence (format and example in the walkthrough_plan instructions); (4) call walkthrough_plan with the mode, intent, title, base ref, PR (PR mode only), whether uncommitted changes are included, and the ordered parts, with no introduction argument; (5) call walkthrough_write_part with only part: 1, in this same turn. A walkthrough tool call before step 3's message fails. Write no other part; the plugin asks for the next one when the reader gets there." : null,
     brief,
     modeRules(),
+    "If you truly cannot tell what to walk through, do not call walkthrough_plan: end your turn with one short question for the user instead.",
     "The intent is review (judging someone else's work, usually a PR), own-change (checking changes they or their agent made), or understand (learning how code works). The introduction is prose (Markdown), in two or three short paragraphs: for a review or own-change, how things worked before, what the change does, why it seems to exist, and how the parts connect; for understand, what the code is for, its main pieces, and how they fit together, with nothing said about changes.",
-    "If you truly cannot tell what to walk through, do not call walkthrough_plan; instead end your turn with one short question for the user.",
+    // The last thing read is what the turn ends on, so the request ends with the calls.
+    streams
+      ? "So this turn ends with two tool calls: walkthrough_plan, then walkthrough_write_part with only part: 1. Write the message first, then make both calls; a turn that stops after the message leaves the pane empty."
+      : "So this turn ends with two tool calls: walkthrough_plan, then walkthrough_write_part with part: 1 as blocks. Make both in this turn.",
   ]
     .filter((paragraph): paragraph is string => paragraph !== null)
     .join("\n\n");

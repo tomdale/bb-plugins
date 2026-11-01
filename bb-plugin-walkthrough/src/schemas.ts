@@ -192,7 +192,11 @@ export type Place = z.infer<typeof placeSchema>;
 
 /** One unit of work the plugin hands the worker; sent one at a time. */
 export const requestSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("plan") }).strict(),
+  /**
+   * `retry` marks the second ask for a plan, sent when a plan turn ended with the
+   * streamed message but no call: the message it already wrote is what gets saved.
+   */
+  z.object({ kind: z.literal("plan"), retry: z.boolean().optional() }).strict(),
   z.object({ kind: z.literal("write"), part: z.number().int().nonnegative() }).strict(),
   z
     .object({
@@ -283,6 +287,17 @@ export const walkthroughSchema = z
       .nullable(),
     nextNoteNumber: z.number().int().positive(),
     nextExchangeNumber: z.number().int().positive(),
+    /**
+     * Whether the plan turn has already been asked a second time after it wrote
+     * the message but called no tool (see service.ts). Absent in older rows, which
+     * never asked twice.
+     */
+    planNudged: z.boolean().optional().catch(undefined),
+    /**
+     * The walkthrough a plan turn streamed without saving it, kept for the second
+     * ask that turns it into a plan. Null except between those two turns.
+     */
+    streamedPlan: z.string().nullable().optional().catch(undefined),
     /**
      * Milliseconds after `createdAt` at which each stage of the first paint was reached (forked,
      * workerReady, planSent, firstText, planned, part1Ready); absent for stages not reached and

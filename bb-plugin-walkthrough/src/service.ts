@@ -44,7 +44,7 @@ import {
   type WorkerRequest,
 } from "./schemas.ts";
 import { committedMessage, type CommittedMessage } from "./stream-commit.ts";
-import { hasStreamMarkup } from "./stream-markup.ts";
+import { extractContent, hasStreamMarkup } from "./stream-markup.ts";
 import { streamTarget, StreamTail, type DeltaRow, type TailTarget } from "./stream-tail.ts";
 import type { WalkthroughStore } from "./store.ts";
 import { askMessage, planMessage, postReviewMessage, replyMessage, wrapUpMessage, writeMessage } from "./worker.ts";
@@ -365,9 +365,28 @@ export class WalkthroughService {
         const message = committedMessage(snapshot.text, kind);
         if (message.blocks.length > 0 || message.introduction !== "") return message;
       }
+      // The second ask has no message of its own: what it saves is the message the
+      // first plan turn streamed, which the record kept.
+      const saved = this.nudgedMessage(walkthrough);
+      if (saved !== null) return saved;
       await new Promise((resolve) => setTimeout(resolve, MESSAGE_WAIT_MS));
     }
     return null;
+  }
+
+  /**
+   * The markup a plan turn already streamed when it ended without calling the
+   * tools, for the second ask that finishes it. Only a retry has one: every other
+   * request must save what it wrote in its own turn.
+   */
+  private nudgedMessage(walkthrough: Walkthrough): CommittedMessage | null {
+    const request = walkthrough.inFlight?.request;
+    if (request === undefined || request.kind !== "plan" || request.retry !== true) return null;
+    const saved = walkthrough.streamedPlan ?? "";
+    const content = extractContent(saved);
+    if (content.trim() === "") return null;
+    const message = committedMessage(content, "plan");
+    return message.blocks.length > 0 || message.introduction !== "" ? message : null;
   }
 
   /** The in-flight request's text so far, for a client that joined mid-stream. */
@@ -426,6 +445,8 @@ export class WalkthroughService {
       inFlight: null,
       nextNoteNumber: 1,
       nextExchangeNumber: 1,
+      planNudged: false,
+      streamedPlan: null,
       codeFingerprint: null,
       threadSeq,
       threadUpdates: [],
@@ -645,7 +666,7 @@ export class WalkthroughService {
   private messageFor(walkthrough: Walkthrough, request: WorkerRequest, brief: string | null = null, streams = true): string | null {
     switch (request.kind) {
       case "plan":
-        return planMessage(walkthrough, brief, streams);
+        return planMessage(walkthrough, brief, streams, request.retry === true);
       case "write":
         return walkthrough.parts[request.part]?.status === "ready" ? null : writeMessage(walkthrough, request.part, streams);
       case "ask": {
@@ -772,7 +793,7 @@ export class WalkthroughService {
     if (inFlight === null) return;
     const message = stripReplyWrapper(text?.trim() ?? "").trim() || null;
     void this.tail.finish(id, failed ? (message === INTERRUPTED || message === HELPER_GONE ? "cancelled" : "failed") : "done");
-    let next: Walkthrough = { ...walkthrough, inFlight: null };
+    let next: Walkthrough = { ...walkthrough, inFlight: null, ...(inFlight.request.kind === "plan" ? { streamedPlan: null } : {}) };
     const request = inFlight.request;
     switch (request.kind) {
       case "plan":
@@ -783,7 +804,20 @@ export class WalkthroughService {
           next = this.scheduleWrites({ ...next, parts: next.parts.map((part) => (part.status === "writing" ? { ...part, status: "pending" as const } : part)) });
         }
         if (next.status === "planning") {
-          next = { ...next, message: message ?? "The walkthrough could not be planned.", ...(failed && request.kind === "plan" ? { status: "failed" as const } : {}) };
+          // A plan turn that ends with a message but no call leaves the walkthrough
+          // with no parts. Some models stop there whatever the instructions say, so
+          // ask once more, to save the message they already wrote (see
+          // planNudgedMessage); a second empty turn is a failure the reader can see,
+          // not a silent wait. A turn that asked a question instead wrote no
+          // walkthrough, and its question is what the reader needs.
+          const wroteWalkthrough = message !== null && hasStreamMarkup(message);
+          if (request.kind === "plan" && request.retry !== true && !failed && wroteWalkthrough && next.planNudged !== true) {
+            next = this.enqueue({ ...next, planNudged: true, message: null, streamedPlan: message }, { kind: "plan", retry: true }, "front");
+          } else if (request.kind === "plan" && request.retry === true && !failed) {
+            next = { ...next, status: "failed", message: "The helper wrote the walkthrough but never saved it." };
+          } else {
+            next = { ...next, message: message ?? "The walkthrough could not be planned.", ...(failed && request.kind === "plan" ? { status: "failed" as const } : {}) };
+          }
         }
         break;
       case "write":
