@@ -114,5 +114,6 @@ transcripts, plans, drafts, and generated artifacts, so carry what it needs
 into the prompt or a tracked file before removing the original. Secrets stay
 out of both, since a prompt is read by later readers and a tracked file is
 committed.
+
 Ask the user before deleting a worktree or branch that holds unmerged commits,
 which would lose work that exists nowhere else.
