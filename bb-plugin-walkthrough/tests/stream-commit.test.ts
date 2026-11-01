@@ -81,11 +81,51 @@ describe("saving what the streamed message said", () => {
     await settle();
     const { introduction: _omitted, ...withoutIntroduction } = PLAN;
     const failed = await tool("walkthrough_plan", withoutIntroduction);
-    expect(JSON.stringify(failed)).toContain("could not find an introduction");
+    // The error teaches the whole format, so the helper can write its message and retry in the same turn.
+    expect(JSON.stringify(failed)).toContain("There is no walkthrough message earlier in this turn");
+    expect(JSON.stringify(failed)).toContain(START_MARKER);
+    expect(JSON.stringify(failed)).toContain("part: 1");
     await tool("walkthrough_plan", PLAN);
     const missing = await tool("walkthrough_write_part", { part: 1 });
-    expect(JSON.stringify(missing)).toContain("could not find the part");
+    expect(JSON.stringify(missing)).toContain("There is no walkthrough message earlier in this turn");
+    expect(JSON.stringify(missing)).toContain("with only the part number");
     expect(await tool("walkthrough_write_part", { part: 1, blocks: [{ kind: "prose", text: "Explicit." }], suggestions: ["Q?"] })).toBe("Part 1 is on the page.");
     expect((await view(walkthroughId)).walkthrough.parts[0].blocks).toEqual([{ kind: "prose", text: "Explicit." }]);
+  }, 20_000);
+});
+
+describe("a plan-turn message without the part: 1 fence", () => {
+  const PROSE = "Before this change nothing retried.\n\nNow uploads try three times.";
+  const FIGURE = "```walkthrough\npath: tts.ts\nlines: 1-10\nview: code\ncaption: The cap\n```";
+  const SUGGESTIONS = "```walkthrough\nsuggestions:\nWhy 4,000?\n```";
+
+  it("takes the prose before the first code block as the introduction and the rest as part 1", () => {
+    const message = committedMessage(`${PROSE}\n\n${FIGURE}\n\nThe cap is [here](line:3).\n\n${SUGGESTIONS}`, "plan");
+    expect(message.introduction).toBe(PROSE);
+    expect(message.blocks.map((block) => block.kind)).toEqual(["code", "prose"]);
+    expect(message.suggestions).toEqual(["Why 4,000?"]);
+  });
+
+  it("keeps a write turn's whole message as the part, and an explicit fence wins in a plan turn", () => {
+    expect(committedMessage(`${PROSE}\n\n${FIGURE}`, "write")).toMatchObject({ introduction: "" });
+    expect(committedMessage(`${PROSE}\n\n\`\`\`walkthrough\npart: 1\n\`\`\`\n\n${FIGURE}`, "plan").introduction).toBe(PROSE);
+  });
+
+  it("commits through the tools, and names the missing introduction when the message has only part 1", async () => {
+    const rows: Array<{ seq: number; itemId: string; delta: string }> = [];
+    let seq = 100;
+    const say = (text: string) => rows.push({ seq: (seq += 1), itemId: `m${seq}`, delta: text });
+    const { rpc, tool, view } = await setup({ deltas: () => rows });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "x" });
+    await settle();
+    const { introduction: _omitted, ...withoutIntroduction } = PLAN;
+    say(`${START_MARKER}\n${FIGURE}\n\n${SUGGESTIONS}`);
+    expect(JSON.stringify(await tool("walkthrough_plan", withoutIntroduction))).toContain("Your message has no introduction");
+    say(`${START_MARKER}\n${PROSE}\n\n${FIGURE}\n\n${SUGGESTIONS}`);
+    await tool("walkthrough_plan", withoutIntroduction);
+    expect(await tool("walkthrough_write_part", { part: 1 })).toContain("Part 1 is on the page");
+    const current = (await view(walkthroughId)).walkthrough;
+    expect(current.introduction).toBe(PROSE);
+    expect(current.parts[0].blocks.map((block: { kind: string }) => block.kind)).toEqual(["code"]);
   }, 20_000);
 });

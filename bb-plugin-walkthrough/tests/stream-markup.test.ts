@@ -170,14 +170,16 @@ describe("parseStreamMarkup", () => {
 describe("the worker's instructions", () => {
   it("contain an example that the parser reads as intended, in both tools that carry it", async () => {
     const { PLAN_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } = await import("../src/worker.ts");
-    for (const instructions of [PLAN_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS]) {
+    for (const [instructions, plan] of [[PLAN_INSTRUCTIONS, true], [WRITE_PART_INSTRUCTIONS, false]] as const) {
       expect(instructions.length).toBeLessThan(4096);
       const example = instructions.slice(instructions.indexOf("Example:\n\n") + "Example:\n\n".length);
       const { blocks, complete } = parseStreamMarkup(example);
       expect(complete).toBe(true);
-      expect(blocks.map((block) => block.kind)).toEqual(["prose", "figure", "suggestions"]);
-      expect(blocks[1]).toMatchObject({ path: "src/upload.ts", startLine: 38, endLine: 52, view: "diff", notes: [{ line: 42, text: "The old loop never stopped." }] });
-      expect((blocks[2] as { items: string[] }).items).toHaveLength(2);
+      // The plan turn's example also shows the introduction and the fence that ends it.
+      expect(blocks.map((block) => block.kind)).toEqual(plan ? ["prose", "part", "prose", "figure", "suggestions"] : ["prose", "figure", "suggestions"]);
+      const figure = blocks.find((block) => block.kind === "figure");
+      expect(figure).toMatchObject({ path: "src/upload.ts", startLine: 38, endLine: 52, view: "diff", notes: [{ line: 42, text: "The old loop never stopped." }] });
+      expect((blocks.at(-1) as { items: string[] }).items).toHaveLength(2);
     }
   });
 });

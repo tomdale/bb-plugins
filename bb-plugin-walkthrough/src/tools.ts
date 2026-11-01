@@ -16,7 +16,7 @@ import {
   WORKER_ROLE,
 } from "./schemas.ts";
 import { WalkthroughError, type WalkthroughService } from "./service.ts";
-import { PLAN_INSTRUCTIONS, SUGGEST_INSTRUCTIONS, WRAP_UP_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } from "./worker.ts";
+import { PLAN_INSTRUCTIONS, streamExample, SUGGEST_INSTRUCTIONS, WRAP_UP_INSTRUCTIONS, WRITE_PART_INSTRUCTIONS } from "./worker.ts";
 
 export const USER_TOOLS = ["walkthrough_open"] as const;
 export const WORKER_TOOLS = [
@@ -34,6 +34,21 @@ const suggestionsSchema = z
   .max(4)
   .default([])
   .describe("2 or 3 specific questions in the reader's voice, each about something named in this part; clicking one asks it. Never generic.");
+
+/**
+ * What a helper hears when it calls a streaming tool without having written
+ * its message. It is the whole instruction in miniature, because a helper that
+ * skipped the message did so by not weighing the long instructions: the cause
+ * (reasoning is not chat), the required order, and the exact format.
+ */
+export function missingMessage(tool: "walkthrough_plan" | "walkthrough_write_part", what: "none" | "no-introduction"): string {
+  const plan = tool === "walkthrough_plan";
+  const problem =
+    what === "no-introduction"
+      ? "Your message has no introduction: the text before the part: 1 fence is the introduction, and without that fence it cannot be told from part 1."
+      : "There is no walkthrough message earlier in this turn. Reasoning is not a message: the reader sees, and the plugin saves, only a chat message that starts with the marker line.";
+  return `${problem} Nothing was saved. Do this now, in this turn: write the ${plan ? "introduction and part 1" : "part"} as one chat message in exactly this format, then call ${tool} again${plan ? " with the same title, baseRef and parts" : ""} with ${plan ? "no introduction" : "only the part number"}. If you have already drafted the content and cannot write the message, call ${tool} again with ${plan ? "the introduction" : "blocks and suggestions"} as arguments instead: that is saved as given.\n\n${streamExample(plan)}`;
+}
 
 function failure(message: string): PluginAgentToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
@@ -98,7 +113,7 @@ export function registerTools(
   bb.agents.registerTool({
     name: "walkthrough_plan",
     description:
-      "Set up the walkthrough once you know what to walk through: mode, title, base, an introduction, and the ordered parts. Call it once, before writing any part.",
+      "Set up the walkthrough once you know what to walk through: mode, title, base, and the ordered parts. Write your streamed message first (the introduction and part 1): the tool saves its introduction from that message. Call it once, before writing any part.",
     instructions: PLAN_INSTRUCTIONS,
     presentation: { label: { pending: "Planning walkthrough", completed: "Planned walkthrough" }, icon: { glyph: "ListView" } },
     parameters: z
@@ -141,7 +156,7 @@ export function registerTools(
           .min(1)
           .max(8000)
           .optional()
-          .describe("Leave it out when your streamed message already holds the introduction before its part: 1 fence: the plugin takes it from there. Otherwise two or three short paragraphs of Markdown prose."),
+          .describe("Leave this out. The plugin takes the introduction from your streamed message (the text before its part: 1 fence), which the reader watches as you write it. Only when you cannot stream: two or three short paragraphs of Markdown prose."),
         parts: z
           .array(
             z
@@ -160,8 +175,9 @@ export function registerTools(
       guard(async () => {
         let introduction = input.introduction;
         if (introduction === undefined) {
-          introduction = (await service.committedFromMessage(ctx.threadId))?.introduction;
-          if (!introduction) return failure("I could not find an introduction: write it in your streamed message before the part: 1 fence, or pass introduction here.");
+          const message = await service.committedFromMessage(ctx.threadId);
+          introduction = message?.introduction;
+          if (!introduction) return failure(missingMessage("walkthrough_plan", message === null ? "none" : "no-introduction"));
         }
         const walkthrough = service.plan(ctx.threadId, { ...input, introduction });
         return `Planned ${walkthrough.parts.length} parts. Now call walkthrough_write_part with just part: 1 in this turn (it saves what your message said), and write no later part until asked.`;
@@ -170,7 +186,7 @@ export function registerTools(
 
   bb.agents.registerTool({
     name: "walkthrough_write_part",
-    description: "Deliver one part of the walkthrough as prose and code blocks (each code block with a view of code or diff), plus 2 or 3 specific suggested questions.",
+    description: "Save the part you just wrote as your streamed message (prose and code blocks, each code block with a view of code or diff, plus 2 or 3 specific suggested questions). Call it with only the part number, after the message.",
     instructions: WRITE_PART_INSTRUCTIONS,
     presentation: { label: { pending: "Writing walkthrough part", completed: "Wrote walkthrough part" }, icon: { glyph: "Edit" } },
     parameters: z
@@ -181,8 +197,8 @@ export function registerTools(
           .min(1)
           .max(40)
           .optional()
-          .describe("Leave blocks and suggestions out to save the part exactly as your streamed message wrote it. Pass them only when you did not stream the part."),
-        suggestions: z.array(z.string().trim().min(1).max(200)).max(4).optional().describe("Omit with blocks left out: they come from your message."),
+          .describe("Leave this out. The plugin saves the part exactly as your streamed message wrote it. Only when you cannot stream: the part's blocks."),
+        suggestions: z.array(z.string().trim().min(1).max(200)).max(4).optional().describe("Leave this out too: they come from your message."),
       })
       .strict(),
     execute: ({ part, blocks: given, suggestions: askedFor }, ctx) =>
@@ -193,7 +209,7 @@ export function registerTools(
         if (blocks === undefined) {
           const written = await service.committedFromMessage(ctx.threadId);
           if (written === null || written.blocks.length === 0) {
-            return failure("I could not find the part in your streamed message. Write it as one message in the walkthrough markup before this call, or pass blocks here.");
+            return failure(missingMessage("walkthrough_write_part", "none"));
           }
           blocks = written.blocks;
           if (askedFor === undefined) suggestions = written.suggestions;

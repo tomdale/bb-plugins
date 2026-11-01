@@ -99,6 +99,15 @@ const BRIEF_WAIT_MS = 1500;
  * finished first message by about half against xhigh (docs/latency.md).
  */
 export const HELPER_REASONING = "medium" as const;
+/**
+ * Models that skip the streamed message however the instructions are phrased:
+ * they draft the part while thinking, believe it is written, and call the tools
+ * with no content, wasting a round (measured, docs/latency.md:
+ * Claude Sonnet 5.5, 0 of 5 plan turns streamed, and the tool error did not
+ * change it). They are asked to pass the content as tool arguments instead,
+ * which commits part 1 in one round and streams nothing.
+ */
+export const DELIVERS_IN_ARGUMENTS = /claude-sonnet/iu;
 /** Pause before the one retry of an excerpt that failed for a passing reason. */
 const SNAPSHOT_RETRY_MS = 400;
 const INTERRUPTED = "The helper was stopped before it finished.";
@@ -135,6 +144,7 @@ export class WalkthroughService {
   private readonly mergeBases = new Map<string, { sha: string | null; expiresAt: number }>();
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
+  private readonly helperModelStreams = new Map<string, boolean>();
   /**
    * Walkthroughs being or already deleted. Work that began before the delete
    * (a request being sent, a snapshot being captured) may still try to save its
@@ -293,7 +303,7 @@ export class WalkthroughService {
       if (target === null || (kind !== "plan" && kind !== "write")) return null;
       const snapshot = await this.tail.snapshot(target).catch(() => null);
       if (snapshot !== null && hasStreamMarkup(snapshot.text)) {
-        const message = committedMessage(snapshot.text);
+        const message = committedMessage(snapshot.text, kind);
         if (message.blocks.length > 0 || message.introduction !== "") return message;
       }
       await new Promise((resolve) => setTimeout(resolve, MESSAGE_WAIT_MS));
@@ -460,7 +470,9 @@ export class WalkthroughService {
       if (!ready(walkthrough)) return;
     }
     const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
-    const body = this.messageFor(walkthrough, request, request.kind === "plan" ? await this.takeBrief(id) : null);
+    const brief = request.kind === "plan" ? await this.takeBrief(id) : null;
+    const streams = request.kind === "plan" || request.kind === "write" ? await this.helperStreams(walkthrough.workerThreadId!) : true;
+    const body = this.messageFor(walkthrough, request, brief, streams);
     if (body === null) {
       this.save({ ...walkthrough, queue: rest });
       void this.pump(id);
@@ -488,12 +500,31 @@ export class WalkthroughService {
     }
   }
 
-  private messageFor(walkthrough: Walkthrough, request: WorkerRequest, brief: string | null = null): string | null {
+  /**
+   * Whether the helper's model writes the streamed message before its tool
+   * calls (see DELIVERS_IN_ARGUMENTS). The model is read from the helper's own
+   * first request, which records the execution it was sent with; when it cannot
+   * be read, streaming is asked for, which every model can fall back from.
+   */
+  private async helperStreams(workerThreadId: string): Promise<boolean> {
+    const cached = this.helperModelStreams.get(workerThreadId);
+    if (cached !== undefined) return cached;
+    const requests = (await this.bb.sdk.threads.events
+      .list({ threadId: workerThreadId, afterSeq: "0", types: ["client/turn/requested"], limit: "20" })
+      .catch(() => null)) as unknown as Array<{ data?: { execution?: { model?: unknown } } }> | null;
+    const model = Array.isArray(requests) ? requests.map((event) => event.data?.execution?.model).filter((value): value is string => typeof value === "string").at(-1) : undefined;
+    if (model === undefined) return true;
+    const streams = !DELIVERS_IN_ARGUMENTS.test(model);
+    this.helperModelStreams.set(workerThreadId, streams);
+    return streams;
+  }
+
+  private messageFor(walkthrough: Walkthrough, request: WorkerRequest, brief: string | null = null, streams = true): string | null {
     switch (request.kind) {
       case "plan":
-        return planMessage(walkthrough, brief);
+        return planMessage(walkthrough, brief, streams);
       case "write":
-        return walkthrough.parts[request.part]?.status === "ready" ? null : writeMessage(walkthrough, request.part);
+        return walkthrough.parts[request.part]?.status === "ready" ? null : writeMessage(walkthrough, request.part, streams);
       case "ask": {
         const exchange = this.findExchange(walkthrough, request.place, request.exchangeId);
         if (!exchange) return null;
@@ -948,7 +979,8 @@ export class WalkthroughService {
    */
   async writePart(workerThreadId: string, index: number, blocks: BlockInput[], suggestions: string[]): Promise<{ walkthrough: Walkthrough; unreadable: CodeBlock[] }> {
     const before = this.requireForWorker(workerThreadId);
-    if (index < 0 || index >= before.parts.length) throw new WalkthroughError(`There is no part ${index + 1}.`);
+    if (before.parts.length === 0) throw new WalkthroughError("There is no plan yet: walkthrough_plan has not succeeded. Call it first and wait for its result; never call it in parallel with walkthrough_write_part.");
+    if (index < 0 || index >= before.parts.length) throw new WalkthroughError(`There is no part ${index + 1}; the plan has ${before.parts.length}.`);
     const [captured, hashes] = await Promise.all([
       this.captureBlocks(before, blocks),
       this.hashFiles(before, citedPaths(before, { blocks: blocks as Block[], locations: before.parts[index]!.locations })),

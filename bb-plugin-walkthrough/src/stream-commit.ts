@@ -42,14 +42,24 @@ function toInput(block: StreamBlock, dropped: string[]): BlockInput | null {
   return parsed.success ? parsed.data : null;
 }
 
-/** Whether a message carries streamed markup worth committing: at least one block outside the `part:` marker and suggestions. */
-export function committedMessage(text: string): CommittedMessage {
+/**
+ * What a streamed message commits. In the plan turn, a message with no `part:`
+ * fence still has two halves: the prose before its first code block is the
+ * introduction and the rest is part 1, because a helper that forgets the
+ * separator has still said both. (A write turn has no introduction, so there
+ * the whole message is the part.)
+ */
+export function committedMessage(text: string, turn: "plan" | "write" = "write"): CommittedMessage {
   // A message that ends mid-line has still said everything it is going to say.
   const parsed = parseStreamMarkup(`${text.replace(/\s+$/u, "")}\n`);
   const dropped: string[] = [];
-  const marker = parsed.blocks.findIndex((block) => block.kind === "part");
+  const explicit = parsed.blocks.findIndex((block) => block.kind === "part");
+  const firstFigure = parsed.blocks.findIndex((block) => block.kind === "figure");
+  // The first figure is part 1's first block; the prose that precedes it is the introduction, and its own index is where part 1 begins.
+  const impliedSplit = turn === "plan" && explicit < 0 && firstFigure > 0 ? firstFigure : -1;
+  const marker = explicit >= 0 ? explicit : impliedSplit;
   const before = marker < 0 ? [] : parsed.blocks.slice(0, marker);
-  const after = marker < 0 ? parsed.blocks : parsed.blocks.slice(marker + 1);
+  const after = marker < 0 ? parsed.blocks : parsed.blocks.slice(explicit >= 0 ? marker + 1 : marker);
   const introduction = before
     .filter((block): block is Extract<StreamBlock, { kind: "prose" }> => block.kind === "prose")
     .map((block) => block.text)
