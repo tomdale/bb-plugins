@@ -286,16 +286,24 @@ describe("delivered instructions", () => {
     for (const text of [OPEN_DESCRIPTION, OPEN_INSTRUCTIONS, skill]) expect(text.length).toBeLessThan(4096);
   });
 
-  it("routes explain-the-code requests, with no diff, to walkthrough_open", async () => {
+  it("reserves the pane for explicit guided reading, including existing code with no diff", async () => {
     const { harness } = await setup();
     const user = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
     const open = user.tools.find((tool) => tool.name === "walkthrough_open")!;
     const skill = readFileSync(new URL("../skills/bb-walkthrough/SKILL.md", import.meta.url), "utf8");
     for (const text of [open.description, open.instructions ?? "", skill]) {
+      expect(text).toMatch(/only when the user explicitly requests/iu);
       expect(text).toMatch(/walk me through how/iu);
-      expect(text).toMatch(/existing code|nothing (has )?changed|clean working tree|no change/iu);
+      expect(text).toMatch(/existing code with no diff/iu);
+      expect(text).toMatch(/chat by default/iu);
+      expect(text).toMatch(/ordinary questions, explanations, investigations, (and )?reviews/iu);
     }
-    expect(open.instructions).toMatch(/instead of answering in chat/u);
+    for (const text of [open.instructions ?? "", skill]) {
+      expect(text).toContain("where are these values coming from?");
+      expect(text).toContain("let's review title/goal generation");
+      expect(text).toContain("review this PR");
+      expect(text).toContain("When the format is ambiguous, answer in chat.");
+    }
   });
 
   it("says in the tool result whether the pane is already open beside the thread", async () => {

@@ -48,19 +48,15 @@ async function guard(run: () => Promise<PluginAgentToolResult> | PluginAgentTool
   }
 }
 
-/**
- * What an ordinary thread's agent reads to decide whether a request is a
- * walkthrough. Explaining code that has no diff is as much a walkthrough as
- * reviewing a change, and the phrasing must say so, or the agent answers in chat.
- */
+/** The user's requested format determines routing, independently of code scope or diff size. */
 export const OPEN_DESCRIPTION =
-  "Open a Walkthrough pane beside this thread: a separate reading view where a helper agent that shares this conversation explains code part by part, with real code excerpts, questions, and notes. Call it whenever the user asks to be walked or guided through, or to have explained, a PR, a branch, changes you just made, or how existing code works (for example \"Walk me through how the queue works\", \"Explain how auth flows through this module\", \"Give me a tour of this package\"). No diff is needed: with nothing changed it walks through the current code.";
+  "Open a Walkthrough pane beside this thread, where a helper agent explains code part by part with excerpts, questions, and notes. Use only when the user explicitly requests a walkthrough, guided tour, or step-by-step guided reading (for example \"Walk me through how the queue works\" or \"Give me a tour of this package\"). Answer ordinary questions, explanations, investigations, and reviews in chat by default; \"explain\", \"review\", or a broad topic alone does not request a pane. An explicitly requested walkthrough can cover a PR, branch, recent changes, or existing code with no diff.";
 
 export const OPEN_INSTRUCTIONS = [
-  "Call walkthrough_open, instead of answering in chat, when the user asks to be walked or guided through something or wants a multi-part explanation of code: a PR or branch review, changes you or they just made, or how some existing code works (\"walk me through how X works\", \"explain how X works\", \"how does X work end to end\", \"give me a tour of X\"). It also applies when the working tree is clean and nothing has changed. In BB this takes precedence over tdx-walkthrough.",
-  "Pass the user's own words as `request`, unparaphrased and without added paths. The helper decides whether it is a review, a check of their own change, or an explanation of existing code, so do not read the code or draft an explanation yourself first.",
-  "Answer in chat instead for a quick question about one function, line, or error, or when the user asks you to change code.",
-  "After the call, say in one short line that the Walkthrough pane is open beside this thread and fills in as the helper writes each part, then carry on with anything else they asked.",
+  "Answer in chat by default. Call walkthrough_open only when the user explicitly requests a walkthrough, guided tour, or step-by-step guided reading of code (\"walk me through how X works\", \"give me a tour of X\", \"open a walkthrough\"). The request may cover a PR, branch, recent changes, or existing code with no diff. For those explicit requests, use this pane in BB rather than tdx-walkthrough.",
+  "Ordinary questions, explanations, investigations, reviews, and code changes belong in chat. Examples: \"where are these values coming from?\", \"explain how auth works\", \"how does this work end to end?\", \"let's review title/goal generation\", and \"review this PR\". Judge the requested format, not the words explain or review, the topic's breadth, or how many parts an answer might need. When the format is ambiguous, answer in chat.",
+  "For an explicit walkthrough request, pass the user's own words as `request`, unparaphrased and without added paths. The helper decides whether it is a review, a check of their own change, or an explanation of existing code, so let it read the code and prepare the walkthrough.",
+  "After the call, relay the tool's opening status in one short line: say the pane is open, or tell the user where to open it, and that it fills in as the helper writes each part. Then carry on with anything else they asked.",
 ].join("\n\n");
 
 /**
