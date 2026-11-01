@@ -109,6 +109,13 @@ suggestions:
 - Other fenced code, including code that mentions `walkthrough`, is prose. A partial fence opener at the end of the text is withheld rather than shown as prose.
 - The markup is identical to what `experimental_codeFenceRenderer` would receive in a newer SDK.
 
+### When the helper does not write the message
+The streamed message is the preferred way to deliver a part, never the only one. Every commit goes through the same `service.plan` and `service.writePart`, so a part saved from tool arguments has the same snapshots (captured at commit), suggestions, notes, intent and timing as one saved from a message; the pane just shows nothing live until the commit. What the tools do:
+- **Message found** (a message this turn that has the marker line and a `walkthrough` fence): the tools save it. In the plan turn a message with no `part: 1` fence is split at its first code block (the prose before it is the introduction), because a helper that forgets the separator has still said both halves.
+- **No message and no content arguments:** the call fails with the whole format and an example (`missingMessage`, tools.ts) so the helper can write the message and call again in the same turn. The error also says that already drafted content may be passed as arguments instead, because the nudge alone did not make Opus 5.5 or Sonnet 5.5 stream (docs/latency.md, Streamed-message compliance). A plain `write_part` before any plan says so, instead of "no part 1".
+- **No message but content arguments** (`introduction`, `blocks`, `suggestions`): saved as given. Content a helper already generated is never thrown away.
+- **Models that do not stream** (`DELIVERS_IN_ARGUMENTS`, service.ts, only Claude Sonnet today: 0 of 15 proxy plan turns streamed under any wording; read from the helper's first request): the request message says so and asks for `walkthrough_plan` with the introduction and `walkthrough_write_part` with blocks in one round, so they commit part 1 in one round and stream nothing.
+
 ### What the pane does
 `useStreams` (`src/ui/hooks.ts`) follows the channel and `streamSnapshot`; `src/ui/stream.ts` folds payloads, picks the ones that may be previewed, and turns markup into the same block shapes committed parts use.
 - A payload is previewed only for the request in flight and only when its `seq` is above that request's `afterSeq`; a retry never shows its predecessor's text. Once a request ends normally, its `done` payload stays until the committed result arrives.

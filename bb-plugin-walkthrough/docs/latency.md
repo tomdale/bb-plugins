@@ -112,3 +112,77 @@ in the DOM and the server's `timing`, for comparison with the table above.
 `scripts/latency/fork-experiment.py` repeats the helper experiment (`SOURCE_THREAD`
 names the idle thread to fork; `idle-medium@new` and `idle-xhigh@old` need the two prompt
 files that `render-plan-prompt.mjs` writes).
+
+## Streamed-message compliance
+
+The first words and the early commit of part 1 come from the helper writing its streamed
+message (the marker line, then the markup) before calling `walkthrough_plan`. Some helpers
+skip it: they call the tools straight away with no content, the tool fails, and the round
+is wasted. Earlier real helper runs on the old instructions: 4 of 14 skipped it (Claude
+Sonnet 5.5 3 of 3, Opus 5.5 1 of 5).
+
+### Why
+
+The instructions did not differ between helpers that streamed and helpers that did not:
+every helper saw the same text, which began "Streaming: the reader sees your chat message
+as you write it, in this markup, and the plugin saves what it says. So write each part
+once: one message with the whole part, then call walkthrough_write_part with only the
+part number, no blocks and no suggestions" and, in the plan turn, "(3) Write one message:
+the marker line, then the introduction". The difference is the model. A skipping helper
+drafts the part inside its reasoning and then believes it has written it. Sonnet 5.5's
+reasoning, from a proxy run, right before its first tool call: "I've documented the retry
+loop added to `upload`, showing how it caps attempts at three ...". After the tool error
+("There is no walkthrough message earlier in this turn"): "Seems my message needs to be
+right before the tool calls rather than earlier in the turn" and then, a round later,
+"As a fallback, I should just pass the introduction and blocks explicitly". The skipped
+rule was in the middle of long instructions (the requirement came after the explanation),
+and the old tool error said only "could not find ... pass blocks yourself".
+
+### Measurements (PROXY, not real helper runs)
+
+Proxy: scratch threads on the real `pi` helper with each model, the plugin's real tools
+replaced by a mock that applies the plugin's own commit rules, a small fixture repo, medium
+reasoning (`/tmp/uat7/proxy2.py`; the run files were not kept in the repo). Runs shared
+the machine, so times are indicative. Plan turn: n = runs that called a walkthrough tool
+(runs where the proxy's tool discovery detour ended the turn are left out). "Tool-only"
+means the first walkthrough tool call came with no streamed message before it. Real runs
+of the new instructions have not been measured: the build is not deployed.
+
+| Model | Instructions | Plan turn, n | Streamed first | Tool-only | Commit on first call | Part 1 committed (median) |
+|---|---|---|---|---|---|---|
+| Sonnet 5.5 | old | 10 | 0 | 10 | 0 of 10 | 23.9 s |
+| Sonnet 5.5 | new (stream) | 5 | 0 | 5 | 0 of 5 | 31.4 s |
+| Sonnet 5.5 | new, content in arguments | 10 | n/a | 10 (by design) | 10 of 10 | 10.9 s (px), 20.4 s (pw, loaded machine) |
+| Opus 5.5 | old | 9 | 9 | 0 | 9 of 9 | 29.5 s (first words 21 s) |
+| Opus 5.5 | new | 8 | 8 | 0 | 8 of 8 | 28 s (first words 15 to 23 s) |
+| gpt-6-luna | old | 5 | 5 | 0 | 5 of 5 | 32 s (first words 25 s) |
+| gpt-6-luna | new | 4 | 4 | 0 | 4 of 4 | 41 s (first words 33 s, loaded machine) |
+
+Write turns (part 2, helper already planned), same method, Opus 5.5: old 3 streamed, 4
+tool-only of 7; new 2 streamed, 5 tool-only of 7. Luna streamed in every write turn (old 3
+of 3, new 4 of 4). Sonnet 5.5 old: tool-only in 7 of 7 write turns; with content in
+arguments the part committed in 4.9 to 5.5 s on the first call (vs 8.8 to 10.7 s old).
+
+What this says:
+
+- Restructuring the instructions and the richer tool error did **not** change Sonnet 5.5
+  (0 of 5 streamed before and after) and did **not** reliably change Opus 5.5 write turns
+  (3 of 7 streamed before, 2 of 7 after; too few runs to call it a difference). Opus 5.5
+  and Luna plan turns streamed in every run before and after. The nudge cannot be counted
+  on to produce a message; in the proxy runs a failed Opus write turn repeated the same
+  tool-only call and only then passed arguments.
+- A model that does not stream is best served by not asking it to. Sonnet 5.5 told to pass
+  the content as arguments commits part 1 on the first call in 10 of 10 plan turns, about
+  twice as fast as its old flow (fail, retry with arguments).
+
+### The rule
+
+A part must commit whatever the model does. Streaming is the preferred path (it gives
+first words), never the only one: the tools save the message when there is one, a call with
+neither a message nor content fails once with the format and an escape hatch (pass the
+content as arguments), and content passed as arguments is saved exactly like a message
+(same snapshots, suggestions, notes, intent and timing). A per-model policy
+(`DELIVERS_IN_ARGUMENTS`) exists only for a model with measured evidence of never
+streaming (Sonnet 5.5, 0 of 15 plan turns); a model is added only with such a measurement,
+and the policy is removed if a later model streams.
+
