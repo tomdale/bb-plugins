@@ -10,6 +10,10 @@ import type { Resource } from "./allocations.js";
 import { hostContract, sandboxViewSchema } from "./host-contract.js";
 import type { RelayIdentity } from "./relay-contract.js";
 
+export const ALLOCATION_LOOKUP_TIMEOUT_MS = 60_000;
+export const ALLOCATION_LOOKUP_TIMEOUT_MESSAGE =
+  `Timed out checking the Vercel allocation on the Vercel CLI machine after ${ALLOCATION_LOOKUP_TIMEOUT_MS / 1000} seconds. Retry the same launch or its cleanup; this lookup did not request new compute.`;
+
 export function remoteVercelClient(bb: BbPluginApi) {
   const host = bb.hosts.experimental_client({ contract: hostContract });
   const options = (
@@ -121,14 +125,21 @@ export function remoteVercelClient(bb: BbPluginApi) {
       };
       return {
         async get(_name: string, signal: AbortSignal) {
-          const value = await unwrap(
-            host.call(
-              "get",
-              { connection, resource },
-              options(connection, signal),
-            ),
-          );
-          return value ? wrap(value) : null;
+          signal.throwIfAborted();
+          const deadline = new AbortController();
+          const timer = setTimeout(() => deadline.abort(new DOMException("Allocation lookup deadline exceeded", "TimeoutError")), ALLOCATION_LOOKUP_TIMEOUT_MS);
+          const requestSignal = AbortSignal.any([signal, deadline.signal]);
+          try {
+            const value = await unwrap(
+              host.call("get", { connection, resource }, options(connection, requestSignal, ALLOCATION_LOOKUP_TIMEOUT_MS)),
+            );
+            requestSignal.throwIfAborted();
+            return value ? wrap(value) : null;
+          } catch (error) {
+            signal.throwIfAborted();
+            if (deadline.signal.aborted) throw new SafeError(ALLOCATION_LOOKUP_TIMEOUT_MESSAGE);
+            throw error;
+          } finally { clearTimeout(timer); }
         },
         async create(
           _name: string,

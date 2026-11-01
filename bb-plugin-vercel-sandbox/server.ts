@@ -75,12 +75,10 @@ export function createVercelSandboxPlugin() {
         );
       return result.data;
     };
+    const operationCancellation = (signal?: AbortSignal) =>
+      AbortSignal.any([lifetime.signal, ...(signal ? [signal] : [])]);
     const operationSignal = (signal?: AbortSignal, timeoutMs = 30_000) =>
-      AbortSignal.any([
-        lifetime.signal,
-        AbortSignal.timeout(timeoutMs),
-        ...(signal ? [signal] : []),
-      ]);
+      AbortSignal.any([operationCancellation(signal), AbortSignal.timeout(timeoutMs)]);
     const clientFor = async (resource?: Resource) => {
       if (!resource)
         throw new SafeError("Vercel allocation identity is required.");
@@ -346,7 +344,7 @@ export function createVercelSandboxPlugin() {
       const client = await clientFor(resource);
       const sandbox = await client.get(
         resource.sandboxName,
-        operationSignal(signal),
+        operationCancellation(signal),
       );
       if (sandbox) assertOwnership(resource, sandbox);
       const sessionResource = sandbox
@@ -629,7 +627,7 @@ export function createVercelSandboxPlugin() {
       const client = await clientFor(resource);
       let sandbox = await client.get(
         resource.sandboxName,
-        operationSignal(signal),
+        operationCancellation(signal),
       );
       if (sandbox) {
         assertOwnership(resource, sandbox);
@@ -663,7 +661,7 @@ export function createVercelSandboxPlugin() {
           }
           sandbox = await client.get(
             resource.sandboxName,
-            operationSignal(signal),
+            operationCancellation(signal),
           );
           if (sandbox) {
             assertOwnership(resource, sandbox);
@@ -693,7 +691,7 @@ export function createVercelSandboxPlugin() {
         }
         const remaining = await client.get(
           resource.sandboxName,
-          operationSignal(signal),
+          operationCancellation(signal),
         );
         if (remaining) {
           assertOwnership(resource, remaining);
@@ -787,7 +785,7 @@ export function createVercelSandboxPlugin() {
             context.report.step("Checking Vercel allocation");
             let sandbox = await client.get(
               resource.sandboxName,
-              operationSignal(context.signal),
+              operationCancellation(context.signal),
             );
             if (!sandbox) {
               if (intent.phase !== "prepared")
@@ -816,7 +814,7 @@ export function createVercelSandboxPlugin() {
                 context.signal.throwIfAborted();
                 sandbox = await client.get(
                   resource.sandboxName,
-                  operationSignal(context.signal),
+                  operationCancellation(context.signal),
                 );
                 if (!sandbox)
                   throw new SafeError(

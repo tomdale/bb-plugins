@@ -2,9 +2,11 @@ import type { JsonValue, MachineBootstrapRequest } from "@get-bb/plugin-sdk";
 import {
   createFakePluginHost,
   makeHostResponse,
+  type ExperimentalFakeHostRpcCall,
 } from "@get-bb/plugin-sdk/testing";
-import { afterEach, describe, expect, it } from "vitest";
-import { resourceSchema } from "./allocations.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { resourceSchema, allocationStore } from "./allocations.js";
+import { ALLOCATION_LOOKUP_TIMEOUT_MESSAGE } from "./remote-client.js";
 import { createVercelSandboxPlugin } from "./server.js";
 import { vendorTransport } from "./vendor-test-transport.js";
 import { launchInputsSchema } from "./configuration.js";
@@ -15,6 +17,8 @@ import { hostContract } from "./host-contract.js";
 import { cliFixture } from "./cli-test-fixture.js";
 const disposals: (() => Promise<void>)[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
   for (const dispose of disposals.splice(0)) await dispose();
 });
 const report = { step() {}, log() {} };
@@ -25,6 +29,7 @@ const settings = {
 };
 async function setup(
   options: {
+    get?: (call: ExperimentalFakeHostRpcCall) => unknown | Promise<unknown>;
     bootstrap?: (
       request: MachineBootstrapRequest,
     ) => Promise<{ hostId: string }>;
@@ -45,7 +50,8 @@ async function setup(
     pluginId: "environment-vercel-sandbox",
     settings,
     machineResource: async () => stored,
-    experimental_callHostRpc: async ({ method, input, signal }) => {
+    experimental_callHostRpc: async call => {
+      const { method, input, signal } = call;
       switch (method) {
         case "teams":
           return worker.experimental_call(
@@ -72,6 +78,7 @@ async function setup(
             { signal },
           );
         case "get":
+          if (options.get) return options.get(call);
           return worker.experimental_call(
             "get",
             hostContract.get.input.parse(input),
@@ -174,6 +181,30 @@ async function setup(
 }
 
 describe("Vercel machine allocation", () => {
+  it("keeps the allocation lookup alive past 30 seconds and reports its 60-second timeout without requesting compute", async () => {
+    const test = await setup({ get: ({ signal }) => new Promise((_resolve, reject) => {
+      if (signal?.aborted) reject(signal.reason);
+      else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }) });
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("Deadline expired", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    let settled = false;
+    const pending = test.machine.create(test.context).then(result => { settled = true; return result; });
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(settled).toBe(false);
+    expect(test.harness.experimental_hostRpcCalls.filter(call => call.method === "get")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(await pending).toEqual({ status: "failed", message: ALLOCATION_LOOKUP_TIMEOUT_MESSAGE });
+    expect(test.harness.experimental_hostRpcCalls.some(call => call.method === "create")).toBe(false);
+    expect(test.vendor.requests).toHaveLength(0);
+    expect(test.bootstraps).toBe(0);
+    expect(test.stored).toBeNull();
+    expect((await (await allocationStore(test.bb)).get(test.context.key))?.phase).toBe("prepared");
+  });
   it("discovers choices, connects explicit IDs through RPC and CLI, and pins directory-free allocations through reload and cleanup", async () => {
     const test = await setup();
     expect(
