@@ -108,7 +108,7 @@ const BRIEF_WAIT_MS = 1500;
  * helper on the thread's own model. The order is measured, not assumed: see
  * "The helper's model" in docs/latency.md.
  */
-export const HELPER_MODELS: readonly string[] = ["deepseek/deepseek-v4.1-flash", "anthropic/claude-haiku-5.5", "openai/gpt-6-luna"];
+export const HELPER_MODELS: readonly string[] = ["openai/gpt-6-luna", "openai/gpt-5.6-luna"];
 /**
  * The reasoning level asked for, when the chosen model lists it: a level it
  * does not list is rejected, and so is none at all for some models. Medium cut
