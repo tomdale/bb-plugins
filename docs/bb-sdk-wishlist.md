@@ -894,3 +894,28 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** attach an existing path to an environment provider so its
   retirement policy applies, or `bb environment retire <id> --when-idle` for
   unmanaged paths that runs a configured teardown command
+
+## Token usage and cost on a finished turn
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100
+- **Use case:** a plugin that drives another thread (Walkthrough's hidden helper)
+  wants to know what each request it sent actually cost: which model ran, how many
+  tokens the turn billed, and what the gateway charged for it
+- **Limit and evidence:** `turn/completed` carries only `{ status }`. Token counts
+  arrive on a separate, inconsistently emitted `thread/tokenUsage/updated` whose
+  `tokenUsage.total` is cumulative over the thread, so a turn's own usage is only
+  recoverable by keeping the previous reading and subtracting; over 220 turns in 47
+  worker threads that event appeared on 48 turns, and no event in any of them
+  carried a cost. The model that ran is only on `client/turn/requested`, which a
+  plugin has to correlate by sequence window. Walkthrough's first per-request record
+  therefore stores four token fields it computes itself and leaves them null when
+  the provider reported nothing
+- **Workaround:** record the cumulative counters per walkthrough and take
+  differences, treating a decrease as a provider restart (`addedUsage` in
+  `src/service.ts`); price nothing, since tokens × a list price is an estimate and
+  the gateway's `$0.0001` surcharge never appears
+- **Possible API:** `usage` on `turn/completed` (input, cached input, output, and the
+  billing cost the gateway already returns for the call), and the executed model id
+  alongside it, so one event answers "what ran and what did it cost" without a
+  sequence window or a local ledger
