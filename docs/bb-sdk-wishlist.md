@@ -871,3 +871,26 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** a `tokenize(path, text)` call or hook returning per-line
   `{ start, end, scopes }` tokens from BB's highlighter, and either chunked app
   bundles served from `dist/` or an asset URL for plugin-owned lazy files
+
+## Retire a workspace another tool created
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100
+- **Use case:** the Handoff plugin starts a successor thread in a Workforest
+  worktree (`wf new`) so the work stays a real Workforest checkout, and wants
+  that worktree to retire once its threads are done
+- **Limit and evidence:** retirement belongs to an environment provider.
+  `bb thread spawn --environment <path>` records an unmanaged environment
+  (`environmentProviderId: null`), whose `lifecycle.retireAt` stays null, and
+  `bb environment cleanup` refuses it with "Environment is not
+  provider-managed". Handing the worktree to a provider instead requires that
+  provider to have created it: `workforest-workspace` answers HTTP 409
+  "Workspace source does not match the selected project" unless the project's
+  source is a Workforest group root, and it declares `retireGraceMs: null`
+  with a `remove()` that removes nothing
+- **Workaround:** the handoff prompt carries `wf delete <repo>/<slug>` for
+  whoever finishes the work; Workforest verifies the worktree is clean and
+  integrated before removing it
+- **Possible API:** attach an existing path to an environment provider so its
+  retirement policy applies, or `bb environment retire <id> --when-idle` for
+  unmanaged paths that runs a configured teardown command
