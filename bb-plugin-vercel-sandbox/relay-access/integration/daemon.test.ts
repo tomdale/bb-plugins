@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { AdmissionLeases } from "../grants.ts";
 import { openBridge, openRelayAdapter } from "../bridge.ts";
@@ -14,12 +14,13 @@ import { ACCESS_HEADER } from "../policy.ts";
 test("released native daemon synchronizes registered skill files over SSH/WS with entirely temporary HOME and data", { timeout: 90_000 }, async t => {
   const core = await isolatedCore(); t.after(() => core.close());
   const leases = new AdmissionLeases();
-  const bridge = await openBridge({ baseUrl: core.baseUrl, leases }); t.after(() => bridge.close());
+  const rejections: unknown[] = [];
+  const bridge = await openBridge({ baseUrl: core.baseUrl, leases, onRejection: snapshot => { rejections.push(snapshot.last); } }); t.after(() => bridge.close());
   const host = syntheticKeys(); const client = syntheticKeys();
   const reversePort = await freePort(); const publicPort = await freePort();
   const bridgePort = Number(new URL(bridge.url).port);
   const relay = await openTunnelRelay({ hostKey: host.privateKey, authorizedKey: client.publicKey, reversePort }); t.after(() => relay.close());
-  const adapter = await openRelayAdapter({ reversePort, bridgePort, publicAuthority: `127.0.0.1:${publicPort}`, port: publicPort, connector: relay }); t.after(() => adapter.close());
+  const adapter = await openRelayAdapter({ reversePort, bridgePort, publicAuthority: `127.0.0.1:${publicPort}`, port: publicPort, connector: relay, onRejection: snapshot => { rejections.push(snapshot.last); } }); t.after(() => adapter.close());
   const connector = await startConnector({ relayUrl: adapter.url.replace("http:", "ws:"), privateKey: client.privateKey, hostFingerprint: hostFingerprint(host.privateKey), reversePort, bridgePort }); t.after(() => connector.close());
   const enrollmentReply = await http(core.baseUrl, "/internal/hosts/enroll-key", { method: "POST", body: "{}", headers: { "content-type": "application/json", "content-length": "2" } });
   assert.equal(enrollmentReply.status, 201);
@@ -41,23 +42,36 @@ test("released native daemon synchronizes registered skill files over SSH/WS wit
   daemon.stderr.on("data", data => { logs = (logs + data).slice(-1024 * 1024); });
   daemon.on("error", () => {});
   t.after(async () => {
-    if (daemon.exitCode === null && daemon.signalCode === null) {
-      const exit = once(daemon, "exit");
-      const killGroup = (signal: NodeJS.Signals) => { try { process.kill(-daemon.pid!, signal); } catch {} };
-      killGroup("SIGTERM");
+    const killGroup = (signal: NodeJS.Signals) => { try { process.kill(-daemon.pid!, signal); } catch {} };
+    const exit = daemon.exitCode === null && daemon.signalCode === null ? once(daemon, "exit") : null;
+    killGroup("SIGTERM");
+    if (exit) {
       const timer = setTimeout(() => killGroup("SIGKILL"), 5000);
       await exit; clearTimeout(timer);
-      killGroup("SIGKILL");
     }
+    killGroup("SIGKILL");
   });
+  const startupDiagnostics = async () => {
+    const files = await readdir(join(data, "logs")).catch(() => []);
+    const workerLogs = await Promise.all(files.filter(name => /^host-daemon.*\.log$/.test(name)).map(name => readFile(join(data, "logs", name), "utf8").catch(() => "")));
+    return (logs + workerLogs.join("\n") + JSON.stringify(rejections)).replaceAll(enrollment.enrollKey, "[redacted]").replaceAll(grant.token, "[redacted]").replaceAll(client.privateKey, "[redacted]").replace(/[A-Za-z0-9_+/=-]{32,}/g, "[redacted]").slice(-4000);
+  };
   let connected = false;
   for (let attempt = 0; attempt < 160; attempt++) {
-    assert.equal(daemon.exitCode, null, "Isolated released daemon must stay running");
     const response = await http(core.baseUrl, `/api/v1/hosts/${enrollment.hostId}`);
     if (response.status === 200 && JSON.parse(response.body.toString()).status === "connected") { connected = true; break; }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  assert.equal(connected, true, "Released native daemon enrolled and connected its actual session/WS protocol");
+  assert.equal(connected, true, `Released native daemon enrolled and connected its actual session/WS protocol: ${connected ? "" : await startupDiagnostics()}`);
+  let commandChannelReady = false;
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const response = await http(core.baseUrl, `/api/v1/system/cli-skills?hostIds=${enrollment.hostId}`);
+    assert.equal(response.status, 200);
+    if (JSON.parse(response.body.toString()).machines[0].status !== "unknown") { commandChannelReady = true; break; }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(commandChannelReady, true, `Skill synchronization requires a native WebSocket command roundtrip: ${commandChannelReady ? "" : await startupDiagnostics()}`);
   const installBody = JSON.stringify({ hostIds: [enrollment.hostId] });
   const installed = await http(core.baseUrl, "/api/v1/system/cli-skills/install", {
     method: "POST", body: installBody, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(installBody)) },
