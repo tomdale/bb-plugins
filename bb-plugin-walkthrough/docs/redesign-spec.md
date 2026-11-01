@@ -10,7 +10,7 @@ Status: decisions from the design grilling. No plugin code changed yet. Open ite
 ## 2. Look
 - **Metaphor:** a notebook page. A ruled left margin carries the part number; notes are marginalia.
 - **Type:** elegant serif for prose, headings, captions and marginalia (Newsreader, OFL, bundled, with New York then Georgia fallbacks; verify in BB's Chromium). SF (system-ui) for controls and status. SF Mono (ui-monospace) for code and paths. Weights Regular to Semibold only; no letter-spaced capitals except tiny status labels. Prose 17px/1.6, title 28px, measure 62-68ch.
-- **Color:** system neutrals in light and dark (follow BB's mode). One accent, Apple Notes yellow, for highlights, note markers and the current position. Diff uses low-saturation system green and red. No gradients, no glow, no colored borders.
+- **Color:** system neutrals in light and dark (follow BB's mode). One accent, Apple Notes yellow, with one job: what the reader marked on the page (a highlighted claim, a note marker, a selection, a checked box). Position is drawn in the page's ink, and the primary action is the page's ink in a block in both themes, so nothing that is not a mark wears the accent. Diff uses low-saturation system green and red. No gradients, no glow, no colored borders.
 - **Surfaces:** the page is flat, no bordered cards. Separation by whitespace, then a subtle fill shift, then hairlines. Glass (blur + vibrancy) only on the top bar, bottom pager and concerns sheet. No glass on glass.
 - **Shape and motion:** concentric radii that nest (window > page > figure > chip). Short spring motion; honors Reduced Motion and Reduced Transparency; no bounce on hover.
 - **Copy:** plain verbs, sentence case, no hype.

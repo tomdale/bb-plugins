@@ -28,8 +28,16 @@
   --wt-y: #ffcc00;
   --wt-yt: #3a2e00;
   --wt-yhi: rgba(255, 204, 0, 0.2);
-  --wt-btn: #222;
-  --wt-btnt: #fff;
+  /*
+   * The page marks in the top bar. They are 6px on glass, so they cannot take a
+   * hairline's weight (invisible) or mute text's (reads as a past mark): each has
+   * its own step, measured against the glass in tests/marks.test.ts.
+   */
+  --wt-mark: rgba(0, 0, 0, 0.46);
+  --wt-mark-past: rgba(0, 0, 0, 0.72);
+  /* The primary action is the page's ink in a block, the same in both themes: the accent marks the page, it does not press buttons. */
+  --wt-btn: var(--wt-ink);
+  --wt-btnt: var(--wt-page);
   --wt-shadow: rgba(0, 0, 0, 0.12);
   --wt-focus: rgba(0, 0, 0, 0.75);
   /* The one focus language: a soft halo of the accent, never a brown line. */
@@ -93,8 +101,8 @@
   --wt-add-edge: rgba(48, 209, 88, 0.7);
   --wt-del-edge: rgba(255, 69, 58, 0.65);
   --wt-rule: rgba(255, 159, 10, 0.4);
-  --wt-btn: #ffcc00;
-  --wt-btnt: #2a2100;
+  --wt-mark: rgba(255, 255, 255, 0.42);
+  --wt-mark-past: rgba(255, 255, 255, 0.8);
   --wt-shadow: rgba(0, 0, 0, 0.6);
   --wt-focus: rgba(255, 255, 255, 0.85);
   --wt-ring: color-mix(in srgb, #ffcc00 58%, transparent);
@@ -144,8 +152,8 @@
 }
 /* No border-radius here: the halo follows each control's own shape, so focus never squares off a pill. */
 .wt :focus-visible, .wt-portal :focus-visible { outline: 3px solid var(--wt-ring); outline-offset: 1px; }
-/* Yellow on yellow: a control that is itself the accent is haloed in ink instead. */
-.wt-chip[data-selected]:focus-visible, .dark .wt-btn-primary:focus-visible { outline-color: color-mix(in srgb, var(--wt-ink) 55%, transparent); }
+/* A control that is itself the accent is haloed in ink instead. */
+.wt-chip[data-selected]:focus-visible { outline-color: color-mix(in srgb, var(--wt-ink) 55%, transparent); }
 /* A control that sits in a track rings inside it, so the ring never spills over the track's edge. */
 .wt-seg button:focus-visible, .wt-portal.wt-dialog [role="radiogroup"] button:focus-visible, .wt-radios button:focus-visible { outline-width: 2px; outline-offset: -2px; }
 /* Text fields draw the halo themselves, inside their own fill. */
@@ -197,8 +205,8 @@ html[data-wt-pointer] .wt-picker button:focus-visible { box-shadow: none; }
 .wt-chip-n { display: none; font-weight: 500; }
 @container wt (min-width: 560px) { .wt-chip-n { display: inline; } }
 .wt-dots { display: flex; gap: 4px; align-items: center; }
-.wt-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-hair); }
-.wt-dots i.wt-past { background: var(--wt-mute); }
+.wt-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--wt-mark); }
+.wt-dots i.wt-past { background: var(--wt-mark-past); }
 /*
  * Ink, not the highlighter: yellow is reserved for the reader's own marks on the
  * page (emphasised prose, note anchors), so the current page is drawn in ink and
