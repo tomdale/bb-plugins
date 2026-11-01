@@ -11,9 +11,11 @@ configure it.
 | [Subagents](bb-plugin-subagents)                     | Background subagents with live transcripts and user takeover          |
 | [Todo](bb-plugin-todo)                               | Show the agent's per-thread todo plan in the composer                 |
 | [Read aloud](bb-plugin-tts)                          | Play spoken audio for an assistant response                           |
-| [Vercel Sandbox](bb-plugin-vercel-sandbox)           | Run BB threads on disposable Vercel Sandbox machines                  |
 | [Walkthrough](bb-plugin-walkthrough)                 | Walk through a changeset one conceptual group at a time               |
 | [Workforest](bb-plugin-workforest)                   | Workforest workspaces, task lanes, and BB threads in one place        |
+
+The Vercel Sandbox plugin moved to a private repository and is no longer
+distributed here.
 
 ## Install a plugin
 
