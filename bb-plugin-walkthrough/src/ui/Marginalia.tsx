@@ -2,6 +2,7 @@
 // wide page: the introduction says how to read, and the wrap-up lists what is
 // still open, each item a note in the margin that jumps to its place.
 import { formatLocation, NOTE_KIND_LABEL } from "../model.ts";
+import { displayPath, type FileContext } from "../files.ts";
 import type { DeliveredNote as Note } from "../schemas.ts";
 import { ellipsize } from "./highlight.ts";
 
@@ -26,7 +27,7 @@ export function ReadingMargin() {
 }
 
 /** The wrap-up's open items as marginalia: the reader's own flags, newest last, each a button that goes to its place. */
-export function OpenMargin({ notes, glyphs, onJump, onMore }: { notes: Note[]; glyphs: Map<string, string>; onJump: (note: Note) => void; onMore: () => void }) {
+export function OpenMargin({ files, notes, glyphs, onJump, onMore }: { files: FileContext; notes: Note[]; glyphs: Map<string, string>; onJump: (note: Note) => void; onMore: () => void }) {
   if (notes.length === 0) return null;
   return (
     <aside className="wt-aside" aria-label="Still open">
@@ -38,7 +39,7 @@ export function OpenMargin({ notes, glyphs, onJump, onMore }: { notes: Note[]; g
           </span>
           <span className="wt-mn-kind">{NOTE_KIND_LABEL[note.kind]} · </span>
           {ellipsize(note.text, 110)}
-          {note.location ? <span className="wt-aside-loc">{formatLocation(note.location)}</span> : null}
+          {note.location ? <span className="wt-aside-loc">{formatLocation({ ...note.location, path: displayPath(note.location.path, files) })}</span> : null}
         </button>
       ))}
       {notes.length > SHOWN ? (

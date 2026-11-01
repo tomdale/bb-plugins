@@ -680,7 +680,7 @@ export function Reader({ threadId, view, rpc, surface, retitle = true }: { threa
                   ) : null}
                   {body}
                   {wide && !preparing && page.kind === "intro" ? <ReadingMargin /> : null}
-                  {wide && !preparing && page.kind === "wrap-up" ? <OpenMargin notes={countedOpen(notes).filter((note) => note.author === "user")} glyphs={glyphs} onJump={jumpTo} onMore={() => openSheet("open")} /> : null}
+                  {wide && !preparing && page.kind === "wrap-up" ? <OpenMargin files={walkthrough} notes={countedOpen(notes).filter((note) => note.author === "user")} glyphs={glyphs} onJump={jumpTo} onMore={() => openSheet("open")} /> : null}
                   {activePart && !preparing && activePart.status === "ready" ? <Thread walkthrough={walkthrough} part={activePart} place={place} /> : null}
                   <div ref={threadEndRef} />
                   <ProseFlags pageRef={pageRef} notes={pageNotes} glyphs={glyphs} onOpen={() => openSheet("open")} />

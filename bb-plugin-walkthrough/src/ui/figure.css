@@ -27,7 +27,7 @@
 .wt .wt-fh-loc { display: flex; flex: 0 1 auto; min-width: 0; max-width: 100%; direction: ltr; text-decoration: none; }
 .wt .wt-fh-loc > bdi { display: flex; min-width: 0; }
 .wt .wt-fh-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.wt .wt-fh-name { flex: none; white-space: nowrap; color: var(--wt-ink); font-weight: 500; }
+.wt .wt-fh-name { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wt-ink); font-weight: 500; }
 .wt a.wt-fh-loc:hover .wt-fh-name { text-decoration: underline; text-underline-offset: 2px; }
 .wt .wt-fh-lines { flex: none; font: 11px var(--wt-mono); color: var(--wt-mute); opacity: 0.8; font-variant-numeric: tabular-nums; }
 .wt .wt-fh-rev { opacity: 0.8; }
