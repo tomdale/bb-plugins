@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRealtime, useRealtimeConnectionState, useRpc, type PluginRpcClient } from "@get-bb/plugin-sdk/app";
 import type { rpcContract, WalkthroughSummary } from "../rpc.ts";
-import { CHANGED_CHANNEL, STREAM_CHANNEL, type WalkthroughView } from "../schemas.ts";
-import { applyPayload, readPayload, type StreamState } from "./stream.ts";
+import { CHANGED_CHANNEL, STREAM_CHANNEL, type StreamPayload, type WalkthroughView } from "../schemas.ts";
+import { isExisting, markExisting, prefixOf, TextPacer } from "./pace.ts";
+import { applyPayload, hiddenFrom, readPayload, type StreamState } from "./stream.ts";
 
 export type WalkthroughRpc = PluginRpcClient<typeof rpcContract>;
 
@@ -127,6 +128,11 @@ const NO_STREAMS: StreamState = Object.freeze({});
  * their seq; payloads after unmount are dropped.
  */
 export function useStreams(walkthroughId: string, requestKey: string | null, rpc: WalkthroughRpc): StreamState {
+  return usePacedStreams(useReceivedStreams(walkthroughId, requestKey, rpc));
+}
+
+/** What `useStreams` follows, before pacing. */
+function useReceivedStreams(walkthroughId: string, requestKey: string | null, rpc: WalkthroughRpc): StreamState {
   const [state, setState] = useState<StreamState>(NO_STREAMS);
   const mounted = useRef(true);
   useEffect(() => {
@@ -138,10 +144,10 @@ export function useStreams(walkthroughId: string, requestKey: string | null, rpc
   // Another walkthrough starts from nothing.
   useEffect(() => setState(NO_STREAMS), [walkthroughId]);
   const take = useCallback(
-    (value: unknown) => {
+    (value: unknown, existing = false) => {
       const payload = readPayload(value);
       if (payload === null || payload.walkthroughId !== walkthroughId || !mounted.current) return;
-      setState((current) => applyPayload(current, payload));
+      setState((current) => applyPayload(current, existing ? markExisting(payload) : payload));
     },
     [walkthroughId],
   );
@@ -150,9 +156,82 @@ export function useStreams(walkthroughId: string, requestKey: string | null, rpc
   useEffect(() => {
     if (requestKey === null || connection === "reconnecting") return;
     rpc.call("streamSnapshot", { walkthroughId }).then(
-      (result) => take(result.snapshot),
+      (result) => take(result.snapshot, true),
       () => undefined,
     );
   }, [rpc, walkthroughId, requestKey, connection, take]);
   return state;
+}
+
+const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
+/** The reveal is redrawn about this often; text parsing and layout are the cost of each redraw. */
+const FRAME_MS = 33;
+
+interface Paced {
+  pacer: TextPacer;
+  /** The received payload last given to the pacer. */
+  payload: StreamPayload;
+  /** What the pane was last handed for it, reused while the shown length is unchanged. */
+  out: StreamPayload;
+  outLength: number;
+}
+
+/**
+ * The received streams with their text revealed at a pace (see pace.ts): a
+ * lump from the provider shows over about a second rather than all at once.
+ * Everything but the text is the received payload's. Text that already existed
+ * when the pane opened, the text of a request that ended, and any text for a
+ * reader who asked for reduced motion show in full at once.
+ */
+export function usePacedStreams(received: StreamState): StreamState {
+  const entries = useRef(new Map<string, Paced>());
+  const [, redraw] = useState(0);
+  // Feeding the pacers while rendering is safe: a payload is given to its pacer once, whichever render sees it first.
+  const now = performance.now();
+  const reduced = typeof window !== "undefined" && window.matchMedia?.(REDUCED_MOTION).matches === true;
+  const result: Record<string, StreamPayload> = {};
+  for (const key of [...entries.current.keys()]) if (!(key in received)) entries.current.delete(key);
+  for (const [key, payload] of Object.entries(received)) {
+    let entry = entries.current.get(key);
+    if (entry && entry.payload !== payload) {
+      // A payload holds the whole text: one that does not extend the last is another request's.
+      if (!payload.text.startsWith(entry.payload.text)) entry = undefined;
+    }
+    if (entry === undefined || entry.payload !== payload) {
+      const pacer = entry?.pacer ?? new TextPacer();
+      pacer.receive(payload.text.length, now, reduced || isExisting(payload) || payload.state !== "streaming", hiddenFrom(payload));
+      entry = { pacer, payload, out: payload, outLength: -1 };
+      entries.current.set(key, entry);
+    }
+    const length = entry.pacer.shown;
+    if (entry.outLength !== length) {
+      entry.out = length >= payload.text.length ? payload : { ...payload, text: prefixOf(payload.text, length) };
+      entry.outLength = length;
+    }
+    result[key] = entry.out;
+  }
+  // Keeps the reveal going while any text is still being held back.
+  const busy = [...entries.current.values()].some((entry) => entry.pacer.busy);
+  useEffect(() => {
+    if (!busy) return;
+    let handle = 0;
+    let last = performance.now();
+    const frame = (at: number) => {
+      if (at - last >= FRAME_MS) {
+        last = at;
+        for (const entry of entries.current.values()) entry.pacer.advance(performance.now());
+        redraw((count) => count + 1);
+        if (![...entries.current.values()].some((entry) => entry.pacer.busy)) return;
+      }
+      handle = requestAnimationFrame(frame);
+    };
+    handle = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(handle);
+  }, [busy, received]);
+  // The same object while nothing in it changed, so the pages under it do not redraw for nothing.
+  const previous = useRef<StreamState>(NO_STREAMS);
+  const keys = Object.keys(result);
+  const same = keys.length === Object.keys(previous.current).length && keys.every((key) => previous.current[key] === result[key]);
+  if (!same) previous.current = result;
+  return previous.current;
 }

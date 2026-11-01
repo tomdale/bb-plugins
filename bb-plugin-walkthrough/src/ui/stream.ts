@@ -45,6 +45,19 @@ export function applyPayload(state: StreamState, payload: StreamPayload): Stream
   return { ...state, [key]: payload };
 }
 
+const PART_FENCE = /^ {0,3}`{3,}[ \t]*walkthrough[ \t]*\n[ \t]*part[ \t]*:/mu;
+
+/**
+ * Where the text stops being what the reader sees first: in the plan turn the
+ * introduction comes first and part 1 follows its `part: 1` fence, which is
+ * not on screen while the introduction is. Infinity when all of it is.
+ */
+export function hiddenFrom(payload: StreamPayload): number {
+  if (payload.requestKind !== "plan") return Number.POSITIVE_INFINITY;
+  const at = PART_FENCE.exec(payload.text)?.index;
+  return at === undefined ? Number.POSITIVE_INFINITY : at;
+}
+
 /** What a streamed request has produced so far, in the reader's own terms. */
 export interface StreamedView {
   /** The plan turn's introduction (empty for other requests). */
