@@ -1,0 +1,50 @@
+{
+  "about": "Helper messages the format scorer is tested against: four recorded from real walkthroughs, and the shapes the guide forbids, so the scorer's verdicts are pinned rather than assumed.",
+  "messages": [
+    {
+      "file": "recorded-plan-deepseek-v4.1-flash-1017-a.md",
+      "provenance": "Recorded from a live helper run: deepseek-v4.1-flash-1017 writing the plan turn's streamed message on the retry-cap fixture (2724 characters). The message is well formed; the helper ended its turn without calling walkthrough_plan.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": [], "ok": true}
+    },
+    {
+      "file": "recorded-plan-deepseek-v4.1-flash-1017-b.md",
+      "provenance": "Recorded from a second live helper run of the same model on the same fixture (2912 characters): three code fences, so it also pins the multi-fence score.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": [], "ok": true}
+    },
+    {
+      "file": "recorded-plan-openai-gpt-6-luna.md",
+      "provenance": "Recorded from a live helper run: gpt-6-luna, the current first pin, writing the plan turn's streamed message on the retry-cap fixture (1736 characters, one code fence). The run planned and committed part 1.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": [], "ok": true}
+    },
+    {
+      "file": "recorded-plan-openai-gpt-5.6-luna.md",
+      "provenance": "Recorded from a live helper run of gpt-5.6-luna on the same fixture (2283 characters, two code fences): the second pin, and the longest recorded message.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": [], "ok": true}
+    },
+    {
+      "file": "synthetic-heading-in-part.md",
+      "provenance": "The glm-5.3-flash failure described in docs/latency.md: a Markdown heading inside a part, which the pane renders as a section title the guide forbids.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": ["heading"], "ok": false}
+    },
+    {
+      "file": "synthetic-code-link-no-fences.md",
+      "provenance": "The other glm-5.3-flash failure: code pointed at with [phrase](src/retry.ts:28) links and no figure fences at all, so the pane shows no code.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": false, "suggestionsFence": true, "findings": ["code-link"], "ok": false}
+    },
+    {
+      "file": "synthetic-no-marker.md",
+      "provenance": "A helper that wrote the whole part but not the marker line: the parser finds no content and the commit fails, however good the prose.",
+      "expect": {"markerLine": false, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": [], "ok": false}
+    },
+    {
+      "file": "synthetic-reply-wrapper.md",
+      "provenance": "A helper that wrapped the message in a :::reply block carried over from the user's thread, which the pane would show as literal markup.",
+      "expect": {"markerLine": true, "partFence": true, "codeFencesWithPathAndLines": true, "suggestionsFence": true, "findings": ["reply-wrapper"], "ok": false}
+    },
+    {
+      "file": "synthetic-tool-only-no-message.md",
+      "provenance": "Empty: the tool-only turn, where the helper called the tools with no message at all. Recorded behaviour of Sonnet 5.5 in docs/latency.md, and what a plan turn that never wrote anything scores.",
+      "expect": {"markerLine": false, "partFence": false, "codeFencesWithPathAndLines": false, "suggestionsFence": false, "findings": [], "ok": false}
+    }
+  ]
+}

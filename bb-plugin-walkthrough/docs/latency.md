@@ -176,6 +176,10 @@ model, and whether a model that skipped the first round would recover on a secon
 the plugin has no such retry, so a model that ends a plan turn without calling
 `walkthrough_plan` leaves the walkthrough unplanned.
 
+The checks above are reproducible: `evals/README.md` describes the suite that
+replays the offline half without a model and reruns the live half against a
+deployment (`npm run eval`, `npm run eval:live`).
+
 ### The rule
 
 A model joins `HELPER_MODELS` with both measurements above, not because its name says

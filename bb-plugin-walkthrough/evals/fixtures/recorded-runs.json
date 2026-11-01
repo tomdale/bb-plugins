@@ -1,0 +1,55 @@
+{
+  "about": "Live walkthrough runs measured through the deployed plugin, with the model confirmed from the helper's own client/turn/requested event. The offline layer replays them through the gate so the pass/fail policy, including the known failure, is pinned without spending a model run. A null observation is one the run could not settle: a plan turn that never called walkthrough_plan has no message before the call to compare, and a run whose message was not recovered has no format verdict. The gate counts those as failures of the required checks, so expectFailures lists them.",
+  "runs": [
+    {
+      "modelRequested": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash-1017",
+      "modelRan": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash-1017",
+      "planned": false,
+      "seconds": {"firstWords": 11.2, "plan": null, "part1": null},
+      "streamedMessageBeforeTool": null,
+      "formatFixture": "recorded-plan-deepseek-v4.1-flash-1017-a.md",
+      "partCount": 0,
+      "expectFailures": ["planned", "part1Ready", "streamedMessageBeforeTool", "secondsToPlan", "secondsToPart1"]
+    },
+    {
+      "modelRequested": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash-1017",
+      "modelRan": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash-1017",
+      "planned": false,
+      "seconds": {"firstWords": 10.4, "plan": null, "part1": null},
+      "streamedMessageBeforeTool": null,
+      "formatFixture": "recorded-plan-deepseek-v4.1-flash-1017-b.md",
+      "partCount": 0,
+      "expectFailures": ["planned", "part1Ready", "streamedMessageBeforeTool", "secondsToPlan", "secondsToPart1"]
+    },
+    {
+      "modelRequested": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash",
+      "modelRan": "vercel-ai-gateway/deepseek/deepseek-v4.1-flash",
+      "planned": false,
+      "seconds": {"firstWords": 9.3, "plan": null, "part1": null},
+      "streamedMessageBeforeTool": null,
+      "formatFixture": null,
+      "partCount": 0,
+      "expectFailures": ["planned", "part1Ready", "streamedMessageBeforeTool", "markerLine", "partFence", "codeFencesWithPathAndLines", "suggestionsFence", "noForbiddenElements", "secondsToPlan", "secondsToPart1"]
+    },
+    {
+      "modelRequested": "vercel-ai-gateway/openai/gpt-6-luna",
+      "modelRan": "vercel-ai-gateway/openai/gpt-6-luna",
+      "planned": true,
+      "seconds": {"firstWords": 15.6, "plan": 20.4, "part1": 21.9},
+      "streamedMessageBeforeTool": true,
+      "formatFixture": "recorded-plan-openai-gpt-6-luna.md",
+      "partCount": 2,
+      "expectFailures": []
+    },
+    {
+      "modelRequested": "vercel-ai-gateway/openai/gpt-5.6-luna",
+      "modelRan": "vercel-ai-gateway/openai/gpt-5.6-luna",
+      "planned": true,
+      "seconds": {"firstWords": 10.9, "plan": 16.6, "part1": 18.3},
+      "streamedMessageBeforeTool": true,
+      "formatFixture": "recorded-plan-openai-gpt-5.6-luna.md",
+      "partCount": 2,
+      "expectFailures": []
+    }
+  ]
+}

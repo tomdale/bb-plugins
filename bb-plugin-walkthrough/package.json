@@ -61,7 +61,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "bb plugin build"
+    "build": "bb plugin build",
+    "eval": "node --experimental-transform-types --no-warnings evals/run-offline.ts",
+    "eval:live": "node --experimental-transform-types --no-warnings evals/live/run-live.ts"
   },
   "files": [
     "README.md",

@@ -1,0 +1,17 @@
+{
+  "maxSecondsToPlan": 40,
+  "maxSecondsToPart1": 60,
+  "requiredChecks": [
+    "model",
+    "planned",
+    "part1Ready",
+    "streamedMessageBeforeTool",
+    "markerLine",
+    "partFence",
+    "codeFencesWithPathAndLines",
+    "suggestionsFence",
+    "noForbiddenElements",
+    "secondsToPlan",
+    "secondsToPart1"
+  ]
+}

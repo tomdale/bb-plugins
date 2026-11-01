@@ -153,6 +153,7 @@ nothing has changed.
 ```sh
 npm install
 npm test          # vitest: model, fake-host orchestration, and the pane
+npm run eval      # the helper eval suite, offline: evals/README.md
 npm run typecheck
 npm run build     # bb plugin build
 bb plugin install .   # path install; then `bb plugin dev` for live reload
