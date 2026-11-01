@@ -396,6 +396,25 @@ Set **Status** to _filed_ with a link once a request goes upstream.
   original body only after the replacement mounts and restores it on cleanup
   or a rendering failure. This depends on host row identifiers and DOM markup.
 
+## Preserve plugin-message provenance in prompt history
+
+- **Status:** not filed
+- **Observed:** BB 0.48.1, Plugin SDK 0.6.5
+- **Use case:** Workstreams classifies a thread from the user's requests, without
+  treating a Subagents completion report as a new request or its transcript link
+  as the thread's continuation source.
+- **Limit:** Subagents delivers reports with `threads.send`; the resulting
+  `client/turn/requested` event is attributed to the user, with no sender or
+  plugin identity. `threads.promptHistory` exposes input and timestamps but no
+  message origin, so the two cannot be distinguished from a user's own text.
+- **Workaround:** recognize the Subagents delivery envelope and verify its run,
+  owner, thread, title and output against Subagents' `list` RPC. If the run is
+  no longer listed or the plugin is unavailable, retain the message rather than
+  discard a possible user request.
+- **Possible API:** persist the originating plugin and delivery kind on sends,
+  expose that provenance and the originating event identity in prompt history,
+  and preserve the actual source thread separately from text mentions.
+
 ## Keep a timeline card anchored while expanding
 
 - **Status:** not filed
@@ -757,10 +776,10 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   that should move every 100-200 ms. (3) `experimental_codeFenceRenderer`, which
   would render the same fenced markup inside a thread, exists only in SDKs newer
   than the pinned 0.5.29
-- **Workaround:** the worker writes ```` ```walkthrough ```` fences as a hidden
+- **Workaround:** the worker writes ` ```walkthrough ` fences as a hidden
   chat message before the tool call. A background service uses the debounced
-  event only as a wake-up and polls `threads.events.list({ types:
-  ["item/agentMessage/delta"] })` every 120 ms (backing off while quiet),
+  event only as a wake-up and polls `threads.events.list` for
+  `item/agentMessage/delta` every 120 ms (backing off while quiet),
   publishing the text so far on a realtime channel at most every 60 ms. The
   markup stays identical to what the fence renderer would receive
 - **Possible API:** partial tool-call argument events (`item/toolCall/delta`
