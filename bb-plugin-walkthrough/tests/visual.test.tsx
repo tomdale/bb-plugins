@@ -231,6 +231,9 @@ describe("round two: geometry, stacking and focus", () => {
     expect(paths[1]).toMatch(/^M0 \.5 H4 Q8 \.5 8 4\.5 V/u);
     expect(rule(".wt-mn")).toContain("padding-left: 22px");
     expect(rule(".wt-mn > .wt-m-inline")).toContain("position: absolute");
+    // In the margin a note already sits level with its line, so it does not name the line; stacked below the figure it does.
+    expect(rule(".wt[data-wide] .wt-mn-line")).toContain("display: none");
+    expect(rule(".wt-mn-line")).toContain("var(--wt-mono)");
   });
 
   it("keeps the concerns sheet nearly opaque, so a tinted diff beneath it does not blotch", () => {

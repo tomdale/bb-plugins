@@ -102,6 +102,29 @@ describe("figures", () => {
     expect(slot.container.querySelector(".wt-margin")).toBeNull();
   });
 
+  it("names the line in each stacked note, and a marker press brings that note into view", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, "scrollIntoView", { value: scrollIntoView, configurable: true, writable: true });
+    try {
+      const slot = await mountPage("wt_1", viewOf(codeWalkthrough(code({ snapshot }, [{ line: 4, text: "Count checks reject invented ids." }]))));
+      const marker = await slot.findByRole("button", { name: /Note 1: Count checks/u });
+      const note = slot.container.querySelector<HTMLElement>(".wt-mn")!;
+      // The stack sits below the figure, so the note says which line it belongs to.
+      expect(note.querySelector(".wt-mn-line")!.textContent).toBe("4");
+      fireEvent.click(marker);
+      // Pressing the marker moves nothing but the pane's own scroll, and it lands on this note.
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+      expect(scrollIntoView.mock.instances[0]).toBe(note);
+      expect(scrollIntoView.mock.calls[0]![0]).toEqual({ block: "nearest" });
+      expect(note.className).toContain("wt-hot");
+      fireEvent.click(marker);
+      expect(note.className).not.toContain("wt-hot");
+      expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   it("hangs notes in the right margin on wide windows", async () => {
     stubWidth(1100);
     const slot = await mountPage("wt_1", viewOf(codeWalkthrough(code({ snapshot }, [{ line: 4, text: "First." }, { line: 4, text: "Second at the same row." }]))));

@@ -446,6 +446,13 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-fig-empty { margin: 0; padding: 8px var(--wt-fig-pad) 10px var(--wt-fig-l); font: 13px var(--wt-sans); color: var(--wt-mute); }
 /* The marker hangs in the note's left indent, so wrapped lines align with the first word, not under the marker. */
 .wt-mn { position: relative; padding-left: 22px; font: italic 14.5px/1.4 var(--wt-serif); color: var(--wt-ink); opacity: 0.85; border-radius: 4px; transition: background-color var(--wt-dur-2) var(--wt-ease-out), opacity var(--wt-dur-2) var(--wt-ease-out); }
+/*
+ * The line the note is about, in the gutter's own voice. At panel width the notes
+ * are stacked below the figure, so a note has to say which line it belongs to; in
+ * the margin it already sits level with that line and the number would be noise.
+ */
+.wt-mn-line { display: inline-block; margin-right: 5px; font: 500 11px var(--wt-mono); font-style: normal; color: var(--wt-mute); font-variant-numeric: tabular-nums; }
+.wt[data-wide] .wt-mn-line { display: none; }
 .wt-mn.wt-hot { opacity: 1; background: var(--wt-yhi); }
 .wt-mn-kind { font-style: normal; font: 600 11px var(--wt-sans); color: var(--wt-mute); }
 .wt-notes-stack { padding: 6px var(--wt-fig-pad) 4px var(--wt-fig-l); display: flex; flex-direction: column; gap: 10px; }

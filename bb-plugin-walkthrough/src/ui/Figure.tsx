@@ -43,6 +43,8 @@ export interface FlagTarget {
 interface Annotation {
   key: string;
   row: number;
+  /** The line number the reader sees in the gutter for that row; null for a row with no number of its own (a removed or gap line). */
+  line: number | null;
   text: string;
   /** The reader's flag kind ("Note", "Todo"…); null for the agent's own margin notes. */
   label: string | null;
@@ -183,11 +185,16 @@ function useSnapshot(walkthrough: Walkthrough, block: CodeBlock): { data: Snapsh
 
 function annotationsFor(block: CodeBlock, notes: Note[], rows: PatchRow[], glyphs: Map<string, string>): Annotation[] {
   const at = (line: number | undefined) => (rows.length === 0 ? 0 : line === undefined ? 0 : rowIndexForLine(rows, line));
+  // What the gutter shows beside this row, which is what a note has to say to be found: a removed line has no number in the new code, so it names its own.
+  const shownLine = (row: number) => {
+    const found = rows[row];
+    return found === undefined ? null : (found.newNo ?? found.oldNo);
+  };
   const agent = block.notes
     .map((note, index) => ({ key: `a${index}`, row: at(note.line), text: note.text }))
     .sort((a, b) => a.row - b.row)
-    .map((note, index): Annotation => ({ ...note, label: null, glyph: String(index + 1), own: false }));
-  const own = notes.map((note): Annotation => ({ key: `n${note.id}`, row: at(note.location?.startLine), text: note.text, label: NOTE_KIND_LABEL[note.kind], glyph: glyphs.get(note.id) ?? "•", own: true }));
+    .map((note, index): Annotation => ({ ...note, line: shownLine(note.row), label: null, glyph: String(index + 1), own: false }));
+  const own = notes.map((note): Annotation => ({ key: `n${note.id}`, row: at(note.location?.startLine), line: shownLine(at(note.location?.startLine)), text: note.text, label: NOTE_KIND_LABEL[note.kind], glyph: glyphs.get(note.id) ?? "•", own: true }));
   return [...agent, ...own].sort((a, b) => a.row - b.row);
 }
 
@@ -325,6 +332,20 @@ export function Figure({
   const clamped = foldedRows !== null && !expanded;
   const clampRows = foldedRows ?? rows.length;
   const scroller = useRef<HTMLDivElement>(null);
+  // The rendered note for each marker, so pressing a marker can bring its note back into view.
+  const noteEls = useRef(new Map<string, HTMLElement>());
+  /**
+   * What a marker does: it names the note on its line. At panel width the notes are
+   * stacked below the figure, past the code between the line and its note, so pressing
+   * a marker scrolls that note into view (and holding the highlight on it) rather than
+   * only marking it where the reader cannot see it. The page's own scroll behavior
+   * decides whether that moves smoothly.
+   */
+  const reveal = (annotation: Annotation) => {
+    const next = pinned === annotation.key ? null : annotation.key;
+    setPinned(next);
+    if (next !== null) noteEls.current.get(annotation.key)?.scrollIntoView?.({ block: "nearest" });
+  };
   const cue = useScrollCue(scroller, patch);
   const shownPath = displayPath(block.displayPath, { workspacePath: walkthrough.workspacePath, repoRoots: walkthrough.repoRoots });
   const markerRows = new Map<number, Annotation[]>();
@@ -374,6 +395,10 @@ export function Figure({
   const note = (annotation: Annotation, drift = -1, slot = 0) => (
     <div
       key={annotation.key}
+      ref={(element) => {
+        if (element) noteEls.current.set(annotation.key, element);
+        else noteEls.current.delete(annotation.key);
+      }}
       className={cn("wt-mn", annotation.own && "wt-mn-own", hot === annotation.key && "wt-hot")}
       onMouseEnter={() => setHovered(annotation.key)}
       onMouseLeave={() => setHovered(null)}
@@ -382,6 +407,14 @@ export function Figure({
       <span className={cn("wt-m wt-m-inline", annotation.own && "wt-m-own")} aria-hidden>
         {annotation.glyph}
       </span>
+      {annotation.line !== null ? (
+        <>
+          <span className="wt-mn-line" aria-hidden>
+            {annotation.line}
+          </span>
+          <span className="wt-sr">Line {annotation.line}: </span>
+        </>
+      ) : null}
       {annotation.label ? <span className="wt-mn-kind">{annotation.label} · </span> : null}
       {annotation.text}
     </div>
@@ -537,7 +570,7 @@ export function Figure({
                             onMouseLeave={() => setHovered(null)}
                             onFocus={() => setHovered(annotation.key)}
                             onBlur={() => setHovered(null)}
-                            onClick={() => setPinned(pinned === annotation.key ? null : annotation.key)}
+                            onClick={() => reveal(annotation)}
                           >
                             {annotation.glyph}
                           </button>

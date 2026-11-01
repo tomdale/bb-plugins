@@ -19,7 +19,7 @@ Status: decisions from the design grilling. No plugin code changed yet. Open ite
 ## 3. Layout
 - One part at a time. No left rail.
 - **Top bar (glass):** title, part picker ("3 of 5"), Concerns toggle with count, overflow menu (full page, finish, thread).
-- **Page:** centered column, 62-68ch. Figures break out to about 900px. Numbered markers sit in the code gutter; the note text hangs in the right margin on wide windows and sits under the figure at panel width (~480px), where everything stacks.
+- **Page:** centered column, 62-68ch. Figures break out to about 900px. Numbered markers sit in the code gutter; the note text hangs in the right margin on wide windows and sits under the figure at panel width (~480px), where everything stacks, and each stacked note names the line it is about.
 - **Pager (glass, sticky):** Prev, Next (named: "Next: Keeping a failed run"), a question input scoped to the current part, and 2-3 agent-written suggested questions above it.
 - **Concerns sheet:** overlay from the right (full width in the narrow panel). The page never reflows. Escape closes and focus returns to the toggle.
 
