@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { makePluginAgentConfigurationContext } from "@get-bb/plugin-sdk/testing";
 import { readNote, readWalkthrough } from "../src/store.ts";
@@ -281,29 +280,28 @@ describe("delivered instructions", () => {
     expect(worker.tools.map((tool) => tool.name)).toContain("walkthrough_suggest");
   });
 
-  it("measures the open tool's description, its instructions and the skill the same way", () => {
-    const skill = readFileSync(new URL("../skills/bb-walkthrough/SKILL.md", import.meta.url), "utf8");
-    for (const text of [OPEN_DESCRIPTION, OPEN_INSTRUCTIONS, skill]) expect(text.length).toBeLessThan(4096);
+  it("keeps the open tool's description and instructions under the delivery limit", () => {
+    for (const text of [OPEN_DESCRIPTION, OPEN_INSTRUCTIONS]) expect(text.length).toBeLessThan(4096);
   });
 
-  it("reserves the pane for explicit guided reading, including existing code with no diff", async () => {
+  it("delivers the explicit-reading gate and chat default with the open tool", async () => {
     const { harness } = await setup();
     const user = await harness.behavior.resolveAgentConfiguration(makePluginAgentConfigurationContext());
     const open = user.tools.find((tool) => tool.name === "walkthrough_open")!;
-    const skill = readFileSync(new URL("../skills/bb-walkthrough/SKILL.md", import.meta.url), "utf8");
-    for (const text of [open.description, open.instructions ?? "", skill]) {
-      expect(text).toMatch(/only when the user explicitly requests/iu);
-      expect(text).toMatch(/walk me through how/iu);
-      expect(text).toMatch(/existing code with no diff/iu);
-      expect(text).toMatch(/chat by default/iu);
-      expect(text).toMatch(/ordinary questions, explanations, investigations, (and )?reviews/iu);
+    for (const text of [open.description, open.instructions ?? ""]) {
+      expect(text).toMatch(/only for (an )?explicit/iu);
+      expect(text).toMatch(/questions[^.]*reviews[^.]*chat|chat[^.]*questions[^.]*reviews/iu);
     }
-    for (const text of [open.instructions ?? "", skill]) {
-      expect(text).toContain("where are these values coming from?");
-      expect(text).toContain("let's review title/goal generation");
-      expect(text).toContain("review this PR");
-      expect(text).toContain("When the format is ambiguous, answer in chat.");
-    }
+    expect(open.description).toMatch(/walkthrough, guided tour, or step-by-step guided reading/iu);
+    const instructions = open.instructions ?? "";
+    expect(instructions).toMatch(/chat[^.]*ambiguous/iu);
+    expect(instructions).toMatch(/requested format[^.]*explain\/review[^.]*topic breadth[^.]*answer length/iu);
+    expect(instructions).toMatch(/walk me through X, give me a tour of X/iu);
+    expect(instructions).toMatch(/existing code with no diff/iu);
+    expect(instructions).toMatch(/request verbatim[^.]*without paraphrasing or added paths/iu);
+    expect(instructions).toMatch(/helper read, plan, and explain/iu);
+    expect(instructions).toMatch(/pane opened or where to open it/iu);
+    expect(instructions).toMatch(/GitHub submission requires a separate explicit request/iu);
   });
 
   it("says in the tool result whether the pane is already open beside the thread", async () => {

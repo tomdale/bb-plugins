@@ -4,7 +4,7 @@ Source of truth for the visual design: `docs/redesign-spec.md` and the interacti
 
 ## Ownership
 - **UI** owns `app.tsx`, `src/ui/**`, `components/**`, styles, fonts/assets, `tests/*.test.tsx`.
-- **Backend** owns `server.ts`, `host.ts`, `src/*.ts` (not `src/ui`), `skills/`, `tests/*.test.ts`, `src/rpc.ts`, `src/schemas.ts`.
+- **Backend** owns `server.ts`, `host.ts`, `src/*.ts` (not `src/ui`), `tests/*.test.ts`, `src/rpc.ts`, `src/schemas.ts`.
 - Do not edit the other's files. If you need a change there, add it to the "Requests" list at the bottom of this file and continue with a reasonable assumption.
 
 ## Schema additions (Backend adds; UI may rely on them being optional with these defaults)
@@ -179,7 +179,7 @@ The `:::reply{...}` ... `:::` wrapper the helper may inherit from its thread is 
 `changedFiles({ path, baseRef, headRef?, includeUncommitted })` and `fileHashes({ path, paths })` join `readCode`. The first returns `{ files: [{ path, oldPath, status, additions, deletions, binary, origins }], staged, unstaged, untracked, truncated, branch }`, where `origins` is any of `committed | staged | unstaged | untracked`.
 
 ### Agent tools
-- `walkthrough_open`: its description, instructions and the `bb-walkthrough` skill name explain-the-code requests ("walk me through how X works", no diff needed) and tell the agent to call it instead of answering in chat. The result says whether the pane is open beside the thread now (when `autoOpenPanel` is on) or where to open it (when it is off).
+- `walkthrough_open`: its description and attached instructions reserve the pane for explicit walkthroughs, guided tours, or step-by-step guided reading, including existing code with no diff. Ordinary questions, explanations, and reviews stay in chat. The result says whether the pane is open beside the thread (when `autoOpenPanel` is on) or where to open it (when it is off).
 - `walkthrough_plan.introduction` and `walkthrough_write_part.blocks` / `suggestions` are optional: left out, the plugin reads them from the helper's finished streamed message (`src/stream-commit.ts`), so the helper says each part once. A tool call that cannot find its message waits up to 2 s, then tells the helper to pass the content itself. Passing blocks still works.
 - Understand intent: the plan and write instructions ask for `view: "code"` excerpts of the code as it stands and ban change-review words.
 - `walkthrough_note` takes `proposedResolution` (see Notes).

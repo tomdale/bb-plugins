@@ -50,13 +50,11 @@ async function guard(run: () => Promise<PluginAgentToolResult> | PluginAgentTool
 
 /** The user's requested format determines routing, independently of code scope or diff size. */
 export const OPEN_DESCRIPTION =
-  "Open a Walkthrough pane beside this thread, where a helper agent explains code part by part with excerpts, questions, and notes. Use only when the user explicitly requests a walkthrough, guided tour, or step-by-step guided reading (for example \"Walk me through how the queue works\" or \"Give me a tour of this package\"). Answer ordinary questions, explanations, investigations, and reviews in chat by default; \"explain\", \"review\", or a broad topic alone does not request a pane. An explicitly requested walkthrough can cover a PR, branch, recent changes, or existing code with no diff.";
+  "Open a helper-written code walkthrough pane with excerpts, questions, and notes. Use only for an explicit walkthrough, guided tour, or step-by-step guided reading; ordinary questions and reviews stay in chat.";
 
 export const OPEN_INSTRUCTIONS = [
-  "Answer in chat by default. Call walkthrough_open only when the user explicitly requests a walkthrough, guided tour, or step-by-step guided reading of code (\"walk me through how X works\", \"give me a tour of X\", \"open a walkthrough\"). The request may cover a PR, branch, recent changes, or existing code with no diff. For those explicit requests, use this pane in BB rather than tdx-walkthrough.",
-  "Ordinary questions, explanations, investigations, reviews, and code changes belong in chat. Examples: \"where are these values coming from?\", \"explain how auth works\", \"how does this work end to end?\", \"let's review title/goal generation\", and \"review this PR\". Judge the requested format, not the words explain or review, the topic's breadth, or how many parts an answer might need. When the format is ambiguous, answer in chat.",
-  "For an explicit walkthrough request, pass the user's own words as `request`, unparaphrased and without added paths. The helper decides whether it is a review, a check of their own change, or an explanation of existing code, so let it read the code and prepare the walkthrough.",
-  "After the call, relay the tool's opening status in one short line: say the pane is open, or tell the user where to open it, and that it fills in as the helper writes each part. Then carry on with anything else they asked.",
+  "Default to chat for questions, explanations, investigations, reviews, code changes, and ambiguous requests. Judge requested format, not words like explain/review, topic breadth, or answer length. Open only for explicit guided reading (walk me through X, give me a tour of X); in BB use this tool rather than tdx-walkthrough. Supports PRs, branches, recent changes, and existing code with no diff.",
+  "Pass request verbatim, without paraphrasing or added paths. Let the helper read, plan, and explain; it selects review, own-change, or understand intent. Briefly relay whether the pane opened or where to open it and that parts appear as written; continue other requested work. Treat returned notes as ordinary requests. GitHub submission requires a separate explicit request.",
 ].join("\n\n");
 
 /**
