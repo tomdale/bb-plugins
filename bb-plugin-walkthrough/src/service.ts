@@ -82,6 +82,9 @@ export interface NotePatch {
   resolution?: string | null | undefined;
 }
 
+/** The parts of a `threads.send` request that do not vary with the model. */
+type SendInput = Omit<Parameters<BbPluginApi["sdk"]["threads"]["send"]>[0], "threadId" | "model" | "reasoningLevel">;
+
 const MAX_FULL_FILE_BYTES = 1_000_000;
 const MERGE_BASE_TTL_MS = 60_000;
 /** Parts written ahead of the one on screen. */
@@ -94,18 +97,72 @@ const MESSAGE_WAIT_MS = 250;
 /** Longest the plan request waits for the working-tree summary. */
 const BRIEF_WAIT_MS = 1500;
 /**
- * The helper reads and writes prose; it does not need the deepest reasoning
- * the user's thread may be set to. On a real model, medium cut the time to the
- * finished first message by about half against xhigh (docs/latency.md).
+ * The helper reads a diff and writes plain prose, so it runs on a cheap, fast
+ * model instead of the user's own: the reader waits on every part, and a
+ * frontier model at the thread's level buys nothing here. Values are catalog
+ * ids without the provider prefix, most preferred first; catalog ids are
+ * provider-scoped (`google/gemini-3.8-flash` on one provider,
+ * `vercel-ai-gateway/google/gemini-3.8-flash` on another), so a preference
+ * matches an id that equals it or ends with `/` plus it. A thread whose
+ * provider lists none of them, or a catalog that cannot be read, leaves the
+ * helper on the thread's own model. The order is measured, not assumed: see
+ * "The helper's model" in docs/latency.md.
+ */
+export const HELPER_MODELS: readonly string[] = ["deepseek/deepseek-v4.1-flash", "anthropic/claude-haiku-5.5", "openai/gpt-6-luna"];
+/**
+ * The reasoning level asked for, when the chosen model lists it: a level it
+ * does not list is rejected, and so is none at all for some models. Medium cut
+ * the time to the finished first message by about half against xhigh
+ * (docs/latency.md).
  */
 export const HELPER_REASONING = "medium" as const;
+
+/** The reasoning levels BB accepts on a request; a catalog lists these ids. */
+const REASONING_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra", "ultracode"] as const;
+export type HelperReasoning = (typeof REASONING_LEVELS)[number];
+
+/** A model and level for the helper, read from the thread's provider catalog. */
+export interface HelperExecution {
+  model: string;
+  reasoningLevel: HelperReasoning | null;
+}
+
+/** The parts of a catalog entry this plugin reads. */
+export interface CatalogModel {
+  id: string;
+  defaultReasoningEffort?: string | undefined;
+  supportedReasoningEfforts?: ReadonlyArray<{ reasoningEffort: string }> | undefined;
+}
+
+function asReasoning(value: string | undefined): HelperReasoning | null {
+  return REASONING_LEVELS.find((level) => level === value) ?? null;
+}
+
+/**
+ * The first preferred model the provider lists, with the reasoning level to ask
+ * it for: medium when it lists that, else its own default (or the first level
+ * it lists). Null when the provider lists none of the preferences.
+ */
+export function pickHelperModel(models: readonly CatalogModel[], preferences: readonly string[] = HELPER_MODELS): HelperExecution | null {
+  for (const preference of preferences) {
+    const match = models.find((entry) => entry.id === preference || entry.id.endsWith(`/${preference}`));
+    if (match === undefined) continue;
+    const listed = (match.supportedReasoningEfforts ?? []).map((effort) => effort.reasoningEffort);
+    const reasoningLevel = asReasoning(listed.find((effort) => effort === HELPER_REASONING) ?? match.defaultReasoningEffort ?? listed[0]);
+    return { model: match.id, reasoningLevel };
+  }
+  return null;
+}
+
 /**
  * Models that skip the streamed message however the instructions are phrased:
  * they draft the part while thinking, believe it is written, and call the tools
  * with no content, wasting a round (measured, docs/latency.md:
  * Claude Sonnet 5.5, 0 of 5 plan turns streamed, and the tool error did not
  * change it). They are asked to pass the content as tool arguments instead,
- * which commits part 1 in one round and streams nothing.
+ * which commits part 1 in one round and streams nothing. None of HELPER_MODELS
+ * is one of these; the check matters when a thread's provider serves none of
+ * them and the helper runs on the thread's own model.
  */
 export const DELIVERS_IN_ARGUMENTS = /claude-sonnet/iu;
 /** Pause before the one retry of an excerpt that failed for a passing reason. */
@@ -145,6 +202,8 @@ export class WalkthroughService {
   /** Serializes state changes that await the SDK, per walkthrough. */
   private readonly locks = new Map<string, Promise<void>>();
   private readonly helperModelStreams = new Map<string, boolean>();
+  /** The pinned model and level per walkthrough, or a resolved null once its provider lists none (see HELPER_MODELS). */
+  private readonly helperExecutions = new Map<string, Promise<HelperExecution | null>>();
   /**
    * Walkthroughs being or already deleted. Work that began before the delete
    * (a request being sent, a snapshot being captured) may still try to save its
@@ -389,6 +448,8 @@ export class WalkthroughService {
     let walkthrough = this.get(id);
     // Read the working tree while the fork provisions, so the plan request never waits on git.
     this.briefs.set(id, this.workspaceBrief(walkthrough, id).catch(() => null));
+    // Read the provider catalog while the fork provisions too: the model is chosen before the first request.
+    void this.helperExecution(walkthrough);
     try {
       const worker = await this.bb.sdk.threads.fork({
         sourceThreadId: threadId,
@@ -405,15 +466,19 @@ export class WalkthroughService {
       this.bb.log.warn(`fork failed for ${threadId}; starting a fresh worker: ${errorText(cause)}`);
       try {
         const thread = await this.bb.sdk.threads.get({ threadId });
+        const pinned = await this.helperExecution(walkthrough);
         const worker = await this.bb.sdk.threads.spawn({
           projectId: thread.projectId,
           environment: thread.environmentId ? { type: "reuse", environmentId: thread.environmentId } : { type: "project-default" },
-          prompt: planMessage(walkthrough, await this.takeBrief(id)),
+          prompt: planMessage(walkthrough, await this.takeBrief(id), pinned === null || !DELIVERS_IN_ARGUMENTS.test(pinned.model)),
           parentThreadId: threadId,
           lifecycleOwnerThreadId: threadId,
           visibility: "hidden",
           title: `Walkthrough worker: ${walkthrough.request.slice(0, 60)}`,
           pluginMetadata: { role: WORKER_ROLE, walkthroughId: id },
+          ...(pinned === null
+            ? {}
+            : { providerId: thread.providerId, model: pinned.model, ...(pinned.reasoningLevel === null ? {} : { reasoningLevel: pinned.reasoningLevel }) }),
         } as Parameters<typeof this.bb.sdk.threads.spawn>[0]);
         this.save({
           ...this.get(id),
@@ -471,7 +536,7 @@ export class WalkthroughService {
     }
     const [request, ...rest] = walkthrough.queue as [WorkerRequest, ...WorkerRequest[]];
     const brief = request.kind === "plan" ? await this.takeBrief(id) : null;
-    const streams = request.kind === "plan" || request.kind === "write" ? await this.helperStreams(walkthrough.workerThreadId!) : true;
+    const streams = request.kind === "plan" || request.kind === "write" ? await this.helperStreams(walkthrough) : true;
     const body = this.messageFor(walkthrough, request, brief, streams);
     if (body === null) {
       this.save({ ...walkthrough, queue: rest });
@@ -487,12 +552,7 @@ export class WalkthroughService {
     next = this.markStarted(next, request);
     this.save(next);
     try {
-      const message = { threadId: workerThreadId, mode: "queue-if-active" as const, input: [{ type: "text" as const, text, mentions: [] }] };
-      // A model that does not list the level rejects it; the request still goes out at the thread's own level.
-      await this.bb.sdk.threads.send({ ...message, reasoningLevel: HELPER_REASONING }).catch((cause: unknown) => {
-        if (/archived/iu.test(errorText(cause)) || !/reasoning|level|effort/iu.test(errorText(cause))) throw cause;
-        return this.bb.sdk.threads.send(message);
-      });
+      await this.sendToHelper(walkthrough, workerThreadId, { mode: "queue-if-active" as const, input: [{ type: "text" as const, text, mentions: [] }] });
       if (request.kind === "plan") this.mark(id, "planSent");
     } catch (cause) {
       if (/archived/iu.test(errorText(cause))) this.helperGone(id);
@@ -501,12 +561,75 @@ export class WalkthroughService {
   }
 
   /**
-   * Whether the helper's model writes the streamed message before its tool
-   * calls (see DELIVERS_IN_ARGUMENTS). The model is read from the helper's own
-   * first request, which records the execution it was sent with; when it cannot
-   * be read, streaming is asked for, which every model can fall back from.
+   * Sends one request to the helper on the pinned model (HELPER_MODELS). A
+   * provider that does not serve it, or does not list the level, rejects the
+   * request as a validation error rather than running it, so each rejection
+   * falls through to the next attempt: the model without a level, then the
+   * thread's own model, then that model at its own level. A rejected model is
+   * dropped for the rest of the walkthrough.
    */
-  private async helperStreams(workerThreadId: string): Promise<boolean> {
+  private async sendToHelper(walkthrough: Walkthrough, threadId: string, input: SendInput): Promise<void> {
+    const pinned = await this.helperExecution(walkthrough);
+    const attempts: Array<{ model?: string; reasoningLevel?: HelperReasoning }> = [];
+    if (pinned !== null) {
+      attempts.push({ model: pinned.model, ...(pinned.reasoningLevel === null ? {} : { reasoningLevel: pinned.reasoningLevel }) });
+      attempts.push({ model: pinned.model });
+    }
+    attempts.push({ reasoningLevel: HELPER_REASONING }, {});
+    for (const [index, attempt] of attempts.entries()) {
+      try {
+        await this.bb.sdk.threads.send({ threadId, ...input, ...attempt });
+        return;
+      } catch (cause) {
+        const last = index === attempts.length - 1;
+        if (last || /archived/iu.test(errorText(cause))) throw cause;
+        if (attempt.model !== undefined && /model/iu.test(errorText(cause)) && !/reasoning|level|effort/iu.test(errorText(cause))) {
+          this.bb.log.warn(`the helper's model ${attempt.model} was rejected for ${walkthrough.id}; using the thread's own model: ${errorText(cause)}`);
+          this.helperExecutions.set(walkthrough.id, Promise.resolve(null));
+        }
+      }
+    }
+  }
+
+  /**
+   * The pinned model for this walkthrough, resolved once from the provider
+   * catalog of the thread it belongs to. Null leaves the helper on the thread's
+   * own model: a provider that lists none of the preferences, a machine that
+   * cannot read its catalog, or a model the server rejected.
+   */
+  private helperExecution(walkthrough: Walkthrough): Promise<HelperExecution | null> {
+    const cached = this.helperExecutions.get(walkthrough.id);
+    if (cached !== undefined) return cached;
+    const resolved = this.resolveHelperExecution(walkthrough).catch((cause: unknown) => {
+      this.bb.log.debug(`no helper model for ${walkthrough.id}: ${errorText(cause)}`);
+      return null;
+    });
+    this.helperExecutions.set(walkthrough.id, resolved);
+    return resolved;
+  }
+
+  private async resolveHelperExecution(walkthrough: Walkthrough): Promise<HelperExecution | null> {
+    const thread = await this.bb.sdk.threads.get({ threadId: walkthrough.threadId });
+    const environmentId = walkthrough.environmentId;
+    const catalog = environmentId === null || environmentId === undefined
+      ? await this.bb.sdk.providers.models({ providerId: thread.providerId })
+      : await this.bb.sdk.providers.models({ providerId: thread.providerId, environmentId });
+    const chosen = pickHelperModel(catalog.models ?? []);
+    if (chosen === null) this.bb.log.debug(`provider ${thread.providerId} lists none of the helper models (${HELPER_MODELS.join(", ")})`);
+    return chosen;
+  }
+
+  /**
+   * Whether the helper writes the streamed message before its tool calls (see
+   * DELIVERS_IN_ARGUMENTS). A pinned model is known before the request goes
+   * out; on the thread's own model the policy is read from the helper's first
+   * request, which records the execution it was sent with. When it cannot be
+   * read, streaming is asked for, which every model can fall back from.
+   */
+  private async helperStreams(walkthrough: Walkthrough): Promise<boolean> {
+    const workerThreadId = walkthrough.workerThreadId!;
+    const pinned = await this.helperExecution(walkthrough);
+    if (pinned !== null) return !DELIVERS_IN_ARGUMENTS.test(pinned.model);
     const cached = this.helperModelStreams.get(workerThreadId);
     if (cached !== undefined) return cached;
     const requests = (await this.bb.sdk.threads.events
@@ -856,6 +979,7 @@ export class WalkthroughService {
     // From here nothing that began earlier can save the walkthrough again.
     this.deleted.add(id);
     this.briefs.delete(id);
+    this.helperExecutions.delete(id);
     return this.locked(id, async () => {
       const workerThreadId = found.workerThreadId;
       const busy = found.inFlight !== null || found.status === "planning" || found.status === "wrapping-up";

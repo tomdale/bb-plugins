@@ -26,6 +26,12 @@ not ours to shorten.
 
 ## What changed
 
+- **The helper runs on its own cheap, fast model.** `HELPER_MODELS` (service.ts) names,
+  most preferred first, the models the helper may run on; the first one the user's
+  provider serves is sent as `model` with every request to the helper, together with the
+  reasoning level (medium when the model lists it). The user's thread keeps its own
+  model, and a provider that serves none of the preferences leaves the helper on that
+  model. "The helper's model" below has the measurements behind the list.
 - **The helper reasons at medium.** `HELPER_REASONING` (service.ts) is sent with every
   request to the helper (`threads.send({ reasoningLevel })`). A model that rejects the
   level gets the request again at its own level. The user's thread is untouched.
@@ -112,6 +118,56 @@ in the DOM and the server's `timing`, for comparison with the table above.
 `scripts/latency/fork-experiment.py` repeats the helper experiment (`SOURCE_THREAD`
 names the idle thread to fork; `idle-medium@new` and `idle-xhigh@old` need the two prompt
 files that `render-plan-prompt.mjs` writes).
+
+## The helper's model
+
+The helper reads a diff and writes prose, so it does not need the frontier model the user
+chose for their own thread. `HELPER_MODELS` (service.ts) lists the models it may run on,
+most preferred first:
+
+1. `deepseek/deepseek-v4.1-flash`
+2. `anthropic/claude-haiku-5.5`
+3. `openai/gpt-6-luna`
+
+Catalog ids are provider-scoped (`google/gemini-3.8-flash` on one provider,
+`vercel-ai-gateway/deepseek/deepseek-v4.1-flash` on another), so a preference matches an id
+that equals it or ends with `/` plus it. The walkthrough reads the catalog of the thread's
+own provider once (`sdk.providers.models`), takes the first match, and asks for the level
+that model lists: medium when it lists medium, else its own default. Every request to the
+helper carries both. A provider that serves none of them, a catalog that cannot be read, or
+a model the server rejects leaves the helper on the thread's own model at medium, so a
+walkthrough always runs; a rejected model is dropped for the rest of that walkthrough.
+
+### How the list was chosen
+
+Measured, not guessed. Each candidate was asked for the plugin's real plan turn — the plan
+instructions, a working-tree brief, and the timing-test note that the `walkthrough_*` tools
+are not available — in a hidden thread on a small fixture repo (two source files and a test
+with one uncommitted change: a retry cap), at the level above, two runs each. Seconds from
+the request; the output was read for format and for claims specific to the fixture.
+
+| Model | First words | Finished | Reasoning blocks (chars) | Tool calls | Read of the output |
+|---|---:|---:|---:|---:|---|
+| deepseek-v4.1-flash | 2.1, 3.2 | 6.1, 10.9 | 1–2 (70 to 6.0 k) | 4, 5 | Specific and correct: named `DEFAULT_MAX_ATTEMPTS`, `RetryExhaustedError` and the `{ id, value }` results. Marker, `part: 1` fence, code fences and suggestions fence in the right shape both runs. |
+| claude-haiku-5.5 (fx lists it; Pi does not) | 3.4, 3.6 | 12.7, 14.3 | 1 (520) | 1, 5 | Specific and in voice ("gives up after a fixed number of attempts instead of retrying forever"), correct format. |
+| gpt-6-luna | 3.9, 4.4 | 19.5, 26.1 | 0 | 4, 7 | Specific, correct format, one stray `##` heading inside the part. The only model here whose streamed-message compliance was measured in the real plugin (below). |
+| glm-5.3-flash | 4.9, 6.3 | 20.0, 23.4 | 2–3 (4.1 to 5.5 k) | 5, 5 | Unreliable: one run's final message confirmed a message it had written in an earlier one, the other used `[x](src/retry.ts:28)` links and a `## Part 1:` heading. |
+| gemini-3.1-flash-lite | 7.6, 9.0 | 8.1, 9.7 | 2 (1.5 to 1.6 k) | 1, 3 | Fast but generic ("The current changes introduce a robust retry mechanism"), thin on specifics. |
+| gemini-3.8-flash | 29.0 (one run) | 57.9 | 2 (7.6 k) | 4 | Good output, but 48 s of the 58 s was reasoning at medium: the slowest measured. |
+
+Not measured: the plugin end to end on these models, and the fixture is small, so a larger
+change may write longer parts. Whether a model writes its streamed message before calling
+the tools — the compliance question below — is known for `gpt-6-luna` only; the plugin
+handles either answer, since a helper that skips the message is nudged once and can pass
+the content as tool arguments instead.
+
+### The rule
+
+A model joins `HELPER_MODELS` with a measurement like the table above, not because its name
+says "flash" or "mini", and it leaves when a later measurement is slower or less specific
+than the models above it. The list stays short: Pi and Codex serve both
+`deepseek-v4.1-flash` and `gpt-6-luna`, fx serves all three, and a machine whose catalog
+lists Haiku without DeepSeek still has a cheap helper rather than none.
 
 ## Streamed-message compliance
 

@@ -24,6 +24,7 @@ code excerpts, margin notes, and room to ask anything.
 ## How it works
 
 A helper agent forked from your thread writes the walkthrough, so it knows what
-you were discussing; your thread keeps working meanwhile. It writes one part
-ahead of you. Nothing is posted to GitHub unless you confirm it, and nothing is
-written to your repository.
+you were discussing; your thread keeps working meanwhile. It runs on its own
+cheap, fast model rather than yours, since it only reads a diff and writes
+prose. It writes one part ahead of you. Nothing is posted to GitHub unless you
+confirm it, and nothing is written to your repository.

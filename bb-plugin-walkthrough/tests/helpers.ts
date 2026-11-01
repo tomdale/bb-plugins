@@ -4,8 +4,9 @@ import plugin from "../server.ts";
 export const THREAD = "thr_user";
 export const WORKER = "thr_worker";
 
-export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: () => Error | null; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }>; tabs?: { get: (args: { threadId: string }) => unknown; update: (args: { threadId: string; expectedRevision: number; tabs: any[] }) => unknown } } = {}) {
-  const sent: Array<{ threadId: string; text: string; reasoningLevel?: string | undefined }> = [];
+export async function setup(options: { forkFails?: boolean; readCode?: () => unknown; hostRpc?: (call: { method: string; input: any }) => unknown; turnStatus?: () => string | undefined; sendError?: (args: { model?: string | undefined; reasoningLevel?: string | undefined }) => Error | null; catalog?: (args: { providerId?: string | undefined; environmentId?: string | undefined } | undefined) => unknown; userTurns?: () => Array<{ seq: number; type: string; data: unknown }>; agentText?: () => string | null; deltas?: () => Array<{ seq: number; itemId: string; delta: string }>; tabs?: { get: (args: { threadId: string }) => unknown; update: (args: { threadId: string; expectedRevision: number; tabs: any[] }) => unknown } } = {}) {
+  const sent: Array<{ threadId: string; text: string; model?: string | undefined; reasoningLevel?: string | undefined }> = [];
+  const spawns: Array<Record<string, unknown>> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const { bb, harness } = createFakePluginHost({
     pluginId: "walkthrough",
@@ -18,12 +19,15 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
           if (options.forkFails) throw new Error("fork unsupported");
           return makeThreadResponse({ id: WORKER, visibility: "hidden" });
         },
-        spawn: async () => makeThreadResponse({ id: WORKER, visibility: "hidden" }),
+        spawn: async (args) => {
+          spawns.push(args as unknown as Record<string, unknown>);
+          return makeThreadResponse({ id: WORKER, visibility: "hidden" });
+        },
         send: async (args) => {
-          const failure = options.sendError?.();
+          const failure = options.sendError?.(args);
           if (failure) throw failure;
           const first = args.input[0];
-          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "", reasoningLevel: args.reasoningLevel });
+          sent.push({ threadId: args.threadId, text: first && "text" in first ? first.text : "", model: args.model, reasoningLevel: args.reasoningLevel });
           return {} as never;
         },
         stop: async () => ({}) as never,
@@ -46,6 +50,9 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
       environments: {
         get: async () => ({ id: "env_1", hostId: "host_1", path: "/work/repo" }) as never,
       },
+      ...(options.catalog
+        ? { providers: { models: async (args: { providerId?: string | undefined; environmentId?: string | undefined } | undefined) => options.catalog!(args) } }
+        : {}),
       files: {
         write: async (args: { path: string; content: string }) => {
           writes.push({ path: args.path, content: args.content });
@@ -63,7 +70,7 @@ export async function setup(options: { forkFails?: boolean; readCode?: () => unk
       lastAssistantText: text,
     });
   const view = async (id: string) => (await rpc("get", { walkthroughId: id })).view;
-  return { bb, harness, rpc, tool, idle, view, sent, writes };
+  return { bb, harness, rpc, tool, idle, view, sent, spawns, writes };
 }
 
 export async function settle() {
