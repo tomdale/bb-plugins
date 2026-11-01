@@ -85,6 +85,16 @@ for (const transport of ["direct", "ssh-ws"] as const) test(`isolated released B
   };
   const keyA = await enroll(a);
   const keyB = await enroll(b);
+  const skillContentTarget = `/internal/skills/tree/${"a".repeat(64)}/content`;
+  assert.equal((await http(bridge.url, skillContentTarget, json({ paths: ["SKILL.md"] }))).status, 403, "Skill content still requires transport admission");
+  assert.equal((await bridged(skillContentTarget, { paths: ["SKILL.md"] })).status, 401, "Skill content still requires native machine authentication");
+  assert.equal((await bridged(skillContentTarget, { paths: ["SKILL.md"] }, "synthetic-wrong-key")).status, 401);
+  assert.equal((await bridged(skillContentTarget, { paths: ["SKILL.md"] }, keyA)).status, 404, "An authenticated unknown tree reaches native registry validation, not relay rejection");
+  const invalidRequest = json({ paths: [] });
+  const directInvalid = await http(core.baseUrl, skillContentTarget, { ...invalidRequest, headers: { ...invalidRequest.headers, authorization: `Bearer ${keyA}` } });
+  const bridgedInvalid = await bridged(skillContentTarget, { paths: [] }, keyA);
+  assert.ok(directInvalid.status >= 400, "Native validation rejects an empty path selection");
+  assert.equal(bridgedInvalid.status, directInvalid.status, "Invalid requests retain native direct/bridge status parity");
   assert.equal((await http(core.baseUrl, "/api/v1/plugins/bb--storage-retention/enable", json({}))).status, 200);
   const hostMetadata = JSON.parse(await readFile(join(dirname(core.serverEntry), "builtin-plugins/storage-retention/dist/host.meta.json"), "utf8"));
   assert.equal(hostMetadata.pluginId, "bb--storage-retention");

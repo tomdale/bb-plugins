@@ -32,6 +32,7 @@ const forbidden = [
   ["POST", "/internal/hosts/enroll-key"], ["GET", "/api/v1/system/config"], ["PUT", "/api/v1/settings/general"],
   ["POST", "/api/v1/hosts"], ["DELETE", "/api/v1/hosts/synthetic"], ["POST", "/api/v1/hosts/synthetic/reconnect-commands"],
   ["POST", "/api/v1/projects"], ["POST", "/api/v1/threads"], ["POST", "/api/v1/plugins/vercel-access/rpc/test"],
+  ["POST", "/api/v1/system/cli-skills/install"],
   ["GET", "/ws"], ["GET", "/terminal/ws"], ["GET", "/internal/server-move/pending"], ["POST", "/internal/server-move/import"],
   ["GET", "/"], ["OPTIONS", "/internal/session/open"], ["HEAD", "/install.sh"], ["POST", "/install.sh"],
   ["GET", "/internal/session/open"], ["GET", "/internal/ws?sessionId=abc"], ["GET", "/internal/session/open/../hosts/enroll-key"],
@@ -133,6 +134,33 @@ test("plugin artifact IDs include reserved hyphens but reject path aliases and w
     assert.equal(route("GET", `/internal/plugins/${id}/host/${digest}`), null);
   }
   assert.equal(route("GET", `/internal/plugins/bb--storage-retention/host/${digest.toUpperCase()}`), null);
+});
+
+test("skill content admits only the exact native POST target", async t => {
+  const digest = "a".repeat(64);
+  const target = `/internal/skills/tree/${digest}/content`;
+  assert.equal(route("POST", target), "http");
+  assert.equal(route("GET", `/internal/skills/tree/${digest}`), "http");
+  for (const method of ["GET", "PUT", "DELETE", "HEAD", "OPTIONS"]) assert.equal(route(method, target), null);
+  const aliases = [
+    `/internal/skills/tree/${digest}`, `${target}/`, `${target}?paths=SKILL.md`,
+    `/internal/skills/tree/${digest.toUpperCase()}/content`, `/internal/skills/tree/${digest.slice(1)}/content`,
+    `/internal/skills/tree/%61${digest.slice(1)}/content`, `/internal/skills/tree/${digest}/%63ontent`,
+    `/internal/skills/tree/${digest}/../content`, `/internal/skills//tree/${digest}/content`,
+  ];
+  const { bridge, headers, seen } = await fixture(t);
+  const body = JSON.stringify({ paths: ["SKILL.md"] });
+  const request = { method: "POST", body, headers: { ...headers, "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) } };
+  for (const alias of aliases) {
+    assert.equal(route("POST", alias), null);
+    assert.equal((await http(bridge.url, alias, request)).status, 403);
+  }
+  assert.equal(seen.length, 0, "Rejected aliases never reach native dispatch");
+  assert.equal((await http(bridge.url, target, { ...request, headers: { ...request.headers, "content-type": "text/plain" } })).status, 403);
+  assert.equal(seen.length, 0, "Existing bounded JSON framing applies to the new route");
+  assert.equal((await http(bridge.url, target, request)).status, 200);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].target, target);
 });
 
 test("untested releases and non-loopback upstreams fail closed", async t => {

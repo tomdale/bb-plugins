@@ -9,6 +9,7 @@ Vercel Sandbox owns the relay's local transport, setup records, private identity
 ## Machine-only boundary
 
 - The bridge accepts only exact native installer, enrollment, session, artifact and daemon WebSocket routes. Owner APIs, browser access, previews, cookies, gate claims, enrollment-key minting and arbitrary destinations are denied before loopback dispatch.
+- Skill synchronization admits `GET /internal/skills/tree/<64 lowercase hex>` for manifests and exactly `POST /internal/skills/tree/<64 lowercase hex>/content` for selected file bytes. Native machine authentication and registered-path validation remain authoritative; URL aliases and other methods are denied.
 - Native BB authorization stays opaque. BB verifies enrollment credentials, host/session ownership and daemon protocol. Transport admission is installation-level access, not a new native principal or a claim that admission host A must equal native host B.
 - The SSH connector pins the owned relay's host key and reverse tuple. Every admitted channel dials the fixed literal `127.0.0.1` bridge port. No shell, exec, agent forwarding, SOCKS or caller-selected network destination is enabled.
 - Bounded Vercel ingress metadata is discarded at the public relay. It never becomes native authority; the local bridge remains strict.

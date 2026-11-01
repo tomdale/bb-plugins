@@ -32,7 +32,7 @@ export function route(method: string, target: string): Route | null {
     if ([...params.keys()].some(key => !keys.includes(key)) || params.toString() !== query) return null;
     return "http";
   }
-  if (method === "POST" && postRoutes.has(target)) return "http";
+  if (method === "POST" && (postRoutes.has(target) || /^\/internal\/skills\/tree\/[a-f0-9]{64}\/content$/.test(target))) return "http";
   if (method !== "GET") return null;
   if (getRoutes.has(target)) return "http";
   if (/^\/internal\/skills\/tree\/[a-f0-9]{64}$/.test(target)) return "http";

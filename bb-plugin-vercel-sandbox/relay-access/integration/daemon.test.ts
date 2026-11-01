@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join, relative, isAbsolute } from "node:path";
 import { AdmissionLeases } from "../grants.ts";
 import { openBridge, openRelayAdapter } from "../bridge.ts";
 import { openTunnelRelay, startConnector, hostFingerprint } from "../tunnel.ts";
@@ -11,7 +11,7 @@ import { syntheticKeys } from "./keys.ts";
 import { http, isolatedCore, freePort } from "./isolated.ts";
 import { ACCESS_HEADER } from "../policy.ts";
 
-test("released native daemon foreground session over SSH/WS with entirely temporary HOME and data", { timeout: 90_000 }, async t => {
+test("released native daemon synchronizes registered skill files over SSH/WS with entirely temporary HOME and data", { timeout: 90_000 }, async t => {
   const core = await isolatedCore(); t.after(() => core.close());
   const leases = new AdmissionLeases();
   const bridge = await openBridge({ baseUrl: core.baseUrl, leases }); t.after(() => bridge.close());
@@ -58,6 +58,25 @@ test("released native daemon foreground session over SSH/WS with entirely tempor
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(connected, true, "Released native daemon enrolled and connected its actual session/WS protocol");
+  const installBody = JSON.stringify({ hostIds: [enrollment.hostId] });
+  const installed = await http(core.baseUrl, "/api/v1/system/cli-skills/install", {
+    method: "POST", body: installBody, headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(installBody)) },
+  });
+  assert.equal(installed.status, 200);
+  const result = JSON.parse(installed.body.toString()).results;
+  assert.equal(result.length, 1);
+  assert.equal(result[0].ok, true, `Released daemon skill synchronization failed: ${JSON.stringify(result[0])}`);
+  assert.ok(result[0].installations.length > 0);
+  const expectedSkill = await readFile(join(dirname(core.serverEntry), "builtin-skills/bb-cli/SKILL.md"));
+  for (const installation of result[0].installations as { name: string; path: string }[]) {
+    const destination = relative(home, installation.path);
+    assert.ok(destination && !isAbsolute(destination) && !destination.startsWith(".."), "Skill installation stays within the isolated daemon HOME");
+    assert.equal(installation.name, "bb-cli");
+    assert.deepEqual(await readFile(join(installation.path, "SKILL.md")), expectedSkill, "Native manifest/content synchronization materializes the registered skill bytes");
+  }
+  const synchronized = await http(core.baseUrl, `/api/v1/system/cli-skills?hostIds=${enrollment.hostId}`);
+  assert.equal(synchronized.status, 200);
+  assert.equal(JSON.parse(synchronized.body.toString()).machines[0].status, "installed", "Native hash verification recognizes the complete synchronized skill tree");
   for (const secret of [enrollment.enrollKey, grant.token, client.privateKey]) {
     assert.ok(!logs.includes(secret)); assert.ok(!core.logs().includes(secret));
   }
