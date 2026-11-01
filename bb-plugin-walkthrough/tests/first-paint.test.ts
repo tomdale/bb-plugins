@@ -7,6 +7,7 @@
 import { writeFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLAN, setup, THREAD } from "./helpers.ts";
+import { START_MARKER } from "../src/stream-markup.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -22,7 +23,7 @@ const REAL = { startup: 4.3, reading: 26, charsPerSecond: 280 };
 const INTRO = "Before this change, requests had no limit at all. ".repeat(14).trim();
 const PROSE = "Each job waits in [the queue](line:3) until a slot frees up, and the cap bounds how many wait. ".repeat(17).trim();
 const PART_ONE = [PROSE, "", "```walkthrough", "path: tts.ts", "lines: 1-10", "view: code", "caption: The cap, in tts.ts", "note 3: Truncates here.", "```", "", "```walkthrough", "suggestions:", "Why 4,000?", "What if it is exactly 4,000?", "```"].join("\n");
-const MESSAGE = `${INTRO}\n\n\`\`\`walkthrough\npart: 1\n\`\`\`\n\n${PART_ONE.repeat(1)}`;
+const MESSAGE = `${START_MARKER}\n${INTRO}\n\n\`\`\`walkthrough\npart: 1\n\`\`\`\n\n${PART_ONE.repeat(1)}`;
 const gen = (chars: number) => chars / REAL.charsPerSecond;
 
 type Provider = "whole-message" | "chunked";
@@ -92,7 +93,7 @@ async function run(protocol: Protocol, provider: Provider) {
 }
 
 describe("first paint on a fake worker, real service and tail", () => {
-  it("shows the first words within seconds and commits part 1 sooner when the worker says each thing once", async () => {
+  it("shows the first content as soon as its message arrives and commits part 1 sooner when the worker says each thing once", async () => {
     const results: Record<string, Awaited<ReturnType<typeof run>>> = {};
     for (const provider of ["whole-message", "chunked"] as const) {
       for (const protocol of ["repeat", "say-once"] as const) results[`${protocol} / ${provider}`] = await run(protocol, provider);
@@ -104,8 +105,8 @@ describe("first paint on a fake worker, real service and tail", () => {
     for (const provider of ["whole-message", "chunked"] as const) {
       const before = results[`repeat / ${provider}`]!;
       const after = results[`say-once / ${provider}`]!;
-      expect(after.firstText).toBeLessThan(before.firstText);
-      expect(after.firstText).toBeLessThan(REAL.startup + 2);
+      // The opening sentence is chat only, so the first words are the first content: no earlier than the message that holds it.
+      expect(after.firstText).toBeLessThan(before.firstText + 1);
       expect(after.part1Ready).toBeLessThan(before.part1Ready - 4);
     }
 

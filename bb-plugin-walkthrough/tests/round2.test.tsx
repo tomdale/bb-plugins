@@ -283,9 +283,18 @@ describe("honest progress while the plan is written", () => {
     const preparing = walkthrough({ status: "planning", currentPart: null, parts: [], introduction: "", inFlight: { request: { kind: "plan" }, sentAt: 1, afterSeq: 0 } });
     const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: preparing, notes: [], reviewDraft: null } }), streamSnapshot: () => ({ snapshot: null }) });
     await slot.findByRole("status", { name: /Reading the change/u });
-    await act(() => slot.emitRealtime(STREAM_CHANNEL, { walkthroughId: "wt_1", requestKind: "plan", place: 0, seq: 3, text: "I'll read the diff first.", state: "streaming", steps: 4 }));
+    await act(() => slot.emitRealtime(STREAM_CHANNEL, { walkthroughId: "wt_1", requestKind: "plan", place: 0, seq: 3, text: "Before this change the queue was unbounded.", state: "streaming", steps: 4 }));
     await slot.findByText("Looking through the code \u00b7 4 steps so far");
-    expect(slot.container.textContent).toContain("I'll read the diff first.");
+    expect(slot.container.textContent).toContain("Before this change the queue was unbounded.");
+  });
+
+  it("never previews narration the helper let into its content", async () => {
+    const preparing = walkthrough({ status: "planning", currentPart: null, parts: [], introduction: "", inFlight: { request: { kind: "plan" }, sentAt: 1, afterSeq: 0 } });
+    const slot = await mountPage("wt_1", { get: () => ({ view: { walkthrough: preparing, notes: [], reviewDraft: null } }), streamSnapshot: () => ({ snapshot: null }) });
+    await slot.findByRole("status", { name: /Reading the change/u });
+    await act(() => slot.emitRealtime(STREAM_CHANNEL, { walkthroughId: "wt_1", requestKind: "plan", place: 0, seq: 3, text: "Now let me set up the walkthrough plan.\n\nThe queue was unbounded.", state: "streaming" }));
+    await slot.findByText("The queue was unbounded.");
+    expect(slot.container.textContent).not.toContain("set up the walkthrough plan");
   });
 
   it("calls a part that is queued behind another by what it is waiting for", async () => {

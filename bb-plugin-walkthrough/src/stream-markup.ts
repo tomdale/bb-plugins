@@ -21,6 +21,14 @@
 // BB's `experimental_codeFenceRenderer` would receive, so a newer SDK can
 // render it in the thread itself.
 //
+// Only part of the helper's message is content. The helper may talk before and
+// after it ("Now let me set up the walkthrough plan.", "Done, part 3
+// committed."), and that talk must never reach the reader. Content therefore
+// starts after a line holding exactly START_MARKER and ends with the closing
+// fence of the suggestions block; see extractContent. A message without the
+// marker has no content. The pane, the tail and the commit all read the text
+// extractContent returns, so they cannot disagree about what a part says.
+//
 // parseStreamMarkup is pure and total. It accepts the whole text so far,
 // truncated at any character or complete garbage, never throws, and is
 // monotonic: for any prefix P of T, every block of parse(P) is a prefix of
@@ -65,6 +73,12 @@ export interface ParsedStream {
   blocks: StreamBlock[];
   /** True once the closing suggestions fence arrived: the message is finished. */
   complete: boolean;
+  /**
+   * How many lines of the text (counting an unterminated last line) the
+   * content spans once the suggestions fence has closed; null before that.
+   * Whatever follows is the helper talking to itself, not content.
+   */
+  endLine: number | null;
 }
 
 export const MAX_STREAM_BLOCKS = 80;
@@ -80,6 +94,36 @@ const KEY_LINE = /^([A-Za-z][A-Za-z-]*)[ \t]*:[ \t]?(.*)$/u;
 const NOTE_LINE = /^note[ \t]+(\d{1,8})[ \t]*:[ \t]?(.*)$/iu;
 const BULLET = /^[ \t]*(?:[-*\u2022]|\d{1,2}[.)])[ \t]+/u;
 const FIGURE_KEYS = new Set(["path", "lines", "view", "caption"]);
+
+/** The line that opens content in a streamed message, written alone on its line. An HTML comment: Markdown renders nothing for it. */
+export const START_MARKER = "<!-- walkthrough:start -->";
+const MARKER_LINE = /^[ \t]*<!--[ \t]*walkthrough:start[ \t]*-->[ \t]*$/u;
+
+/** A last line that may still become the marker is withheld, so a half-typed marker never shows as prose. */
+function mightBecomeMarker(line: string): boolean {
+  const trimmed = line.trim();
+  const compact = trimmed.replace(/[ \t]+/gu, "");
+  return compact !== "" && "<!--walkthrough:start-->".startsWith(compact) && trimmed.startsWith("<");
+}
+
+/**
+ * The content of a helper message: the text after the first START_MARKER line
+ * up to and including the suggestions fence that closes the message, with any
+ * repeated marker line removed; "" while there is no complete marker line.
+ * Pure and total, and monotonic: the content of a prefix is a prefix of the
+ * content of the whole text.
+ */
+export function extractContent(input: string): string {
+  const text = typeof input === "string" ? input.replace(/\r\n?/gu, "\n") : "";
+  const lines = text.split("\n");
+  const partial = lines.pop() ?? "";
+  const start = lines.findIndex((line) => MARKER_LINE.test(line));
+  if (start < 0) return "";
+  const rest = [...lines.slice(start + 1).filter((line) => !MARKER_LINE.test(line)), ...(partial !== "" && !mightBecomeMarker(partial) ? [partial] : [])];
+  const body = rest.join("\n");
+  const { endLine } = parseStreamMarkup(body);
+  return endLine === null ? body : rest.slice(0, endLine).join("\n");
+}
 
 /** True when the text contains a walkthrough fence, even a partial opener. */
 export function hasStreamMarkup(text: string): boolean {
@@ -256,8 +300,21 @@ export function parseStreamMarkup(input: string): ParsedStream {
     prose.push(line);
   };
 
-  for (const line of lines) consume(line, true);
-  if (partial !== "") consume(partial, false);
+  let endLine: number | null = null;
+  const finished = (): boolean => endLine !== null;
+  const noteEnd = (count: number): void => {
+    const last = blocks.at(-1);
+    if (endLine === null && fence === null && last?.kind === "suggestions" && !last.open && last.items.length > 0) endLine = count;
+  };
+  for (const [index, line] of lines.entries()) {
+    consume(line, true);
+    noteEnd(index + 1);
+    if (finished()) break;
+  }
+  if (!finished() && partial !== "") {
+    consume(partial, false);
+    noteEnd(lines.length + 1);
+  }
   flushProse();
 
   const last = blocks.at(-1);
@@ -267,5 +324,5 @@ export function parseStreamMarkup(input: string): ParsedStream {
   }
   for (let index = 0; index < blocks.length - 1; index += 1) blocks[index]!.open = false;
   const complete = last !== undefined && last.kind === "suggestions" && !last.open && last.items.length > 0;
-  return { blocks, complete };
+  return { blocks, complete, endLine };
 }

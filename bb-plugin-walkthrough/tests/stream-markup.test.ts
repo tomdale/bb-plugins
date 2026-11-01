@@ -149,8 +149,8 @@ describe("parseStreamMarkup", () => {
       for (let n = 0; n < 40; n += 1) text += pieces[Math.floor(random() * pieces.length)];
       for (let end = 0; end <= text.length; end += 1) parseStreamMarkup(text.slice(0, end));
     }
-    for (const bad of [undefined, null, 5, {}] as unknown[]) expect(parseStreamMarkup(bad as string)).toEqual({ blocks: [], complete: false });
-    expect(parseStreamMarkup("")).toEqual({ blocks: [], complete: false });
+    for (const bad of [undefined, null, 5, {}] as unknown[]) expect(parseStreamMarkup(bad as string)).toEqual({ blocks: [], complete: false, endLine: null });
+    expect(parseStreamMarkup("")).toEqual({ blocks: [], complete: false, endLine: null });
   });
 
   it("caps block count and per-field sizes", () => {

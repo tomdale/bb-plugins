@@ -12,6 +12,7 @@
 // One timer serves all walkthroughs. Every timer is unref'ed and cleared by
 // dispose(), which the background service calls on reload or shutdown.
 import { stripReplyWrapper } from "./reply-wrapper.ts";
+import { extractContent } from "./stream-markup.ts";
 import type { Place, StreamPayload, StreamRequestKind, StreamState, WorkerRequest } from "./schemas.ts";
 
 export const POLL_BASE_MS = 120;
@@ -25,9 +26,10 @@ export const PUBLISH_MIN_MS = 60;
 export const PERSIST_EVERY_MS = 1500;
 /** Longest message text kept and published. */
 export const MAX_STREAM_TEXT = 200_000;
+/** Found in every spelling of the marker line (spacing varies). */
+const MARKER_WORD = "walkthrough:start";
 const PAGE = 100;
 const MAX_PAGES_PER_POLL = 20;
-const MARKUP_FENCE = "```walkthrough";
 
 export interface DeltaRow {
   seq: number;
@@ -77,9 +79,11 @@ export function streamTarget(request: WorkerRequest): { kind: StreamRequestKind;
 
 /**
  * Accumulates one request's message items. Keeps the latest item and the
- * latest item that holds streamed markup, whichever is the one that matters:
- * an answer is the last message; a part is the message with the fence, even
- * if the worker says something else after committing it.
+ * latest item that holds the content marker, whichever is the one that
+ * matters: an answer is the last message; a part is the message with the
+ * marker, even if the worker says something else after committing it. Of a
+ * part's message only the content (extractContent) is text: the opening
+ * sentence, tool-use chatter and a closing confirmation are never published.
  */
 class Collector {
   cursor: number;
@@ -107,7 +111,7 @@ class Collector {
       const item = this.latest;
       if (item.text.length < MAX_STREAM_TEXT) item.text += row.delta.slice(0, MAX_STREAM_TEXT - item.text.length);
       if (this.markup !== null && this.markup.id === item.id) this.markup = item;
-      else if (item.text.includes(MARKUP_FENCE)) this.markup = item;
+      else if (item.text.includes(MARKER_WORD)) this.markup = item;
       changed = true;
     }
     return changed;
@@ -115,7 +119,8 @@ class Collector {
 
   get text(): string {
     // The reply block the helper may wrap its message in is protocol, not content.
-    return stripReplyWrapper((this.preferMarkup ? (this.markup ?? this.latest) : this.latest)?.text ?? "");
+    if (this.preferMarkup) return extractContent(stripReplyWrapper(this.markup?.text ?? ""));
+    return stripReplyWrapper(this.latest?.text ?? "");
   }
 }
 

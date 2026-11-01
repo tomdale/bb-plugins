@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StreamPayload } from "../src/schemas.ts";
+import { START_MARKER } from "../src/stream-markup.ts";
 import { MAX_STREAM_TEXT, PERSIST_EVERY_MS, POLL_MAX_MS, PUBLISH_MIN_MS, StreamTail, type DeltaRow, type TailTarget } from "../src/stream-tail.ts";
 
 /** A fake worker thread: deltas appended over time, read back in pages after a seq. */
@@ -12,9 +13,11 @@ function fakeWorker() {
     get reads() {
       return reads;
     },
-    emit(delta: string, itemId = "i1") {
+    /** Each item starts with the content marker, as the helper writes it; `raw` writes the delta as given. */
+    emit(delta: string, itemId = "i1", raw = false) {
       seq += 1;
-      rows.push({ seq, itemId, delta });
+      const first = !rows.some((row) => row.itemId === itemId);
+      rows.push({ seq, itemId, delta: first && !raw ? `${START_MARKER}\n${delta}` : delta });
     },
     readDeltas: async (_thread: string, afterSeq: number) => {
       reads += 1;
@@ -107,18 +110,19 @@ describe("StreamTail", () => {
     tail.track(target());
     worker.emit("Intro.\n\n```walkthrough\npath: a.ts\n```\n", "markup");
     await vi.advanceTimersByTimeAsync(130);
-    worker.emit("Done.", "after");
+    worker.emit("Done.", "after", true);
     await vi.advanceTimersByTimeAsync(130);
     expect(published.at(-1)!.text).toContain("```walkthrough");
+    expect(published.at(-1)!.text).not.toContain("Done.");
     tail.dispose();
   });
 
   it("publishes the latest message for an answer, saving it at a coarse cadence", async () => {
     const { worker, published, persisted, tail } = harness();
     tail.track(target({ request: { kind: "ask", place: "wrap-up", exchangeId: "e1" } }));
-    worker.emit("Let me look.", "a");
+    worker.emit("Let me look.", "a", true);
     await vi.advanceTimersByTimeAsync(130);
-    worker.emit("The answer ", "b");
+    worker.emit("The answer ", "b", true);
     await vi.advanceTimersByTimeAsync(130);
     worker.emit("is here.", "b");
     await vi.advanceTimersByTimeAsync(130);
@@ -186,7 +190,7 @@ describe("StreamTail", () => {
     tail.track(target({ sentAt: 2, afterSeq: 101, request: { kind: "write", part: 2 } }));
     await vi.advanceTimersByTimeAsync(0);
     expect(published.some((p) => p.state === "cancelled" && p.place === 1)).toBe(true);
-    worker.emit("second");
+    worker.emit("second", "i2");
     await vi.advanceTimersByTimeAsync(200);
     expect(published.at(-1)).toMatchObject({ place: 2, text: "second", state: "streaming" });
     tail.dispose();
@@ -198,7 +202,8 @@ describe("StreamTail", () => {
     tail.track(target());
     for (let n = 0; n < 5; n += 1) worker.emit("x".repeat(MAX_STREAM_TEXT / 2));
     await vi.advanceTimersByTimeAsync(200);
-    expect(published.at(-1)!.text.length).toBe(MAX_STREAM_TEXT);
+    // The cap counts the helper's whole message, marker line included.
+    expect(published.at(-1)!.text.length).toBe(MAX_STREAM_TEXT - START_MARKER.length - 1);
     tail.dispose();
   });
 

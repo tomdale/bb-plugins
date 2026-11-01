@@ -4,6 +4,7 @@
 // that reached here by another path.
 import { computeCoverage } from "./coverage.ts";
 import { blockDisplayPath, repoRootsOf } from "./figure-paths.ts";
+import { stripNarration, stripNarrationFromBlocks } from "./narration.ts";
 import { intentCopy, scrubNoteIds } from "./model.ts";
 import {
   defaultIntent,
@@ -60,8 +61,8 @@ export function deliverView(view: { walkthrough: Walkthrough; notes: Note[]; rev
   const walkthrough: DeliveredWalkthrough = {
     ...delivered,
     message: delivered.message === null ? null : scrubNoteIds(delivered.message, view.notes),
-    introduction: scrubNoteIds(delivered.introduction, view.notes),
-    parts: delivered.parts.map((part) => scrubPart(part, view.notes)),
+    introduction: scrubNoteIds(stripNarration(delivered.introduction), view.notes),
+    parts: delivered.parts.map((part) => scrubPart({ ...part, blocks: stripNarrationFromBlocks(part.blocks) }, view.notes)),
     wrapUp: delivered.wrapUp && scrubPart(delivered.wrapUp, view.notes),
   };
   return {

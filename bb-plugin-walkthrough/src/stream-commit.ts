@@ -2,12 +2,14 @@
 // commit, so the worker says a part once, in the message the reader already
 // watches, instead of saying it again as tool arguments. The markup is the one
 // stream-markup.ts parses for the live preview; here the same blocks become
-// schema-checked block inputs.
+// schema-checked block inputs. The text given here is the message's content
+// (extractContent): what the helper said outside it is already gone.
 import { blockInputSchema, type BlockInput } from "./schemas.ts";
+import { stripNarration, stripNarrationFromBlocks } from "./narration.ts";
 import { parseStreamMarkup, type StreamBlock } from "./stream-markup.ts";
 
 export interface CommittedMessage {
-  /** Prose before the `part:` fence, joined as Markdown; empty when the message has no introduction. */
+  /** Prose before the `part:` fence (less narration at its edges), joined as Markdown; empty when the message has no introduction. */
   introduction: string;
   /** The part's blocks: the content after the `part:` fence, or the whole message when there is none. */
   blocks: BlockInput[];
@@ -53,7 +55,7 @@ export function committedMessage(text: string): CommittedMessage {
     .map((block) => block.text)
     .join("\n\n")
     .trim();
-  const blocks = after.map((block) => toInput(block, dropped)).filter((block): block is BlockInput => block !== null);
+  const blocks = stripNarrationFromBlocks(after.map((block) => toInput(block, dropped)).filter((block): block is BlockInput => block !== null));
   const suggestions = after.flatMap((block) => (block.kind === "suggestions" ? block.items : [])).slice(0, 4);
-  return { introduction, blocks, suggestions, dropped };
+  return { introduction: stripNarration(introduction), blocks, suggestions, dropped };
 }

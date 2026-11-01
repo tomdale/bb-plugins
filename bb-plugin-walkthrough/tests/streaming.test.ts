@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STREAM_CHANNEL, type StreamPayload } from "../src/schemas.ts";
+import { START_MARKER } from "../src/stream-markup.ts";
 import { PLAN, setup, THREAD } from "./helpers.ts";
 
 afterEach(() => {
@@ -54,7 +55,7 @@ describe("streaming a request", () => {
 
   it("publishes a cancelled state when the walkthrough is closed mid-stream and stops its timers", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    let text: string | null = "Writing…";
+    let text: string | null = `${START_MARKER}\nWriting…`;
     const { harness, rpc } = await setup({ agentText: () => text });
     const started = rpc("start", { threadId: THREAD, request: "" });
     await advance(1200);

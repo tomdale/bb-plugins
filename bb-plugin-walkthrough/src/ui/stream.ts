@@ -8,6 +8,7 @@
 // of a request that is still in flight (or that just ended and whose result
 // has not arrived yet); a part that is `ready` never reads from it.
 import { createContext, useMemo } from "react";
+import { stripNarration, stripNarrationFromBlocks } from "../narration.ts";
 import { parseStreamMarkup, type StreamBlock, type StreamFigure } from "../stream-markup.ts";
 import { streamTarget } from "../stream-tail.ts";
 import { streamPayloadSchema, type DeliveredCodeBlock, type DeliveredPart, type DeliveredWalkthrough, type Place, type StreamPayload } from "../schemas.ts";
@@ -85,7 +86,7 @@ export function streamedView(payload: StreamPayload): StreamedView {
   const introBlocks: StreamBlock[] = payload.requestKind === "plan" ? (partAt < 0 ? parsed.blocks : parsed.blocks.slice(0, partAt)) : [];
   const partBlocks = payload.requestKind === "plan" ? (partAt < 0 ? [] : parsed.blocks.slice(partAt + 1)) : parsed.blocks;
   const prose = introBlocks.filter((block) => block.kind === "prose");
-  view.intro = prose.map((block) => block.text).join("\n\n");
+  view.intro = stripNarration(prose.map((block) => block.text).join("\n\n"));
   view.introOpen = prose.at(-1)?.open === true && introBlocks.at(-1) === prose.at(-1);
   const last = parsed.blocks.at(-1);
   for (const block of partBlocks) {
@@ -98,6 +99,8 @@ export function streamedView(payload: StreamPayload): StreamedView {
       if (figure) view.blocks.push({ ...figure, ...(block.open && block === last ? { streaming: true as const } : {}) });
     }
   }
+  // The same backstop the commit applies, so the preview and the saved part agree.
+  view.blocks = stripNarrationFromBlocks(view.blocks);
   return view;
 }
 

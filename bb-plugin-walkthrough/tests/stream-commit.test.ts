@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { START_MARKER } from "../src/stream-markup.ts";
 import { committedMessage } from "../src/stream-commit.ts";
 import { PLAN, setup, settle, THREAD } from "./helpers.ts";
 
-const MESSAGE = [
+const CONTENT = [
   "Before this change, requests had no limit.",
   "",
   "The queue now holds [a cap](line:3) on pending jobs.",
@@ -27,10 +28,12 @@ const MESSAGE = [
   "What if it is exactly 4,000?",
   "```",
 ].join("\n");
+/** What the helper wrote: chatter, the marker, the content, chatter. */
+const MESSAGE = ["Now let me set up the walkthrough plan.", START_MARKER, CONTENT, "", "Done, part 1 committed."].join("\n");
 
 describe("committedMessage", () => {
   it("splits the introduction from part 1 and reads figures and suggestions", () => {
-    const message = committedMessage(MESSAGE);
+    const message = committedMessage(CONTENT);
     expect(message.introduction).toBe("Before this change, requests had no limit.\n\nThe queue now holds [a cap](line:3) on pending jobs.");
     expect(message.blocks).toEqual([
       { kind: "prose", text: "Each job waits in [the queue](line:3)." },
