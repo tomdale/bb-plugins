@@ -14,18 +14,19 @@ Implemented foundations include native enrollment and daemon authentication, res
 
 These foundations do not establish production durability or prove every failure mode in the cloud.
 
-### Active scope: usable UI on BB 0.48.0
+### BB 0.48.0 delivery and remaining UI acceptance
 
-The UI integration is assigned for implementation; the checks below are acceptance criteria, not claims of delivery. The existing Sandbox plugin runs on BB 0.48.0, but Access's exact BB 0.46.1 compatibility requirement prevents it from loading there.
+The relay is integrated into Vercel Sandbox; the retired Access plugin is not required. Native compatibility, local deployment, and a bounded live CLI/RPC thread test are verified. Full UI-only thread creation remains a separate acceptance check.
 
-- [ ] Validate native route, authentication, protocol, and readiness behavior on BB 0.48.0; update the compatibility policy based on tests, not only a manifest range change.
-- [ ] Integrate explicit relay setup, status/readiness, and stop controls into the existing Vercel Sandbox UI using public plugin APIs and BB-style components.
-- [ ] Require clear consent before provisioning relay compute. Never allocate on render, settings reads, availability checks, polling, or implicit reconnect.
-- [ ] Prevent worker allocation when relay readiness fails and show actionable setup or cleanup errors without exposing secrets.
-- [ ] Route the new worker through Vercel Access without silently changing unrelated machine defaults. Prefer a public per-machine selection contract if available; otherwise make any required default change and restoration explicit.
-- [ ] Test UI/RPC contracts, denial behavior, redaction, compatibility, and local activation; inspect the rendered UI in BB.
-- [ ] Integrate, build, deploy from the canonical checkout, push, and verify that the installed plugins are compatible and running.
-- [ ] With a separately approved resource/runtime budget, verify thread creation through the actual UI and verify owned-resource teardown.
+- [x] Validate native route, authentication, protocol, and readiness behavior on BB 0.48.0, including skill-manifest and skill-content synchronization.
+- [x] Integrate one-click Enable/Disable, readiness, and troubleshooting into the existing Vercel Sandbox UI using public plugin APIs and BB-style components.
+- [x] Provision only from an explicit owner action. Enable needs no separate consent checkbox; render, settings reads, availability checks, polling, and reconnect never allocate compute.
+- [ ] Complete acceptance of readiness-failure gating and actionable setup/cleanup behavior. Enable can report still connecting shortly before readiness succeeds; a removed relay is currently summarized as stopped.
+- [x] Select the relay for new machines through the public global-default contract and restore the previous connection on Disable. BB 0.48 has no per-launch selector; the UI explains the global effect.
+- [x] Test UI/RPC contracts, denial behavior, redaction, compatibility, and local activation; inspect the rendered UI in BB. Generated identity is private backend state, not an editable setting.
+- [x] Integrate, build, deploy from canonical, push, and confirm Vercel Sandbox runs without the standalone Access plugin.
+- [x] Verify a real Pi turn through a fresh Vercel worker using CLI/RPC thread creation, independently read its proof through the native remote file API, verify a clean repository, and confirm worker/relay termination and metadata removal. The bounded test used one 1-vCPU/five-minute worker and one 1-vCPU/ten-minute relay; metadata cleanup needed one retry.
+- [ ] Verify the complete settings-to-New-thread workflow through the actual UI, including readiness/selection feedback and owned-resource teardown.
 
 Keep this slice small: no previews, remote browser access, durable admission system, or general platform redesign is required for UI delivery. Existing proof budgets are consumed; local tests and mocked provisioning do not authorize another live allocation.
 
