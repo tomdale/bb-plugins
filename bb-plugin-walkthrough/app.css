@@ -510,18 +510,12 @@ article:has(> .wt-head) .wt-skel-title { display: none; }
 .wt-pager:not(:has(.wt-next, .wt-input, .wt-pager-actions, .wt-finished)) { background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; padding-block: 0; }
 /* Panel width: the question gets its own row and Prev and Next share the one below, so no label is clipped. */
 /*
- * Panel width: the notebook gives back the width it was spending on scenery.
- * The desk inset and the ruled margin shrink, and the part number stays as a
- * numeral in a narrow rule instead of a column with a label in it, so the prose
- * measure keeps the width it needs at 460px.
+ * Panel width: the bars give back the few pixels the desk inset was holding. The
+ * page's own narrow layout already takes the ruled margin down to a numeral in a
+ * 24px rule (figure.css), so there is nothing to reclaim there.
  */
 @container wt (max-width: 520px) {
   .wt-top, .wt-scroll, .wt-pager { --wt-inset: 8px; }
-  .wt-top { padding: 0 4px 0 9px; gap: 6px; }
-  .wt-page { padding: 26px 16px 48px 34px; background-image: linear-gradient(90deg, transparent 21px, var(--wt-rule) 21px, var(--wt-rule) 22px, transparent 22px); }
-  .wt-pn { left: 0; width: 26px; top: 30px; font-size: 0; letter-spacing: 0; }
-  .wt-pn:not(:has(b)) { font-size: 8px; letter-spacing: 0.01em; }
-  .wt-pn b { font: 500 17px var(--wt-serif); }
 }
 @container wt (max-width: 460px) {
   /* Only a row that also carries Next needs the second line; Prev and the question share one when there is no Next. */
