@@ -75,7 +75,8 @@ export function ExportPanel({ threadId }: { threadId: string }) {
       try {
         const thread = await sdk.threads.get({ threadId });
         const projectName =
-          thread.projectId === null || thread.projectId === undefined            ? null
+          thread.projectId === null || thread.projectId === undefined
+            ? null
             : await sdk.projects
                 .get({ projectId: thread.projectId })
                 .then((project) => project.name)
