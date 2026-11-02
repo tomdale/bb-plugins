@@ -15,6 +15,9 @@ export interface ExportDocumentInput {
   htmlStyle: string;
   lang: string;
   theme: "light" | "dark";
+  /** The colors bb painted behind the transcript, as the reader last saw it. */
+  pageBackground: string | null;
+  pageColor: string | null;
   /** Every stylesheet the app had loaded at capture time. */
   css: string;
   transcriptHtml: string;
@@ -37,6 +40,15 @@ export function escapeHtml(value: string): string {
  * CSS, and every value here has a fallback so a partial capture still reads.
  */
 export const EXPORT_CHROME_CSS = `
+/*
+ * The app is a fixed-height shell that never scrolls its own document. The
+ * export is a document, so the shell's clipping has to go.
+ */
+html,
+body {
+  height: auto !important;
+  overflow: visible !important;
+}
 .te-page {
   min-height: 100vh;
   background: var(--canvas, var(--background, #fff));
@@ -79,6 +91,16 @@ export const EXPORT_CHROME_CSS = `
 }
 `.trim();
 
+/** Pins the page to the colors bb was showing, whatever tokens produced them. */
+function pageColors(background: string | null, color: string | null): string {
+  const declarations = [
+    background === null ? null : `  background: ${background};`,
+    color === null ? null : `  color: ${color};`,
+  ].filter((line): line is string => line !== null);
+  if (declarations.length === 0) return "";
+  return `.te-page {\n${declarations.join("\n")}\n}`;
+}
+
 export function buildExportDocument(input: ExportDocumentInput): string {
   const htmlClass = input.htmlClassName.trim();
   const htmlStyle = input.htmlStyle.trim();
@@ -97,6 +119,7 @@ ${input.css}
 </style>
 <style>
 ${EXPORT_CHROME_CSS}
+${pageColors(input.pageBackground, input.pageColor)}
 </style>
 </head>
 <body class="bb-app-shell">

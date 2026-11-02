@@ -230,6 +230,37 @@ export function sanitizeTree(root: ParentNode): void {
   }
 }
 
+/**
+ * The colors the app actually painted behind the transcript. bb layers these
+ * through themed wrappers, not `--canvas` on the root, so the export reads the
+ * resolved values from the tree instead of guessing at tokens.
+ */
+export function resolvePageColors(root: Element): {
+  background: string | null;
+  color: string | null;
+} {
+  const view = root.ownerDocument.defaultView;
+  if (view === null) return { background: null, color: null };
+  let background: string | null = null;
+  let node: Element | null = root;
+  while (node !== null) {
+    const value = view.getComputedStyle(node).backgroundColor;
+    if (isVisibleColor(value)) {
+      background = value;
+      break;
+    }
+    node = node.parentElement;
+  }
+  const color = view.getComputedStyle(root).color;
+  return { background, color: isVisibleColor(color) ? color : null };
+}
+
+function isVisibleColor(value: string): boolean {
+  if (value === "" || value === "transparent") return false;
+  const alpha = /rgba\([^)]*,\s*([0-9.]+)\s*\)/.exec(value);
+  return alpha === null || Number(alpha[1]) > 0;
+}
+
 /** Resolves once every image in the tree has decoded, or the timeout passes. */
 export async function waitForImages(root: ParentNode, timeoutMs = 3_000): Promise<void> {
   const images = Array.from(root.querySelectorAll("img"));

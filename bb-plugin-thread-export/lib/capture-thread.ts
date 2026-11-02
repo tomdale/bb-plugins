@@ -11,6 +11,7 @@ import {
   inlineImages,
   inlineStyleSheetUrls,
   replaceCanvases,
+  resolvePageColors,
   sanitizeTree,
   waitForImages,
   type Fetcher,
@@ -43,6 +44,8 @@ export async function captureThread(options: CaptureThreadOptions): Promise<Capt
     budget: new AssetBudget(),
   };
 
+  // Read the colors before cloning: the clone has no ancestors to inherit from.
+  const colors = resolvePageColors(options.root);
   const clone = options.root.cloneNode(true) as HTMLElement;
   replaceCanvases(clone, options.root);
   sanitizeTree(clone);
@@ -61,6 +64,8 @@ export async function captureThread(options: CaptureThreadOptions): Promise<Capt
       htmlStyle: doc.documentElement.getAttribute("style") ?? "",
       lang: doc.documentElement.lang,
       theme: htmlClassName.split(/\s+/).includes("dark") ? "dark" : "light",
+      pageBackground: colors.background,
+      pageColor: colors.color,
       css,
       transcriptHtml: clone.outerHTML,
     }),

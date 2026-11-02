@@ -8,6 +8,8 @@ const BASE = {
   htmlStyle: "",
   lang: "en",
   theme: "dark" as const,
+  pageBackground: "rgb(21, 21, 21)",
+  pageColor: "rgb(237, 237, 237)",
   css: ".row { color: red }",
   transcriptHtml: '<div data-thread-window=""><p>Hello</p></div>',
 };
@@ -47,6 +49,20 @@ describe("buildExportDocument", () => {
     const html = buildExportDocument(BASE);
     expect(html).toContain(".te-transcript");
     expect(html).toContain("@media print");
+  });
+
+  it("lets the exported document scroll, which the app shell prevents", () => {
+    const html = buildExportDocument(BASE);
+    expect(html).toContain("html,\nbody {\n  height: auto !important;");
+    expect(html).toContain("overflow: visible !important;");
+  });
+
+  it("paints the page in the colors bb was showing", () => {
+    const html = buildExportDocument(BASE);
+    expect(html).toContain("background: rgb(21, 21, 21);");
+    expect(html).toContain("color: rgb(237, 237, 237);");
+    const withoutColors = buildExportDocument({ ...BASE, pageBackground: null, pageColor: null });
+    expect(withoutColors).not.toContain("background: rgb(21, 21, 21);");
   });
 });
 
