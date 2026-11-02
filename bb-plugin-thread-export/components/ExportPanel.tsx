@@ -66,6 +66,8 @@ export function ExportPanel({ threadId }: { threadId: string }) {
   const metaRef = useRef<ThreadMeta>(EMPTY_META);
   const [phase, setPhase] = useState<Phase>({ kind: "loading", note: "Rendering the thread…" });
   const [attempt, setAttempt] = useState(0);
+  const [scale, setScale] = useState(1);
+  const previewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -150,6 +152,21 @@ export function ExportPanel({ threadId }: { threadId: string }) {
     };
   }, [threadId, attempt]);
 
+  // The page is built at a fixed reading width; the panel is narrower, so the
+  // preview is scaled to show the whole page rather than a crop of it.
+  useEffect(() => {
+    const frame = previewRef.current;
+    if (frame === null) return;
+    const measure = () => {
+      const width = frame.clientWidth;
+      setScale(width > 0 ? Math.min(1, width / CAPTURE_WIDTH_PX) : 1);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [phase.kind]);
+
   const save = useCallback(() => {
     if (phase.kind !== "ready") return;
     void experimental_saveFile({
@@ -188,12 +205,19 @@ export function ExportPanel({ threadId }: { threadId: string }) {
       </div>
       <div className="te-body">
         {phase.kind === "ready" ? (
-          <iframe
-            className="te-preview"
-            title="Preview of the exported page"
-            srcDoc={phase.html}
-            sandbox=""
-          />
+          <div className="te-preview-frame" ref={previewRef}>
+            <iframe
+              className="te-preview"
+              title="Preview of the exported page"
+              srcDoc={phase.html}
+              sandbox=""
+              style={{
+                width: CAPTURE_WIDTH_PX,
+                height: `${100 / scale}%`,
+                transform: `scale(${scale})`,
+              }}
+            />
+          </div>
         ) : (
           <div className="te-placeholder">
             {phase.kind === "failed" ? (

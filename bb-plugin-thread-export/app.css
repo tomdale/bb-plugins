@@ -59,12 +59,17 @@
   background: var(--canvas);
 }
 
+.te-preview-frame {
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
 .te-preview {
   display: block;
-  width: 100%;
-  height: 100%;
   border: 0;
   background: var(--canvas);
+  transform-origin: top left;
 }
 
 .te-placeholder {
