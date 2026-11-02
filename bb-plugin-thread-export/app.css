@@ -1,0 +1,87 @@
+/*
+ * The export surface. It reads as another panel of the app: the same surfaces,
+ * borders, and type scale as bb's own chrome, so only the page it builds is
+ * something new.
+ */
+
+.te-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  align-self: stretch;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.te-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.te-bar-copy {
+  min-width: 0;
+}
+
+.te-bar-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.te-bar-note {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.te-bar-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.te-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--canvas);
+}
+
+.te-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--canvas);
+}
+
+.te-placeholder {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * The snapshot is laid out off to the side: it needs real layout at the
+ * export's reading width, but must never be seen or clicked in the app.
+ */
+.te-stage {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  margin: 0;
+  pointer-events: none;
+}

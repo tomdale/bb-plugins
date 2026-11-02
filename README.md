@@ -10,6 +10,7 @@ configure it.
 | [Handoff](bb-plugin-handoff)                         | Hand work off to a new thread, in its own worktree for new work       |
 | [Sidebar Switcher](bb-plugin-sidebar-switcher)       | Switch which plugin renders BB's sidebar thread list                  |
 | [Subagents](bb-plugin-subagents)                     | Background subagents with live transcripts and user takeover          |
+| [Thread Export](bb-plugin-thread-export)             | Save a thread as a standalone HTML page that looks like bb            |
 | [Todo](bb-plugin-todo)                               | Show the agent's per-thread todo plan in the composer                 |
 | [Read aloud](bb-plugin-tts)                          | Play spoken audio for an assistant response                           |
 | [Walkthrough](bb-plugin-walkthrough)                 | Walk through a changeset one conceptual group at a time               |

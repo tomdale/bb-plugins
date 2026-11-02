@@ -919,3 +919,26 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   billing cost the gateway already returns for the call), and the executed model id
   alongside it, so one event answers "what ran and what did it cost" without a
   sequence window or a local ledger
+
+## A thread's complete timeline behind `ThreadChat`
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100; public SDK 0.6.99 contracts
+- **Use case:** Thread Export renders a whole thread through `ThreadChat`
+  (`variant: "timeline"`, `layout: "document"`) and snapshots the resulting DOM,
+  so a shared page shows bb's real markup instead of a re-implementation of it
+- **Limit and evidence:** the host loads the latest 100 top-level rows
+  (`THREAD_TIMELINE_DEFAULT_TOP_LEVEL_LIMIT`) and the transcript has no scroll
+  anchor, so `useAutoLoadOlderRows` stays off and the only way to reach the rest
+  is pressing the "Load older messages" button the surface renders.
+  `ThreadChatProps` exposes neither `hasOlderRows` nor a way to ask for the next
+  page, and `bb.sdk.threads.timeline` returns rows as data with no renderer
+  attached, so a plugin cannot hand a complete transcript to the host component.
+  The plugin finds the button by its English label and clicks it up to 80 times.
+  A renamed control would end the loop with rows still unloaded, and nothing
+  available to the plugin distinguishes that from a complete thread
+- **Workaround:** label matching in `lib/transcript-stage.ts`, with a bounded
+  page count that the panel reports as a truncated export
+- **Possible API:** `ThreadChat` props `initialLoad?: "latest" | "all"` and a
+  callback such as `onLoadProgress({ hasOlderRows, isLoadingOlderRows })`, or a
+  renderer handle for `sdk.threads.timeline` rows
