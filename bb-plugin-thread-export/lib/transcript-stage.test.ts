@@ -21,6 +21,13 @@ describe("findLoadOlderButton", () => {
   it("returns null once bb stops offering older rows", () => {
     expect(findLoadOlderButton(transcript("<div><button>Copy</button></div>"))).toBeNull();
   });
+
+  it("is not fooled by a tool row whose command mentions older rows", () => {
+    const root = transcript(`
+      <div><button>Ran grep -n "load older" src/</button>
+      <button>Load older messages</button></div>`);
+    expect(findLoadOlderButton(root)?.textContent?.trim()).toBe("Load older messages");
+  });
 });
 
 describe("loadOlderMessages", () => {

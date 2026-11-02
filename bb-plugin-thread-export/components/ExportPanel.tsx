@@ -36,15 +36,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Waits for ThreadChat to put bb's transcript on the page, then hands it over. */
+/**
+ * Waits for ThreadChat to put bb's transcript on the page, then hands back the
+ * element the snapshot is taken from. `variant: "timeline"` renders the rows
+ * without marking a window element, so the rows themselves are the signal.
+ */
 async function waitForTranscript(
   stage: HTMLElement,
   isCancelled: () => boolean,
 ): Promise<HTMLElement | null> {
   const deadline = Date.now() + TRANSCRIPT_MOUNT_TIMEOUT_MS;
   while (Date.now() < deadline && !isCancelled()) {
-    const root = stage.querySelector<HTMLElement>("[data-thread-window]");
-    if (root !== null && root.querySelector("*") !== null) return root;
+    const root = stage.firstElementChild;
+    if (root instanceof HTMLElement && root.querySelector("[data-timeline-window-key]") !== null) {
+      return root;
+    }
     await sleep(100);
   }
   return null;

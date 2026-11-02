@@ -8,7 +8,11 @@
  * the clone is not taken mid-render.
  */
 
-const LOAD_OLDER_LABEL = "older";
+/**
+ * bb's own label for the control. Matching loosely is not safe: tool rows
+ * render command text in buttons too, and plenty of them mention "older".
+ */
+const LOAD_OLDER_LABEL = /^(?:loading older messages|load older messages)/i;
 
 /** Older-row pages a single export will request before giving up. */
 export const MAX_LOAD_ROUNDS = 80;
@@ -21,8 +25,8 @@ function delay(ms: number): Promise<void> {
 /** The timeline's own "Load older messages" control, when bb is offering it. */
 export function findLoadOlderButton(root: ParentNode): HTMLButtonElement | null {
   for (const button of Array.from(root.querySelectorAll("button"))) {
-    const label = (button.textContent ?? "").trim().toLowerCase();
-    if (label.includes(LOAD_OLDER_LABEL)) return button;
+    const label = (button.textContent ?? "").trim();
+    if (LOAD_OLDER_LABEL.test(label)) return button;
   }
   return null;
 }
