@@ -12,11 +12,13 @@ says what happens to the thread it leaves behind:
 - Any **other** handoff creates a new Workforest worktree (`wf new <slug>
   <owner/repo> --branch tomdale/<slug>`) and attaches the successor there, so
   the two threads never share a checkout.
-- A **delegation** hands a side task away: the source thread keeps its own task
-  and asks the user which concrete next steps to take.
-- A **takeover** hands the current task away: the source thread commits, pushes
-  and merges or opens the PR, removes branches and worktrees nothing else uses,
-  then archives itself.
+- A **delegation** hands a tangential task away: the source thread stays open,
+  keeps its primary task, and proposes resuming it with the next concrete step.
+- A **takeover** hands the current primary task away: the source thread archives
+  only when no other major tasks remain planned for it, after committing,
+  publishing, and cleaning up under the repository's rules. If major work
+  remains or its ownership is unclear, the source thread stays open until the
+  user resolves who owns it.
 
 The successor is spawned as a top-level thread at the source thread's provider,
 model, and reasoning level, with a prompt that carries the instruction verbatim,

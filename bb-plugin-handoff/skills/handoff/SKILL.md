@@ -24,6 +24,10 @@ worktree and leaves this checkout alone.
 
 Ask which one the user means when the instruction could be either.
 
+Classify ownership separately: a takeover transfers the current primary task; a
+delegation transfers tangential work while this thread keeps its primary task.
+Ask the user when the instruction does not make that distinction clear.
+
 ## 2. Spawn the successor
 
 Spawn a top-level thread: no `--parent-self`, no `--parent-thread`, no
@@ -88,12 +92,20 @@ the user. If the spawn fails, report the failure and keep the work here.
 
 ## 3. Finish this thread's part
 
-Delegation, a side task that frees this thread: this thread keeps its own task.
-Ask the user which concrete next steps to take here, offering two or three it
-can start now, then begin the chosen one.
+Delegation, a tangential task that frees this thread to focus on its primary
+task: leave this thread open. Tell the user the primary task stays here and
+propose resuming it with the next concrete step. If several next steps are
+reasonable, ask which one to take, then begin the chosen step.
 
-Takeover, where the successor owns the work: make this thread's share durable,
-then stop.
+Takeover, where the successor owns the current primary task: list the major
+tasks planned for this thread that are outside the successor's scope. If none
+remain, make this thread's share durable, then archive it. If any remain or
+their ownership is unclear, leave this thread open and ask the user whether the
+successor should take them or this thread should resume them. Archive only when
+all major work has an owner and this thread has none.
+
+For a takeover with no remaining major work, finish these steps before
+archiving:
 
 1. Commit completed work on the current branch. A bb-managed worktree deletes
    its directory, uncommitted files, and untracked files five minutes after its
@@ -105,7 +117,8 @@ then stop.
    worktrees, temporary files, environments whose threads are gone. A finished
    Workforest worktree closes with `wf delete <repo-name>/<slug>`, which keeps
    the branch and cached mirror and refuses dirty or unmerged work.
-4. `bb thread archive --self`.
+4. Run `bb thread archive --self`. Complete any confirmation BB presents; if
+   the user cancels, keep this thread open.
 
 Never delete or move what the successor relies on. A continuation successor
 shares this workspace, so its files, branch, untracked files, and environment
