@@ -21,6 +21,8 @@
     "build": "bb plugin build"
   },
   "dependencies": {
+    "@radix-ui/react-scroll-area": "^1.4.0",
+    "@radix-ui/react-separator": "^1.2.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { z } from "zod";
 import { createInput, runSchema, type Run } from "./contracts.ts";
+import { runDirectiveLine } from "./directive.ts";
 
 const OUTPUT_LIMIT = 16000;
 export class Subagents {
@@ -28,6 +29,17 @@ export class Subagents {
   byThread(threadId: string) { return this.query("json_extract(data, '$.threadId') = ?", [threadId], 1)[0]; }
   list(threadId: string) {
     return { runs: this.query("json_extract(data, '$.rootThreadId') = ? OR json_extract(data, '$.ownerThreadId') = ?", [threadId, threadId], 100), promoted: this.byThread(threadId) ?? null };
+  }
+  /** Per root thread: agent-controlled working runs plus user-controlled runs, for sidebar row glyphs. */
+  activeRoots() {
+    const roots = new Map<string, { threadId: string; working: number; userControlled: number }>();
+    for (const run of this.query("json_extract(data, '$.status') IN ('starting','running')")) {
+      const entry = roots.get(run.rootThreadId) ?? { threadId: run.rootThreadId, working: 0, userControlled: 0 };
+      if (run.control === "user") entry.userControlled++;
+      else entry.working++;
+      roots.set(run.rootThreadId, entry);
+    }
+    return [...roots.values()];
   }
   private save(run: Run) {
     this.db.prepare("INSERT INTO runs (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data").run(run.id, JSON.stringify(run));
@@ -109,7 +121,7 @@ export class Subagents {
     run.cleanupPending = false;
     this.save(run);
   }
-  private queue(run: Run, text: string) { run.notifications.push(text); this.save(run); }
+  private queue(run: Run, text: string) { run.notifications.push(`${text}\n\n${runDirectiveLine(run)}`); this.save(run); }
   private async notify(run: Run) {
     while (run.notifications.length) {
       const owner = await this.bb.sdk.threads.get({ threadId: run.ownerThreadId });

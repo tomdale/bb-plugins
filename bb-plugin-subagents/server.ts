@@ -1,6 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { createInput, rpcContract } from "./src/contracts.ts";
+import { runDirectiveLine } from "./src/directive.ts";
 import { Subagents } from "./src/service.ts";
 export { rpcContract } from "./src/contracts.ts";
 

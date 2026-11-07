@@ -136,7 +136,7 @@ describe("background subagents", () => {
     expect(configuration.instructions).toBeFalsy();
   });
   it("imports only public SDK surfaces", () => {
-    const scan = experimental_scanPublicSdkOnly(import.meta.dirname, { allow: [/^vitest$/, /^@testing-library\/react$/, /^react$/, /^@radix-ui\/react-slot$/, /^class-variance-authority$/, /^clsx$/, /^tailwind-merge$/] });
+    const scan = experimental_scanPublicSdkOnly(import.meta.dirname, { allow: [/^vitest$/, /^@testing-library\/react$/, /^react$/, /^@radix-ui\/react-slot$/, /^@radix-ui\/react-scroll-area$/, /^@radix-ui\/react-separator$/, /^@radix-ui\/react-tooltip$/, /^class-variance-authority$/, /^clsx$/, /^tailwind-merge$/] });
     expect(scan.violations).toEqual([]); expect(scan.privateDependencies).toEqual([]);
   });
 });
