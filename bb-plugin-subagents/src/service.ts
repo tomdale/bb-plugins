@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { z } from "zod";
 import { createInput, runSchema, type Run } from "./contracts.ts";
-import { runDirectiveLine } from "./directive.ts";
 
 const OUTPUT_LIMIT = 16000;
 export class Subagents {
@@ -121,7 +120,7 @@ export class Subagents {
     run.cleanupPending = false;
     this.save(run);
   }
-  private queue(run: Run, text: string) { run.notifications.push(`${text}\n\n${runDirectiveLine(run)}`); this.save(run); }
+  private queue(run: Run, text: string) { run.notifications.push(text); this.save(run); }
   private async notify(run: Run) {
     while (run.notifications.length) {
       const owner = await this.bb.sdk.threads.get({ threadId: run.ownerThreadId });

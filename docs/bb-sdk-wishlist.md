@@ -8,6 +8,31 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Rich plugin content for plugin-sent thread messages
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100
+- **Use case:** the Subagents plugin delivers run lifecycle notifications
+  (completed, failed, user takeover, return control) into the calling thread
+  and wants each one to render as a live status card (badge, title, control
+  state) rather than plain text
+- **Limit and evidence:** message directives and message blocks render only in
+  assistant-role messages. `apps/app/src/components/thread/timeline/
+  ConversationMessageContent.tsx` passes `messageDirectives` to MarkdownPreview
+  only in `AssistantConversationMessage`; user messages render through
+  `CollapsibleMessageText` verbatim. `threads.send` has no role option, so a
+  plugin notification is always user-role — an appended `::name{...}`
+  directive renders as literal text (verified live against BB 0.48.0, where a
+  builtin `::inline-vis{...}` in a user message also rendered literally), and
+  `PluginUi` offers no timeline-item API, while provider extension items
+  require registering an agent provider bridge
+- **Workaround:** notifications stay plain text; run status is surfaced through
+  the thread-header badge, the sidebar thread-row glyph, and the panel run list
+  instead
+- **Possible API:** directive processing for plugin-sent messages (or a
+  `senderPluginId`-gated variant), or a `PluginUi.addThreadItem(threadId, kind,
+  payload)` API that renders through the plugin's `experimental_timelineRenderer`
+
 ## Server-managed secret fields and runtime provider removal
 
 - **Status:** not filed
