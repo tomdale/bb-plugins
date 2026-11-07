@@ -34,12 +34,12 @@ open costs no more than it did.
 | `n` | 1-based position in this walkthrough's record |
 | `kind` | `plan`, `write`, `ask`, `reply`, `wrap-up` |
 | `part` | the part a `write` wrote, or the part an `ask` was asked about; **zero-based**, as the request carries it, so the first part is `0`. Null for the plan, a reply, and an ask at the wrap-up |
-| `sentAt` / `settledAt` / `ms` | epoch milliseconds when the request went out and when it ended, and the difference, kept so a duration survives a clock adjustment between the two |
+| `sentAt` / `settledAt` / `ms` | epoch milliseconds when the request went out and when the plugin saw it end, and the difference (kept so a duration survives a clock adjustment between the two). `ms` is the reader's wait for that request: the send, the whole turn, and the idle notification the plugin settles on. It is therefore longer than the model's own turn — measured over 16 requests on 8 walkthroughs, by 560 ms to 4.5 s, median 1.1 s. Compare it with `turn/completed` in the helper's log to separate the two |
 | `askedModel` / `askedReasoning` | what the plugin asked for: its `HELPER_MODELS` preference and level, which the server may ignore |
 | `model` / `reasoning` | what the turn's own request event names: what actually ran |
 | `outcome` | what the reader got: `planned`, `wrote`, `answered`, `replied`, `wrapped-up`, `nudged` (the plan turn wrote its message and called nothing, so a second ask was queued), `empty` (the turn ended with nothing usable), `failed`, `interrupted`, `abandoned` (the walkthrough closed or the plugin restarted while the request was in flight) |
 | `turnStatus` | the worker turn's own status from `turn/completed`, such as `completed` or `interrupted` |
-| `inputTokens` / `cachedInputTokens` / `outputTokens` | what this request added; `inputTokens` is the uncached part |
+| `inputTokens` / `cachedInputTokens` / `outputTokens` | what this request added, taken from the payload's own per-turn reading (`tokenUsage.last`) when it carries one, else from the difference between successive thread totals. `inputTokens` is the uncached part |
 | `detail` | a short reason for anything that is not a plain success, with the provider's error code appended when there was one |
 
 A field the plugin could not read stays `null`. The record says what it saw and never fills a
@@ -84,6 +84,9 @@ request — off the critical path, since nothing waits on it before sending the 
 - **Price.** BB reports no cost per turn, so a cost is tokens × a list price you supply, not
   a measured charge. That is also why the `$0.0001` gateway surcharge billed on every call
   does not appear here.
+- **The model's own time.** `ms` includes the send and the plugin's idle notification; the
+  turn's own duration is in the helper thread's log, and the two differ by about a second
+  on a plan or write turn (see the row above).
 - **Work done outside a request.** Fork provisioning, the working tree reads, and the pane's
   rendering are not requests; `timing` covers the first of those and nothing covers the rest.
 - **What the reader did.** No row says whether the reader opened the part, skimmed it, or

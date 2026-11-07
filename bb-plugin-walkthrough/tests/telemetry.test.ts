@@ -65,8 +65,7 @@ describe("the record of one request", () => {
     expect(plan!.ms).toBe(plan!.settledAt! - plan!.sentAt);
   }, 20_000);
 
-  it("records what each request added, not the thread's running total", async () => {
-    const first = totals({ input: 1_000, cached: 0, output: 20 });
+  it("records what each request added, not the thread's running total", async () => {    const first = totals({ input: 1_000, cached: 0, output: 20 });
     const both = totals({ input: 1_000, cached: 0, output: 20 }, { input: 300, cached: 900, output: 60 });
     // The plan turn's usage, then the write the plan queued: its counts are the running total again.
     const { bb, rpc, tool, idle } = await setup({ turnEvents: turns(turn(first), turn(both)) });
@@ -88,6 +87,32 @@ describe("the record of one request", () => {
     expect(recorded[0]).toMatchObject({ inputTokens: 1_000, cachedInputTokens: 0, outputTokens: 20 });
     expect(recorded[1]).toMatchObject({ part: 0, inputTokens: 300, cachedInputTokens: 900, outputTokens: 60 });
     expect(recorded[2]).toMatchObject({ part: 1, settledAt: null, inputTokens: null });
+  }, 20_000);
+
+  it("prefers the payload's own per-turn reading over a difference of thread totals", async () => {
+    // Measured on a real walkthrough: the second turn's `total` came back as the turn's own
+    // numbers instead of the thread's, so a difference went negative and output was lost.
+    const reset = [
+      { type: "client/turn/requested", data: { execution: { model: SOL, reasoningLevel: "high" } } },
+      { type: "turn/completed", data: { status: "completed" } },
+      { type: "thread/tokenUsage/updated", data: { tokenUsage: { total: { inputTokens: 3, cachedInputTokens: 29_031, outputTokens: 28, totalTokens: 29_062 }, last: { inputTokens: 3, cachedInputTokens: 29_031, outputTokens: 28, totalTokens: 29_062 } } } },
+    ];
+    const { bb, rpc, tool, idle } = await setup({
+      turnEvents: turns(
+        turn(totals({ input: 3, cached: 27_721, output: 238 })),
+        reset,
+      ),
+    });
+    const { walkthroughId } = await rpc("start", { threadId: THREAD, request: "" });
+    await settle();
+    await tool("walkthrough_plan", PLAN);
+    await idle("Planned.");
+    await settle();
+    await idle("");
+    await settle();
+
+    const write = rows(bb, walkthroughId)[1];
+    expect(write).toMatchObject({ kind: "write", inputTokens: 3, cachedInputTokens: 29_031, outputTokens: 28 });
   }, 20_000);
 
   it("records a turn that produced nothing, with the reason the reader was shown", async () => {

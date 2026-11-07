@@ -206,21 +206,27 @@ function oneLine(text: string | null | undefined): string | null {
   return flat.length > DETAIL_CHARS ? `${flat.slice(0, DETAIL_CHARS - 1)}\u2026` : flat;
 }
 
-/** The worker's cumulative token counts from a `thread/tokenUsage/updated` payload, or null when it carries none. */
-function readUsage(value: unknown): WorkerUsage | null {
-  const total = (value as { total?: Record<string, unknown> } | null | undefined)?.total;
-  if (total === null || typeof total !== "object" || total === undefined) return null;
+/** Token counts from a `thread/tokenUsage/updated` payload: what the turn itself used, and what the thread has used. */
+function readUsage(value: unknown): { turn: WorkerUsage | null; thread: WorkerUsage | null } {
+  const payload = value as { total?: Record<string, unknown>; last?: Record<string, unknown> } | null | undefined;
+  return { turn: counts(payload?.last), thread: counts(payload?.total) };
+}
+
+/** One reading of the counters, or null when the payload carries none. */
+function counts(source: Record<string, unknown> | null | undefined): WorkerUsage | null {
+  if (source === null || source === undefined || Object.keys(source).length === 0) return null;
   const count = (key: string) => {
-    const raw = total[key];
+    const raw = source[key];
     return typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.round(raw)) : 0;
   };
   return { inputTokens: count("inputTokens"), cachedInputTokens: count("cachedInputTokens"), outputTokens: count("outputTokens"), totalTokens: count("totalTokens") };
 }
 
 /**
- * What one request added, from the cumulative counts and the reading before it. Counts
- * that went down mean the provider restarted them, so the whole of the new reading is
- * this request's rather than a negative difference.
+ * What one request added, from the cumulative counts and the reading before it, for a
+ * payload that reports no per-turn reading of its own. Counts that went down mean the
+ * provider restarted them, so the whole of the new reading is this request's rather than
+ * a negative difference.
  */
 function addedUsage(usage: WorkerUsage, previous: WorkerUsage | null): WorkerUsage {
   if (previous === null || usage.totalTokens < previous.totalTokens) return usage;
@@ -478,7 +484,12 @@ export class WalkthroughService {
         const status = last("turn/completed")?.status;
         const providerError = last("provider/error");
         const usage = readUsage(last("thread/tokenUsage/updated")?.tokenUsage);
-        const added = usage === null ? null : addedUsage(usage, walkthrough.usage ?? null);
+        // The payload's `last` is the turn's own counts, which is what a request row wants;
+        // its `total` is the thread's running counts, which a provider occasionally restarts
+        // mid-thread (measured: one of eight walkthroughs, where `total` fell back to the
+        // turn's own numbers and the difference went negative). Prefer `last`, and fall back
+        // to the difference from the previous total for a payload that carries no `last`.
+        const added = usage.turn ?? (usage.thread === null ? null : addedUsage(usage.thread, walkthrough.usage ?? null));
         const failure =
           providerError === undefined
             ? null
@@ -495,7 +506,7 @@ export class WalkthroughService {
           detail: failure === null || run.detail === null || run.detail.includes(failure) ? run.detail : `${run.detail} (${failure})`,
         });
         if (requests === undefined) return;
-        this.store.save({ ...walkthrough, requests, ...(usage === null ? {} : { usage }) });
+        this.store.save({ ...walkthrough, requests, ...(usage.thread === null ? {} : { usage: usage.thread }) });
         run = lastRunAt(requests, sentAt) ?? run;
       });
     } catch (cause) {
