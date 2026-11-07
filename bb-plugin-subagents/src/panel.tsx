@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ThreadChat, useBbNavigate } from "@get-bb/plugin-sdk/app";
-import type { PluginThreadPanelProps } from "@get-bb/plugin-sdk/app";
+import type { ExperimentalThreadTabProps, JsonValue } from "@get-bb/plugin-sdk/app";
 import { Badge } from "../components/ui/badge.js";
 import { Button } from "../components/ui/button.js";
 import { ScrollArea } from "../components/ui/scroll-area.js";
@@ -46,7 +46,7 @@ function summaryText(runs: readonly Run[]): string {
   return summaryLine(summarizeRuns(runs));
 }
 
-export function SubagentsPanel({ threadId }: PluginThreadPanelProps) {
+export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { params: JsonValue | null }) {
   const { runs, error, report, rpc, refresh } = useRuns(threadId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

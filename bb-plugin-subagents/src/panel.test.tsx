@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest";
+import type { ComponentType } from "react";
 import { fireEvent } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import type { ExperimentalThreadTabProps, JsonValue } from "@get-bb/plugin-sdk/app";
+
+/** The action-variant component of the registered tab, narrowed for renderSlot. */
+function tabComponent(app: Awaited<ReturnType<typeof loadPluginApp>>) {
+  return app.tabs[0] as unknown as { component: ComponentType<ExperimentalThreadTabProps & { params: JsonValue | null }> };
+}
 import type { Run } from "./contracts.ts";
 const run: Run = {
   id: "run", ownerThreadId: "origin", rootThreadId: "origin", threadId: "worker", title: "Review", task: "Review code", depth: 1,
@@ -14,7 +21,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup(); });
 it("shows a composer-free transcript and promotes before navigating", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [run], promoted: null }), promote: () => ({ threadId: "worker" }),
   } });
   cleanups.push(() => slot.lifecycle.unmount());
@@ -28,7 +35,7 @@ it("shows a composer-free transcript and promotes before navigating", async () =
 it("summarizes the runs in one count line", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [
       makeRun({ id: "a", status: "running", createdAt: now - 5 * 60_000 }),
       makeRun({ id: "b", status: "starting", createdAt: now - 12 * 60_000 }),
@@ -43,7 +50,7 @@ it("summarizes the runs in one count line", async () => {
 it("lists rows with status badges, depth, and age", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [
       makeRun({ id: "nested", title: "Nested review", depth: 2, status: "failed", threadId: "nested-thread", createdAt: now - 12 * 60_000 }),
       makeRun({ id: "top", title: "Top review", depth: 1, status: "running", control: "user", threadId: "top-thread", createdAt: now - 2 * 60 * 60_000 }),
@@ -63,7 +70,7 @@ it("lists rows with status badges, depth, and age", async () => {
 it("auto-selects the newest working run", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [
       makeRun({ id: "old-done", title: "Old done", status: "completed", threadId: "old-done-thread", createdAt: now - 60 * 60_000 }),
       makeRun({ id: "work-old", title: "Older worker", status: "running", threadId: "work-old-thread", createdAt: now - 10 * 60_000 }),
@@ -79,7 +86,7 @@ it("auto-selects the newest working run", async () => {
 it("keeps a clicked row selected across refreshes", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [
       makeRun({ id: "work-old", title: "Older worker", status: "running", threadId: "work-old-thread", createdAt: now - 10 * 60_000 }),
       makeRun({ id: "work-new", title: "Newer worker", status: "running", threadId: "work-new-thread", createdAt: now - 2 * 60_000 }),
@@ -98,7 +105,7 @@ it("keeps a clicked row selected across refreshes", async () => {
 it("shows no working emphasis when every run has settled", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
-  const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "origin", params: null }, { rpc: {
+  const slot = renderSlot(tabComponent(app), { threadId: "origin", environment: null, params: null }, { rpc: {
     list: () => ({ runs: [
       makeRun({ id: "done-old", title: "Older done", status: "completed", threadId: "done-old-thread", createdAt: now - 60 * 60_000 }),
       makeRun({ id: "done-new", title: "Newer done", status: "completed", threadId: "done-new-thread", createdAt: now - 5 * 60_000 }),

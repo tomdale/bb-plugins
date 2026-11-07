@@ -61,7 +61,7 @@ export function summarizeRuns(runs: readonly Pick<Run, "status" | "control">[]):
   return summary;
 }
 
-/** One short count line, omitting zeros, for badge tooltips and panel summaries. */
+/** One short count line, omitting zeros, for the header action's label and the panel summary. */
 export function summaryLine(summary: RunSummary): string {
   const parts: string[] = [];
   if (summary.working > 0) parts.push(`${summary.working} running`);
