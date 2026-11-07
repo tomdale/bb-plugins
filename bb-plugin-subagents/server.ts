@@ -49,6 +49,7 @@ export default async function plugin(bb: BbPluginApi) {
     promote: ({ id }) => service.promote(id),
     returnControl: ({ id }) => service.returnControl(id),
   });
+  bb.http.route("GET", "/active-rows", () => Response.json({ roots: service.activeRoots() }));
   bb.background.service("reconcile", {
     async start(signal) {
       while (!signal.aborted) {

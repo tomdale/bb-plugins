@@ -12,7 +12,11 @@ Tools advertise their behavior through schemas; the plugin adds no system instru
 
 ## User control
 
-Open **Subagents** from the thread header or the side panel's Actions list. Select a run to view its live, composer-free transcript. **Take control** reveals the worker as a normal thread and notifies the calling agent. Its background timeout is disabled while the user controls it; automatic completion handoffs pause.
+Open **Subagents** from the thread header or the side panel's Actions list. The panel lists every run with a live status badge, depth, and age, plus a running/user-controlled/completed summary line; selecting a run shows its live, composer-free transcript. The thread header shows a pulsing badge with the count of working runs (plus a distinct badge while the user controls any run) and hides itself when nothing is active. A sidebar glyph on the original thread's row — a shimmering Bot icon while its workers run — is visible from anywhere in the sidebar.
+
+Every run notification in the original thread renders a live status card (badge, title, and an Open thread action while the user controls the run), backed by a `subagent-run` message directive the plugin appends to its notifications.
+
+**Take control** reveals the worker as a normal thread and notifies the calling agent. Its background timeout is disabled while the user controls it; automatic completion handoffs pause.
 
 In that thread, **Return control** stops ongoing work, reads the latest output, hides and archives the worker, notifies the caller, and navigates back. Completed runs can be promoted again; the transcript and native provider session remain intact.
 

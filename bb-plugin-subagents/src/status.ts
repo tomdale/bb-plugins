@@ -60,3 +60,13 @@ export function summarizeRuns(runs: readonly Pick<Run, "status" | "control">[]):
   }
   return summary;
 }
+
+/** One short count line, omitting zeros, for badge tooltips and panel summaries. */
+export function summaryLine(summary: RunSummary): string {
+  const parts: string[] = [];
+  if (summary.working > 0) parts.push(`${summary.working} running`);
+  if (summary.userControlled > 0) parts.push(`${summary.userControlled} user-controlled`);
+  if (summary.failed > 0) parts.push(`${summary.failed} failed`);
+  if (summary.settled > 0) parts.push(`${summary.settled} completed`);
+  return parts.join(" · ");
+}

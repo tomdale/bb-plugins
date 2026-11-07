@@ -4,7 +4,7 @@ Give BB agents three small tools to create background subagents, check their pro
 
 ## Follow the work
 
-Open **Subagents** in a thread's side panel to see live, read-only transcripts, status, and nested runs. Completion sends a bounded result back to the calling agent, and finished worker runtimes are released promptly.
+Open **Subagents** in a thread's side panel for a run list with live status badges and a summary line, each run opening its live, read-only transcript. The thread header badges the count of working runs while they churn, and a sidebar glyph marks the original thread's row from anywhere in the sidebar. Completion sends a bounded result back to the calling agent, rendered with a live status card, and finished worker runtimes are released promptly.
 
 ## Take over and hand back
 

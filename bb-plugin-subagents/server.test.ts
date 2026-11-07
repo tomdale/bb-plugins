@@ -135,6 +135,16 @@ describe("background subagents", () => {
     expect(configuration.skills).toEqual([]);
     expect(configuration.instructions).toBeFalsy();
   });
+  it("serves active roots for sidebar row glyphs over the plugin http route", async () => {
+    const host = await setup();
+    const run = await host.create();
+    await host.harness.behavior.callRpc("promote", { id: run.id });
+    await host.create();
+    const response = await host.harness.behavior.fetchHttp("GET", "/active-rows");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ roots: [{ threadId: "origin", working: 1, userControlled: 1 }] });
+    expect(response.headers.get("content-type")).toContain("application/json");
+  });
   it("imports only public SDK surfaces", () => {
     const scan = experimental_scanPublicSdkOnly(import.meta.dirname, { allow: [/^vitest$/, /^@testing-library\/react$/, /^react$/, /^@radix-ui\/react-slot$/, /^@radix-ui\/react-scroll-area$/, /^@radix-ui\/react-separator$/, /^@radix-ui\/react-tooltip$/, /^class-variance-authority$/, /^clsx$/, /^tailwind-merge$/] });
     expect(scan.violations).toEqual([]); expect(scan.privateDependencies).toEqual([]);
