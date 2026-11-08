@@ -13,7 +13,19 @@ description:
 Text after `/handoff` is the handoff instruction. `bb` reads this thread and
 project from `BB_THREAD_ID`, `BB_PROJECT_ID`, and `BB_ENVIRONMENT_ID`.
 
-## 1. Classify the handoff
+## 1. Scope and classify the handoff
+
+The instruction names work. List its work items and give each an owner: the
+successor, or this thread.
+
+The phrase that hands work off — "hand off this task", "`$handoff <task>`" —
+names the item or items that move. Sequencing words around that phrase name the
+items that stay: "before beginning", "first … then", "while I …", "after that".
+Work the same message asks for beside the handoff phrase stays here.
+
+Ask the user which items move when the handoff phrase could attach to more than
+one, and when the instruction could hand off one item or all of them. State the
+split in one line before spawning: `<item> → successor; <item> → this thread`.
 
 Continuation: the successor carries on the work in progress here. It attaches
 to this environment with `--environment "$BB_ENVIRONMENT_ID"`, so uncommitted
@@ -24,9 +36,9 @@ worktree and leaves this checkout alone.
 
 Ask which one the user means when the instruction could be either.
 
-Classify ownership separately: a takeover transfers the current primary task; a
-delegation transfers tangential work while this thread keeps its primary task.
-Ask the user when the instruction does not make that distinction clear.
+Ownership follows the moving item. A takeover moves the work this thread was
+chartered to do; a delegation moves tangential work while this thread keeps its
+primary task. Ask the user when the split does not settle it.
 
 ## 2. Spawn the successor
 
@@ -77,13 +89,16 @@ bb thread spawn --project "$BB_PROJECT_ID" --environment "$env" \
 The successor starts with no conversation history, so the prompt carries:
 
 - `@thread:<this thread ID>`, with one line on what its transcript holds
-- the user's handoff instruction verbatim
+- the user's handoff instruction verbatim, keeping the phrase that marks the
+  moving item
 - the task: goal, done criteria, what is finished, what remains, decisions
   already made
+- the items that stay here, so the successor leaves them alone
 - the state to build on: workspace path, branch, commits, PR, files it will
   edit, the verification run and its result
-- ownership: a takeover successor owns the task and its publish; a delegated
-  successor owns its own piece and reports to the user
+- ownership: a takeover successor owns the work this thread was chartered to do
+  and its publish; a delegated successor owns its own item and reports to the
+  user
 - the paths and resources it must leave alone
 
 Confirm the successor started: `bb thread show <id>` reports `starting` or
@@ -97,12 +112,13 @@ task: leave this thread open. Tell the user the primary task stays here and
 propose resuming it with the next concrete step. If several next steps are
 reasonable, ask which one to take, then begin the chosen step.
 
-Takeover, where the successor owns the current primary task: list the major
-tasks planned for this thread that are outside the successor's scope. If none
-remain, make this thread's share durable, then archive it. If any remain or
-their ownership is unclear, leave this thread open and ask the user whether the
-successor should take them or this thread should resume them. Archive only when
-all major work has an owner and this thread has none.
+Takeover, where the successor owns the work this thread was chartered to do:
+list the major tasks this thread still owns — the split's items that stay here
+and any planned work the instruction never named. If none remain, make this
+thread's share durable, then archive it. If any remain or their ownership is
+unclear, leave this thread open and ask the user whether the successor should
+take them or this thread should resume them. Archive only when all major work
+has an owner and this thread has none.
 
 For a takeover with no remaining major work, finish these steps before
 archiving:
