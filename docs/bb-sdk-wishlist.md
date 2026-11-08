@@ -997,3 +997,19 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** `ThreadChat` props `initialLoad?: "latest" | "all"` and a
   callback such as `onLoadProgress({ hasOlderRows, isLoadingOlderRows })`, or a
   renderer handle for `sdk.threads.timeline` rows
+
+## Command palette registrations in the testing harness type
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0 / host SDK 0.6.100; public SDK 0.6.5 testing harness
+- **Use case:** a plugin test asserts its `app.commands.register`
+  registrations — id, title, and that a command ships no `defaultShortcut` —
+  through `loadPluginApp`
+- **Limit and evidence:** the harness runtime collects `commands.register`
+  registrations into `commandPaletteActions` and returns them, but the
+  declared `CapturedPluginApp` type omits the field, so a typed test cannot
+  read it (`bb-plugin-workstreams` tests/app/registration.test.tsx casts
+  through `unknown`)
+- **Workaround:** cast the captured app to a local structural type in the test
+- **Possible API:** add `commandPaletteActions: PluginCommandRegistration[]`
+  (with `defaultShortcut` normalized to `null`) to `CapturedPluginApp`
