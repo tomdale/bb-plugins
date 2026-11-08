@@ -87,6 +87,7 @@ export function formatModelDisplayName(
   const formattedParts = parts.map(part => {
     if (part.toLowerCase() === "gpt") return "GPT";
     if (/^\d+(\.\d+)*$/.test(part)) return part;
+    if (/^[a-z]\d+(\.\d+)*$/i.test(part)) return part.toUpperCase();
     if (/^[a-z]+$/i.test(part)) {
       return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
     }

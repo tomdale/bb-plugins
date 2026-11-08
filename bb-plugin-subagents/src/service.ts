@@ -49,17 +49,69 @@ export class Subagents {
     return this.query("json_extract(data, '$.threadId') = ?", [threadId], 1)[0];
   }
 
-  list(threadId: string) {
-    const runs = this.query(
+  async list(threadId: string) {
+    const rawRuns = this.query(
       "(json_extract(data, '$.rootThreadId') = ? OR json_extract(data, '$.ownerThreadId') = ?) AND json_extract(data, '$.control') = 'agent'",
       [threadId, threadId],
       100,
-    ).map(run =>
-      run.statusSummary
-        ? run
-        : { ...run, statusSummary: extractOneSentenceSummary(run.output || run.error || run.task, run.title) },
     );
+    const runs = await Promise.all(rawRuns.map(run => this.hydrateExecution(run)));
     return { runs };
+  }
+
+  private async hydrateExecution(run: Run): Promise<Run> {
+    const updatedSummary = run.statusSummary
+      ? run.statusSummary
+      : extractOneSentenceSummary(run.output || run.error || run.task, run.title);
+    if (run.providerId && run.model && run.reasoningLevel) {
+      return updatedSummary === run.statusSummary ? run : { ...run, statusSummary: updatedSummary };
+    }
+    const candidates = [run.threadId, run.ownerThreadId, run.rootThreadId].filter(
+      (id, index, all): id is string => Boolean(id) && all.indexOf(id) === index,
+    );
+    let providerId = run.providerId;
+    let model = run.model;
+    let reasoningLevel = run.reasoningLevel;
+    for (const candidateId of candidates) {
+      if (!providerId) {
+        try {
+          const thread = await this.bb.sdk.threads.get({ threadId: candidateId });
+          if (thread?.providerId) providerId = thread.providerId;
+        } catch {
+          // Try next candidate thread.
+        }
+      }
+      if (!model || !reasoningLevel) {
+        try {
+          const defaults = await this.bb.sdk.threads.defaultExecutionOptions({ threadId: candidateId });
+          if (defaults) {
+            if (!model && defaults.model) model = defaults.model;
+            if (!reasoningLevel && defaults.reasoningLevel) reasoningLevel = defaults.reasoningLevel;
+          }
+        } catch {
+          // Try next candidate thread.
+        }
+      }
+      if (providerId && model && reasoningLevel) break;
+    }
+    const hydrated: Run = {
+      ...run,
+      providerId,
+      model,
+      reasoningLevel,
+      statusSummary: updatedSummary,
+    };
+    if (
+      hydrated.providerId !== run.providerId ||
+      hydrated.model !== run.model ||
+      hydrated.reasoningLevel !== run.reasoningLevel ||
+      hydrated.statusSummary !== run.statusSummary
+    ) {
+      this.db
+        .prepare("INSERT INTO runs (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data")
+        .run(hydrated.id, JSON.stringify(hydrated));
+    }
+    return hydrated;
   }
 
   /** Per root thread: active background subagent counts, for sidebar row glyphs. */

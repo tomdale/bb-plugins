@@ -127,6 +127,23 @@ describe("background subagents", () => {
     });
   });
 
+  it("backfills missing providerId, model, and reasoningLevel on historical runs from thread execution options", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Legacy run.");
+    host.bb.storage
+      .database()
+      .prepare(
+        "UPDATE runs SET data = json_remove(data, '$.providerId', '$.model', '$.reasoningLevel') WHERE id = ?",
+      )
+      .run(run.id);
+    const hydrated = (await host.list()).runs[0]!;
+    expect(hydrated).toMatchObject({
+      providerId: "pi",
+      model: "claude-opus-4-6",
+      reasoningLevel: "high",
+    });
+  });
+
   it("updates statusSummary when the subagent emits a new reply or after 30 seconds via the summarizer", async () => {
     const summarizerCalls: string[] = [];
     const host = await setup({}, async ({ excerpt }) => {

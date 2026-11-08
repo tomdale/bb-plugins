@@ -50,21 +50,30 @@ type CatalogModelLabels = ReadonlyMap<string, string>;
  * so routes like "vercel-ai-gateway/openai/gpt-6.1-sol" use their declared
  * displayName ("GPT-6.1 Sol") alongside the slug formatter fallback.
  */
-function useCatalogModelLabels(runs: readonly Run[]): CatalogModelLabels {
+function useCatalogModelLabels(runs: readonly Run[], environmentId?: string | null): CatalogModelLabels {
   const sdk = useSdk();
   const [labels, setLabels] = useState<ReadonlyMap<string, string>>(() => new Map());
-  const providerIds = useMemo(
-    () => [...new Set(runs.map(run => run.providerId).filter((id): id is string => Boolean(id)))].sort().join(","),
-    [runs],
-  );
+  const pairsKey = useMemo(() => {
+    const pairs = new Set<string>();
+    for (const run of runs) {
+      if (run.providerId) pairs.add(`${run.providerId}\0${run.model ?? ""}`);
+    }
+    return [...pairs].sort().join("\n");
+  }, [runs]);
   useEffect(() => {
     const executionOptions = sdk?.system?.executionOptions;
-    if (!providerIds || typeof executionOptions !== "function") return;
+    if (!pairsKey || typeof executionOptions !== "function") return;
     let current = true;
     void Promise.all(
-      providerIds.split(",").map(async providerId => {
+      pairsKey.split("\n").map(async pair => {
+        const [providerId, selectedModel] = pair.split("\0");
+        if (!providerId) return null;
         try {
-          return await executionOptions({ providerId });
+          return await executionOptions({
+            providerId,
+            ...(environmentId ? { environmentId } : {}),
+            ...(selectedModel ? { selectedModel } : {}),
+          });
         } catch {
           return null;
         }
@@ -87,7 +96,7 @@ function useCatalogModelLabels(runs: readonly Run[]): CatalogModelLabels {
     return () => {
       current = false;
     };
-  }, [providerIds, sdk]);
+  }, [environmentId, pairsKey, sdk]);
   return labels;
 }
 
@@ -202,10 +211,13 @@ function RunTree({
   );
 }
 
-export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { params: JsonValue | null }) {
+export function SubagentsPanel({
+  threadId,
+  environment,
+}: ExperimentalThreadTabProps & { params: JsonValue | null }) {
   const { runs, error, report, rpc, refresh } = useRuns(threadId);
   const { providers } = useProviders();
-  const catalogLabels = useCatalogModelLabels(runs);
+  const catalogLabels = useCatalogModelLabels(runs, environment?.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = useState<"detail" | "list" | null>(null);
