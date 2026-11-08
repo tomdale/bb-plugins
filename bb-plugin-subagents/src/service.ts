@@ -107,9 +107,7 @@ export class Subagents {
       hydrated.reasoningLevel !== run.reasoningLevel ||
       hydrated.statusSummary !== run.statusSummary
     ) {
-      this.db
-        .prepare("INSERT INTO runs (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data")
-        .run(hydrated.id, JSON.stringify(hydrated));
+      this.save(hydrated);
     }
     return hydrated;
   }
@@ -410,7 +408,8 @@ export class Subagents {
     });
   }
 
-  private async reconcileOne(run: Run) {
+  private async reconcileOne(initialRun: Run) {
+    const run = await this.hydrateExecution(initialRun);
     if (!run.threadId) {
       if (run.status !== "starting") return;
       // A server crash can happen after spawn commits but before the returned ID is saved.
@@ -489,6 +488,12 @@ export class Subagents {
   }
 
   async reconcile() {
+    for (const run of this.query("json_extract(data, '$.model') IS NULL", [], 100)) {
+      if (this.disposed) return;
+      await this.serial(run.id, () => this.hydrateExecution(this.get(run.id))).catch(cause =>
+        this.bb.log.warn(`Subagent ${run.id}: ${String(cause)}`),
+      );
+    }
     for (const run of this.query(
       "(json_extract(data, '$.control') = 'agent' AND (json_extract(data, '$.status') IN ('starting', 'running') OR json_extract(data, '$.cleanupPending') = 1)) OR json_array_length(data, '$.notifications') > 0",
     )) {
