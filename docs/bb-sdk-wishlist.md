@@ -8,6 +8,36 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Safe retirement of multi-checkout environments
+
+- **Status:** not filed
+- **Observed:** BB 0.48.0 / host SDK 0.6.100; Workforest plugin pins SDK
+  0.6.9. BB source at `40c09df74e` was inspected; the proposed APIs have not
+  been implemented or tested
+- **Use case:** retire a provider-created Workforest workspace after its last
+  thread archives, without deleting a member checkout or task lane used by a
+  different BB thread
+- **Limit and evidence:** the environment provider's `remove` receives one
+  environment, while `environmentHasLiveThreads` checks threads attached to
+  that environment ID. The plugin's delegated task lanes use separate unmanaged
+  environments. BB's `findEnvironmentPathClaim` compares exact paths, not
+  overlapping paths; a check of thread or environment lists before deletion
+  cannot prevent a later attachment. Core runs `.bb-env-teardown.sh` for an
+  owned path before invoking the provider's `remove`, so the provider cannot
+  refuse that hook on a failed Workforest safety check
+- **Workaround:** retain Workforest checkouts and leave deletion to an explicit
+  user operation. A clean Git status is not evidence that external processes
+  have stopped using a checkout
+- **Possible API:** a durable cleanup reservation covering an explicit set of
+  host paths and their descendants, acquired atomically against live, stopping,
+  starting and concurrently attaching or unarchiving threads. It must include
+  task paths outside a workspace root, block conflicting admission until cleanup
+  finishes, and recover safely after restart. A provider pre-teardown admission
+  step should refuse or defer before any teardown hook runs, with a durable
+  failure reason. Define path normalization, symlinks, cancellation, retries,
+  machine removal, and behavior when a provider or host is unavailable. This
+  protects BB-managed activity, not uncooperative external filesystem users
+
 ## Rich plugin content for plugin-sent thread messages
 
 - **Status:** not filed
