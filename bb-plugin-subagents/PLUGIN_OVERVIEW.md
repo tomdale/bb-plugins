@@ -4,11 +4,11 @@ Give BB agents three small tools to create background subagents, check their pro
 
 ## Follow the work
 
-Open **Subagents** in a thread's side panel for a run list with live status badges and a summary line, each run opening its live, read-only transcript. The thread header carries a live Subagents button while runs work, and a sidebar glyph marks the original thread's row from anywhere in the sidebar. Completion sends a bounded result back to the calling agent, and finished worker runtimes are released promptly.
+Open **Subagents** in a thread's side panel for a hierarchical Active and Inactive subagent list with live one-sentence status summaries and provider/model/thinking specs, each subagent opening its live, read-only transcript. The thread header carries a live Subagents button while runs work, and a sidebar glyph marks the original thread's row from anywhere in the sidebar. Completion sends a bounded result back to the calling agent, and finished worker runtimes are released promptly.
 
-## Take over and hand back
+## Detach into a child thread
 
-Select **Take control** to promote a run into a normal interactive thread without losing its session or history. The calling agent is notified that the user controls it. **Return control** stops the session and sends its latest output back before returning you to the calling thread.
+Select **Detach subagent** to convert a background worker into a normal interactive child thread of its parent thread without losing its session or history.
 
 ## Native BB execution
 

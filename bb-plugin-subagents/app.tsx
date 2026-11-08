@@ -1,6 +1,6 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { SubagentsPanel } from "./src/panel.tsx";
-import { subagentsReturnControlAction, subagentsStatusAction } from "./src/header-actions.ts";
+import { subagentsStatusAction } from "./src/header-actions.ts";
 import { rowStatusScript } from "./src/row-status.ts";
 
 export default definePluginApp(app => {
@@ -16,6 +16,5 @@ export default definePluginApp(app => {
     component: SubagentsPanel,
   });
   app.slots.experimental_threadAction(subagentsStatusAction);
-  app.slots.experimental_threadAction(subagentsReturnControlAction);
   app.contentScripts.register(rowStatusScript);
 });

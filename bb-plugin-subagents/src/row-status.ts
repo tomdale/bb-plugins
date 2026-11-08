@@ -1,10 +1,9 @@
 import type { PluginContentScriptRegistration } from "@get-bb/plugin-sdk/app";
 
-/** One root thread's agent-working vs user-controlled active subagent counts. */
+/** One root thread's active background subagent count. */
 interface ActiveRoot {
   threadId: string;
   working: number;
-  userControlled: number;
 }
 
 const POLL_INTERVAL_MS = 5000;
@@ -14,10 +13,11 @@ function plural(count: number): string {
 }
 
 function statusFor(entry: ActiveRoot) {
-  if (entry.working > 0) {
-    return { icon: "Bot", label: `${entry.working} subagent${plural(entry.working)} running`, tone: "running" } as const;
-  }
-  return { icon: "Bot", label: `${entry.userControlled} subagent${plural(entry.userControlled)} in your control` } as const;
+  return {
+    icon: "Bot",
+    label: `${entry.working} subagent${plural(entry.working)} running`,
+    tone: "running",
+  } as const;
 }
 
 /**
@@ -43,13 +43,15 @@ export const rowStatusScript: PluginContentScriptRegistration = {
     };
     const poll = async () => {
       try {
-        const response = await fetch(`/api/v1/plugins/${context.pluginId}/http/active-rows`, { signal: context.signal });
+        const response = await fetch(`/api/v1/plugins/${context.pluginId}/http/active-rows`, {
+          signal: context.signal,
+        });
         if (!response.ok) return;
-        const data = await response.json() as { roots?: ActiveRoot[] };
+        const data = (await response.json()) as { roots?: ActiveRoot[] };
         if (stopped || context.signal.aborted) return;
         const seen = new Set<string>();
         for (const entry of Array.isArray(data.roots) ? data.roots : []) {
-          if (typeof entry?.threadId !== "string") continue;
+          if (typeof entry?.threadId !== "string" || !(entry.working > 0)) continue;
           seen.add(entry.threadId);
           setStatus(entry.threadId, statusFor(entry));
           active.add(entry.threadId);

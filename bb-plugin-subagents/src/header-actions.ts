@@ -4,13 +4,13 @@ import type { PluginThreadActionDataInput, PluginThreadActionRegistration } from
 import type { rpcContract, Run } from "./contracts.ts";
 import { summarizeRuns } from "./status.ts";
 
-type ThreadRuns = { runs: Run[]; promoted: Run | null };
+type ThreadRuns = { runs: Run[] };
 
 /**
  * Live run data for the threads whose headers are on screen. `useData` runs
  * once for the whole app rather than per thread, so the per-thread lists and
- * the rpc client (for `run` callbacks, which run outside React) both live
- * here; the plugin's realtime channel refreshes on every run change.
+ * the rpc client live here; the plugin's realtime channel refreshes on every
+ * run change.
  */
 export function useSubagentsHeaderData({ threadIds }: PluginThreadActionDataInput) {
   const rpc = useRpc<typeof rpcContract>();
@@ -20,9 +20,17 @@ export function useSubagentsHeaderData({ threadIds }: PluginThreadActionDataInpu
   const ids = threadIds.join(",");
   useEffect(() => {
     let current = true;
-    void Promise.all((ids ? ids.split(",") : []).map(async threadId => [threadId, await rpc.call("list", { threadId })] as const))
-      .then(entries => { if (current) setLists(Object.fromEntries(entries)); }, () => {});
-    return () => { current = false; };
+    void Promise.all(
+      (ids ? ids.split(",") : []).map(async threadId => [threadId, await rpc.call("list", { threadId })] as const),
+    ).then(
+      entries => {
+        if (current) setLists(Object.fromEntries(entries));
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
   }, [ids, refresh, rpc]);
   return { rpc, lists };
 }
@@ -41,41 +49,15 @@ export const subagentsStatusAction: PluginThreadActionRegistration<SubagentsHead
     const list = data?.lists[thread.id];
     if (!list) return null;
     const summary = summarizeRuns(list.runs);
-    const parts: string[] = [];
-    if (summary.working > 0) parts.push(`${summary.working} running`);
-    if (summary.userControlled > 0) parts.push(`${summary.userControlled} in your control`);
-    if (parts.length === 0) return null;
+    if (summary.working === 0) return null;
     return {
-      label: `Subagents · ${parts.join(" · ")}`,
+      label: `Subagents · ${summary.working} running`,
       icon: "Bot",
       run: () => {
         experimental_panel.openTab({
           tab: { id: "subagents", context: { kind: "thread" }, availability: "action" },
           params: { threadId: thread.id },
         });
-      },
-    };
-  },
-};
-
-/** Header button on a user-controlled worker thread; returns control to the calling agent. */
-export const subagentsReturnControlAction: PluginThreadActionRegistration<SubagentsHeaderData> = {
-  id: "return-control",
-  title: "Return control",
-  icon: "UserRound",
-  group: "subagents",
-  order: 10,
-  placement: "header",
-  useData: useSubagentsHeaderData,
-  item: ({ thread, data, navigate }) => {
-    const run = data?.lists[thread.id]?.promoted;
-    if (!run || run.control !== "user") return null;
-    return {
-      label: "Return control",
-      icon: "UserRound",
-      run: async () => {
-        const result = await data.rpc.call("returnControl", { id: run.id });
-        navigate.toThread(result.threadId);
       },
     };
   },
