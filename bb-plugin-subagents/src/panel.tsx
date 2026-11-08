@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ThreadChat, useBbNavigate } from "@get-bb/plugin-sdk/app";
+import {
+  experimental_ProviderIcon as ProviderIcon,
+  experimental_useProviders as useProviders,
+  ThreadChat,
+  useBbNavigate,
+  useSdk,
+} from "@get-bb/plugin-sdk/app";
 import type { ExperimentalThreadTabProps, JsonValue } from "@get-bb/plugin-sdk/app";
 import { Button } from "../components/ui/button.js";
 import { ScrollArea } from "../components/ui/scroll-area.js";
@@ -9,13 +15,14 @@ import type { Run } from "./contracts.ts";
 import {
   buildRunTrees,
   extractOneSentenceSummary,
-  modelLabel,
-  providerLabel,
+  formatModelDisplayName,
+  reasoningLevelLabel,
   runIsWorking,
   runStateNote,
   runStatusGlyph,
   runStatusLabel,
-  thinkingLabel,
+  splitModelLabelTag,
+  stripModelBrandPrefix,
   type RunTreeNode,
 } from "./status.ts";
 
@@ -35,27 +42,110 @@ function summaryForRun(run: Run): string {
   return extractOneSentenceSummary(run.output || run.error || run.task, run.title);
 }
 
-function RunSpecs({ run, padded }: { run: Run; padded?: boolean }) {
+type ProviderDirectory = ReturnType<typeof useProviders>["providers"];
+type CatalogModelLabels = ReadonlyMap<string, string>;
+
+/**
+ * Resolves model display names from BB's execution-options catalog when available,
+ * so routes like "vercel-ai-gateway/openai/gpt-6.1-sol" use their declared
+ * displayName ("GPT-6.1 Sol") alongside the slug formatter fallback.
+ */
+function useCatalogModelLabels(runs: readonly Run[]): CatalogModelLabels {
+  const sdk = useSdk();
+  const [labels, setLabels] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const providerIds = useMemo(
+    () => [...new Set(runs.map(run => run.providerId).filter((id): id is string => Boolean(id)))].sort().join(","),
+    [runs],
+  );
+  useEffect(() => {
+    const executionOptions = sdk?.system?.executionOptions;
+    if (!providerIds || typeof executionOptions !== "function") return;
+    let current = true;
+    void Promise.all(
+      providerIds.split(",").map(async providerId => {
+        try {
+          return await executionOptions({ providerId });
+        } catch {
+          return null;
+        }
+      }),
+    ).then(results => {
+      if (!current) return;
+      const next = new Map<string, string>();
+      for (const result of results) {
+        if (!result) continue;
+        for (const entry of [...(result.models ?? []), ...(result.selectedOnlyModels ?? [])]) {
+          if (entry.displayName) {
+            next.set(entry.model, entry.displayName);
+            const suffix = entry.model.split("/").pop();
+            if (suffix && !next.has(suffix)) next.set(suffix, entry.displayName);
+          }
+        }
+      }
+      setLabels(next);
+    });
+    return () => {
+      current = false;
+    };
+  }, [providerIds, sdk]);
+  return labels;
+}
+
+/**
+ * Standard BB provider icon + model display name + reasoning level line,
+ * matching BB's `ModelReasoningPicker` trigger presentation.
+ */
+function RunExecutionSummary({
+  run,
+  providers,
+  catalogLabels,
+  padded,
+}: {
+  run: Run;
+  providers: ProviderDirectory;
+  catalogLabels: CatalogModelLabels;
+  padded?: boolean;
+}) {
+  const providerId = run.providerId ?? "pi";
+  const provider = providers.find(entry => entry.id === providerId);
+  const brandPrefix = provider?.strings?.brandPrefix;
+  const catalogName =
+    (run.model ? catalogLabels.get(run.model) ?? catalogLabels.get(run.model.split("/").pop() ?? "") : undefined) ??
+    undefined;
+  const modelLabel = catalogName
+    ? stripModelBrandPrefix(catalogName, brandPrefix)
+    : formatModelDisplayName(run.model, brandPrefix);
+  const { base: modelBase, tag: modelTag } = splitModelLabelTag(modelLabel);
+  const reasoning = reasoningLevelLabel(run.reasoningLevel, provider?.reasoningLevels);
+
   return (
-    <span className={cn("flex flex-wrap items-center gap-1", padded && "mt-0.5 pl-[22px]")}>
-      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px] leading-3.5 text-muted-foreground">
-        {providerLabel(run.providerId)}
-      </span>
-      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px] leading-3.5 text-muted-foreground">
-        {modelLabel(run.model)}
-      </span>
-      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px] leading-3.5 text-muted-foreground">
-        {thinkingLabel(run.reasoningLevel)}
-      </span>
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 text-xs leading-tight text-muted-foreground",
+        padded && "mt-0.5 pl-[22px]",
+      )}
+    >
+      <ProviderIcon
+        providerKind="agent"
+        provider={provider ?? { id: providerId }}
+        className="size-4 shrink-0"
+      />
+      <span className="min-w-0 truncate">{modelBase}</span>
+      {modelTag ? <span className="shrink-0 text-subtle-foreground">{modelTag}</span> : null}
+      {reasoning ? <span className="shrink-0 text-subtle-foreground">{reasoning}</span> : null}
     </span>
   );
 }
 
 function RunTree({
   node,
+  providers,
+  catalogLabels,
   onSelect,
 }: {
   node: RunTreeNode;
+  providers: ProviderDirectory;
+  catalogLabels: CatalogModelLabels;
   onSelect: (id: string) => void;
 }) {
   const { run, children } = node;
@@ -88,12 +178,23 @@ function RunTree({
         <span className="pl-[22px] text-xs leading-[17px] text-muted-foreground [text-wrap:pretty]">
           {summaryForRun(run)}
         </span>
-        <RunSpecs run={run} padded />
+        <RunExecutionSummary
+          run={run}
+          providers={providers}
+          catalogLabels={catalogLabels}
+          padded
+        />
       </button>
       {children.length > 0 && (
         <div className="ml-[15px] flex flex-col gap-1 border-l border-border pl-2.5">
           {children.map(child => (
-            <RunTree key={child.run.id} node={child} onSelect={onSelect} />
+            <RunTree
+              key={child.run.id}
+              node={child}
+              providers={providers}
+              catalogLabels={catalogLabels}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}
@@ -103,6 +204,8 @@ function RunTree({
 
 export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { params: JsonValue | null }) {
   const { runs, error, report, rpc, refresh } = useRuns(threadId);
+  const { providers } = useProviders();
+  const catalogLabels = useCatalogModelLabels(runs);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [pendingFocus, setPendingFocus] = useState<"detail" | "list" | null>(null);
@@ -180,7 +283,13 @@ export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { para
                     Active
                   </div>
                   {activeTrees.map(node => (
-                    <RunTree key={node.run.id} node={node} onSelect={selectRun} />
+                    <RunTree
+                      key={node.run.id}
+                      node={node}
+                      providers={providers}
+                      catalogLabels={catalogLabels}
+                      onSelect={selectRun}
+                    />
                   ))}
                 </div>
               )}
@@ -190,7 +299,13 @@ export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { para
                     Inactive
                   </div>
                   {inactiveTrees.map(node => (
-                    <RunTree key={node.run.id} node={node} onSelect={selectRun} />
+                    <RunTree
+                      key={node.run.id}
+                      node={node}
+                      providers={providers}
+                      catalogLabels={catalogLabels}
+                      onSelect={selectRun}
+                    />
                   ))}
                 </div>
               )}
@@ -248,7 +363,11 @@ export function SubagentsPanel({ threadId }: ExperimentalThreadTabProps & { para
               </span>
               <span>{relativeAge(selected.createdAt)}</span>
             </div>
-            <RunSpecs run={selected} />
+            <RunExecutionSummary
+              run={selected}
+              providers={providers}
+              catalogLabels={catalogLabels}
+            />
             {childRuns.length > 0 && (
               <div
                 role="group"

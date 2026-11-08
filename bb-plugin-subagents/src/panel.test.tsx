@@ -45,7 +45,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
 });
 
-it("opens on the Active then Inactive list view with status summaries, execution chips, and tree hierarchy without depth numbers", async () => {
+it("opens on the Active then Inactive list view with status summaries, standard BB provider/model/reasoning UI, and tree hierarchy without depth numbers", async () => {
   const app = await loadPluginApp(() => import("../app.tsx"));
   const now = Date.now();
   const slot = renderSlot(
@@ -61,8 +61,8 @@ it("opens on the Active then Inactive list view with status summaries, execution
               threadId: "parent-thread",
               status: "running",
               providerId: "pi",
-              model: "claude-opus-4-6",
-              reasoningLevel: "high",
+              model: "vercel-ai-gateway/openai/gpt-6.1-sol",
+              reasoningLevel: "medium",
               statusSummary: "Verified 12 of 14 mutating API routes.",
               createdAt: now - 60_000,
             }),
@@ -86,7 +86,7 @@ it("opens on the Active then Inactive list view with status summaries, execution
               status: "timed-out",
               providerId: "codex",
               model: "gpt-5.4",
-              reasoningLevel: "medium",
+              reasoningLevel: "high",
               statusSummary: "Stalled waiting for the Vitest port lock.",
               error: "Subagent timeout exceeded (600s).",
               createdAt: now - 12 * 60_000,
@@ -105,19 +105,21 @@ it("opens on the Active then Inactive list view with status summaries, execution
   expect(activeGroup.textContent).toContain("List unguarded webhook routes");
   expect(inactiveGroup.textContent).toContain("Run legacy cookie suite");
 
-  // Status summaries and provider/model/thinking specs render on rows
+  // Status summaries and standard BB provider icon + model display name + reasoning level
   expect(slot.getByText("Verified 12 of 14 mutating API routes.")).toBeTruthy();
   expect(slot.getByText("Confirmed both webhook endpoints verify HMAC signatures.")).toBeTruthy();
-  expect(slot.getAllByText("Pi").length).toBeGreaterThanOrEqual(2);
-  expect(slot.getByText("Codex")).toBeTruthy();
-  expect(slot.getByText("claude-opus-4-6")).toBeTruthy();
-  expect(slot.getByText("gpt-5.4")).toBeTruthy();
-  expect(slot.getByText("thinking: high")).toBeTruthy();
-  expect(slot.getByText("thinking: low")).toBeTruthy();
-  expect(slot.getByText("thinking: medium")).toBeTruthy();
+  expect(slot.container.querySelectorAll('[data-provider-id="pi"]').length).toBe(2);
+  expect(slot.container.querySelectorAll('[data-provider-id="codex"]').length).toBe(1);
+  expect(slot.getByText("GPT-6.1 Sol")).toBeTruthy();
+  expect(slot.getByText("Claude Haiku 4.5")).toBeTruthy();
+  expect(slot.getByText("GPT-5.4")).toBeTruthy();
+  expect(slot.getByText("Medium")).toBeTruthy();
+  expect(slot.getByText("Low")).toBeTruthy();
+  expect(slot.getByText("High")).toBeTruthy();
 
-  // Never renders numeric depth labels
+  // Never renders numeric depth labels or "thinking:" prefix
   expect(slot.queryByText(/depth\s+\d/i)).toBeNull();
+  expect(slot.queryByText(/thinking:/i)).toBeNull();
   // Initial view is the list, not the transcript
   expect(slot.queryByTestId("bb-thread-chat")).toBeNull();
 });

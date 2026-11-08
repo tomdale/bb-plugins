@@ -58,28 +58,85 @@ export function runStateNote(run: Pick<Run, "status">): string {
   }
 }
 
-const KNOWN_PROVIDERS: Readonly<Record<string, string>> = {
-  pi: "Pi",
-  codex: "Codex",
-  "claude-code": "Claude Code",
-  acp: "ACP",
-  fx: "FX",
+export function stripModelBrandPrefix(label: string, brandPrefix?: string): string {
+  if (!brandPrefix) return label;
+  return label.toLowerCase().startsWith(brandPrefix.toLowerCase())
+    ? label.slice(brandPrefix.length).trimStart()
+    : label;
+}
+
+export function splitModelLabelTag(label: string): { base: string; tag: string | null } {
+  const match = label.match(/^(.*\S)\s*\(([^()]+)\)$/u);
+  if (!match) return { base: label, tag: null };
+  return { base: match[1]!, tag: match[2]! };
+}
+
+/**
+ * Formats a model identifier or display name the way BB's model picker trigger
+ * shows it (for example "gpt-6.1-sol" -> "GPT-6.1 Sol", "claude-opus-4-6" -> "Claude Opus 4.6").
+ */
+export function formatModelDisplayName(
+  model: string | null | undefined,
+  brandPrefix?: string,
+): string {
+  const raw = model?.trim();
+  if (!raw) return "Default model";
+  if (raw.includes(" ")) return stripModelBrandPrefix(raw, brandPrefix);
+  const slug = raw.split("/").pop() || raw;
+  const parts = slug.split("-");
+  const formattedParts = parts.map(part => {
+    if (part.toLowerCase() === "gpt") return "GPT";
+    if (/^\d+(\.\d+)*$/.test(part)) return part;
+    if (/^[a-z]+$/i.test(part)) {
+      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
+    }
+    return part;
+  });
+
+  // Join "GPT" + version with a hyphen ("GPT-6.1 Sol", "GPT-5.4"), and join
+  // trailing numeric version segments on Claude/other models with "." ("Claude Opus 4.6").
+  const tokens: string[] = [];
+  for (let i = 0; i < formattedParts.length; i++) {
+    const current = formattedParts[i]!;
+    const prev = tokens[tokens.length - 1];
+    if (prev === "GPT" && /^\d/.test(current)) {
+      tokens[tokens.length - 1] = `GPT-${current}`;
+    } else if (prev && /^\d+$/.test(prev) && /^\d+$/.test(current)) {
+      tokens[tokens.length - 1] = `${prev}.${current}`;
+    } else {
+      tokens.push(current);
+    }
+  }
+  return stripModelBrandPrefix(tokens.join(" "), brandPrefix);
+}
+
+const STANDARD_REASONING_LABELS: Readonly<Record<string, string>> = {
+  none: "None",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  ultracode: "Ultracode",
+  max: "Max",
+  ultra: "Ultra",
 };
 
-export function providerLabel(providerId: string | null | undefined): string {
-  if (!providerId) return "Default provider";
-  return KNOWN_PROVIDERS[providerId] ?? providerId;
-}
-
-export function modelLabel(model: string | null | undefined): string {
-  if (!model) return "default model";
-  const parts = model.split("/");
-  return parts[parts.length - 1] || model;
-}
-
-export function thinkingLabel(reasoningLevel: string | null | undefined): string {
-  const level = reasoningLevel?.trim() || "default";
-  return `thinking: ${level}`;
+export function reasoningLevelLabel(
+  level: string | null | undefined,
+  declaredLevels?: readonly { id: string; label?: string }[],
+  effortLabel?: string,
+): string | null {
+  const raw = level?.trim();
+  if (!raw) return null;
+  if (effortLabel) return effortLabel;
+  const declared = declaredLevels?.find(option => option.id === raw);
+  if (declared?.label) return declared.label;
+  const standard = STANDARD_REASONING_LABELS[raw.toLowerCase()];
+  if (standard) return standard;
+  const words = raw.split(/[\s_-]+/u).filter(Boolean);
+  return words.length === 0
+    ? raw
+    : words.map(word => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(" ");
 }
 
 /**
