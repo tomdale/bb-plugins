@@ -15,6 +15,8 @@ const section = (from, to) =>
 
 const scope = section("1. Scope and classify the handoff", "2. Spawn the successor");
 const spawn = section("2. Spawn the successor", "3. Finish this thread's part");
+const description = flat(skill.split("---")[1] ?? "");
+assert.ok(description, "frontmatter description exists");
 const finish = skill.split("## 3. Finish this thread's part\n")[1];
 assert.ok(scope, "scope section exists");
 assert.ok(spawn, "spawn section exists");
@@ -31,16 +33,22 @@ test("classification separates a primary-task takeover from tangential delegatio
   assert.match(scope, /Ask the user when the split does not settle it/);
 });
 
-test("a two-item instruction moves only the item the handoff phrase names", () => {
+test("the description triggers on the handoff tokens", () => {
+  assert.match(description, /Use when a message contains `\$handoff` or `\/handoff`/);
+  assert.match(description, /when asked to hand off/);
+});
+
+test("a two-item instruction moves only the item the handoff phrase introduces", () => {
   assert.match(scope, /List its work items and give each an owner: the successor, or this thread/);
-  assert.match(scope, /The phrase that hands work off .* names the item or items that move/);
-  assert.match(scope, /Sequencing words around that phrase name the items that stay: "before beginning", "first … then", "while I …", "after that"/);
-  assert.match(scope, /Work the same message asks for beside the handoff phrase stays here/);
+  assert.match(scope, /The phrase that hands work off .* owns the item it introduces: everything after the phrase, up to the next instruction or the end of the message/);
+  assert.match(scope, /"This task" and "the task below" name that introduced item, not the rest of the message/);
+  assert.match(scope, /Sequencing words around the phrase name the items that stay: "before beginning", "first … then", "while I …", "after that"/);
+  assert.match(scope, /Work the message asks for anywhere else stays here/);
 });
 
 test("an ambiguous split goes to the user before anything is spawned", () => {
-  assert.match(scope, /Ask the user which items move when the handoff phrase could attach to more than one/);
-  assert.match(scope, /when the instruction could hand off one item or all of them/);
+  assert.match(scope, /Ask the user which items move when the phrase introduces no item/);
+  assert.match(scope, /message draws no clear boundary between the item it introduces and work that stays/);
   assert.match(scope, /State the split in one line before spawning/);
 });
 

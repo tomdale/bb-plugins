@@ -7,10 +7,10 @@ Codex, Claude Code, Pi, and any other provider.
 `/handoff <instructions>` tells the agent to move work into a new BB thread and
 says what happens to the thread it leaves behind:
 
-- The instruction's work is split first: the items the handoff phrase names move
-  and work the message asks for beside it stays in the source thread. The agent
-  states the split in one line before spawning, and asks first when it could go
-  either way.
+- The instruction's work is split first: the handoff phrase owns the item it
+  introduces, and work the message asks for elsewhere stays in the source
+  thread. The agent states the split in one line before spawning, and asks first
+  when the boundary is unclear.
 - A **continuation** handoff starts the successor in the current environment, so
   uncommitted edits and the branch carry over untouched.
 - Any **other** handoff creates a new Workforest worktree (`wf new <slug>

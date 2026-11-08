@@ -4,8 +4,9 @@ description:
   Hand work off to a new BB thread, in its own Workforest worktree for new work
   or in this thread's environment when it continues the work in progress, then
   either stay on this thread's own task or publish, clean up, and archive this
-  thread. Use when asked to hand off, to move work into a new thread, to clear
-  this thread while the work continues elsewhere, or to delegate a side task.
+  thread. Use when a message contains `$handoff` or `/handoff`, when asked to
+  hand off, to move work into a new thread, to clear this thread while the work
+  continues elsewhere, or to delegate a side task.
 ---
 
 # Hand off to a new thread
@@ -19,13 +20,19 @@ The instruction names work. List its work items and give each an owner: the
 successor, or this thread.
 
 The phrase that hands work off — "hand off this task", "`$handoff <task>`" —
-names the item or items that move. Sequencing words around that phrase name the
-items that stay: "before beginning", "first … then", "while I …", "after that".
-Work the same message asks for beside the handoff phrase stays here.
+owns the item it introduces: everything after the phrase, up to the next
+instruction or the end of the message, whether that is one sentence, a list, or
+a block of settings. "This task" and "the task below" name that introduced
+item, not the rest of the message.
 
-Ask the user which items move when the handoff phrase could attach to more than
-one, and when the instruction could hand off one item or all of them. State the
-split in one line before spawning: `<item> → successor; <item> → this thread`.
+Sequencing words around the phrase name the items that stay: "before beginning",
+"first … then", "while I …", "after that". Work the message asks for anywhere
+else stays here.
+
+Ask the user which items move when the phrase introduces no item, or when the
+message draws no clear boundary between the item it introduces and work that
+stays. State the split in one line before spawning: `<item> → successor; <item>
+→ this thread`.
 
 Continuation: the successor carries on the work in progress here. It attaches
 to this environment with `--environment "$BB_ENVIRONMENT_ID"`, so uncommitted
