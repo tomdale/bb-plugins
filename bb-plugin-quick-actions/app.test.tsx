@@ -14,6 +14,7 @@ vi.mock("sonner", () => ({
 }));
 
 const app = await loadPluginApp(() => import("./app"));
+const { QuickActionsOverlay } = await import("./app");
 const THREAD_ID = "thr_test";
 const PROJECT_ID = "proj_test";
 let now = 0;
@@ -182,6 +183,251 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
+  it("keeps the trigger mounted when thread actions are unavailable", async () => {
+    const thread = makeThreadResponse({
+      id: THREAD_ID,
+      projectId: PROJECT_ID,
+      archivedAt: 1,
+    });
+    const slot = renderSlot(
+      { component: QuickActionsOverlay },
+      { threadId: THREAD_ID },
+      {
+        context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        sdk: { threads: { get: async () => thread } },
+        threadActions: () => [],
+      },
+    );
+    const trigger = await slot.findByRole("button", {
+      name: "Open quick actions",
+    });
+    expect(trigger).toHaveAttribute("aria-disabled", "true");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(document.querySelector(".qa-menu")).toHaveAttribute(
+      "aria-busy",
+      "false",
+    );
+    expect(document.querySelector(".qa-menu")).toHaveAttribute(
+      "data-can-open",
+      "false",
+    );
+    slot.lifecycle.unmount();
+  });
+
+  it("keeps the same trigger mounted and disables it during navigation", async () => {
+    const firstThread = makeThreadResponse({
+      id: THREAD_ID,
+      projectId: PROJECT_ID,
+    });
+    const secondThread = makeThreadResponse({
+      id: "thr_second",
+      projectId: PROJECT_ID,
+    });
+    let resolveSecond: ((thread: typeof secondThread) => void) | undefined;
+    const secondResult = new Promise<typeof secondThread>((resolve) => {
+      resolveSecond = resolve;
+    });
+    const run = vi.fn(async () => undefined);
+    const entries = [
+      actionEntry("bb--core/archive", "Archive", run),
+      actionEntry("bb--core/pin", "Pin", run),
+      actionEntry("bb--core/read", "Mark unread", run),
+      actionEntry("bb--core/copyLink", "Copy link", run),
+    ];
+    const slot = renderSlot(
+      { component: QuickActionsOverlay },
+      { threadId: THREAD_ID },
+      {
+        context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        settings: { corner: "bottom-left", motion: "ring" },
+        sdk: {
+          threads: {
+            get: async ({ threadId }: { threadId: string }) =>
+              threadId === THREAD_ID ? firstThread : secondResult,
+          },
+        },
+        threadActions: () => entries,
+      },
+    );
+    const trigger = await slot.findByRole("button", {
+      name: "Open quick actions",
+    });
+    await openMenu(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    const oldArchive = slot.getByRole("button", { name: "Archive" });
+    await act(async () => trigger.focus());
+    const user = userEvent.setup();
+    await user.tab();
+    expect(oldArchive).toHaveFocus();
+
+    slot.lifecycle.rerender(<QuickActionsOverlay threadId="thr_second" />);
+
+    expect(
+      slot.getByRole("button", { name: "Open quick actions" }),
+    ).toBe(trigger);
+    expect(trigger).toHaveAttribute("aria-disabled", "true");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+    expect(document.getElementById("qa-actions")).toHaveAttribute("inert", "");
+    fireEvent.pointerEnter(trigger);
+    fireEvent.click(oldArchive);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(run).not.toHaveBeenCalled();
+
+    resolveSecond?.(secondThread);
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-disabled", "false"),
+    );
+    expect(document.querySelector(".qa-menu")).toHaveAttribute(
+      "data-can-open",
+      "true",
+    );
+    expect(slot.inspection.sdkCalls.flatMap((call) => call.args)).toContainEqual(
+      expect.objectContaining({ threadId: "thr_second" }),
+    );
+    slot.lifecycle.unmount();
+  });
+
+  it("ignores a stale Snooze summary after navigation", async () => {
+    const firstThread = makeThreadResponse({
+      id: THREAD_ID,
+      projectId: PROJECT_ID,
+    });
+    const secondThread = makeThreadResponse({
+      id: "thr_second",
+      projectId: PROJECT_ID,
+    });
+    type Summary = {
+      nonDeletedChildCount: number;
+      unarchivedDescendantCount: number;
+    };
+    let resolveSummary: ((summary: Summary) => void) | undefined;
+    const summary = new Promise<Summary>((resolve) => {
+      resolveSummary = resolve;
+    });
+    const snooze = vi.fn(async () => ({
+      threadId: THREAD_ID,
+      wakeAt: Date.UTC(2026, 10, 10, 9),
+    }));
+    const run = vi.fn(async () => undefined);
+    const slot = renderSlot(
+      { component: QuickActionsOverlay },
+      { threadId: THREAD_ID },
+      {
+        context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        sdk: {
+          threads: {
+            get: async ({ threadId }: { threadId: string }) =>
+              threadId === THREAD_ID ? firstThread : secondThread,
+            childSummary: async () => summary,
+          },
+        },
+        threadActions: () => [
+          actionEntry("bb--core/archive", "Archive", run),
+          actionEntry("bb--core/pin", "Pin", run),
+          actionEntry("bb--core/read", "Mark unread", run),
+          actionEntry("bb--core/copyLink", "Copy link", run),
+        ],
+        rpc: { snooze },
+      },
+    );
+    const trigger = await slot.findByRole("button", {
+      name: "Open quick actions",
+    });
+    await openMenu(trigger);
+    const user = userEvent.setup();
+    await user.click(slot.getByRole("button", { name: "Snooze" }));
+    await waitFor(() =>
+      expect(
+        slot.inspection.sdkCalls.some(
+          (call) => call.method === "threads.childSummary",
+        ),
+      ).toBe(true),
+    );
+
+    slot.lifecycle.rerender(<QuickActionsOverlay threadId="thr_second" />);
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-disabled", "false"),
+    );
+    await act(async () => {
+      resolveSummary?.({
+        nonDeletedChildCount: 2,
+        unarchivedDescendantCount: 2,
+      });
+      await summary;
+    });
+
+    expect(slot.queryByRole("alertdialog")).toBeNull();
+    expect(snooze).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(document.querySelector(".qa-menu")).toHaveAttribute(
+        "aria-busy",
+        "false",
+      ),
+    );
+    slot.lifecycle.unmount();
+  });
+
+  it("holds the pending action lock across navigation", async () => {
+    const firstThread = makeThreadResponse({
+      id: THREAD_ID,
+      projectId: PROJECT_ID,
+    });
+    const secondThread = makeThreadResponse({
+      id: "thr_second",
+      projectId: PROJECT_ID,
+    });
+    let finishFirst: (() => void) | undefined;
+    const firstPending = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const firstRun = vi.fn(() => firstPending);
+    const secondRun = vi.fn(async () => undefined);
+    const slot = renderSlot(
+      { component: QuickActionsOverlay },
+      { threadId: THREAD_ID },
+      {
+        context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        sdk: {
+          threads: {
+            get: async ({ threadId }: { threadId: string }) =>
+              threadId === THREAD_ID ? firstThread : secondThread,
+          },
+        },
+        threadActions: (target) => [
+          actionEntry(
+            "bb--core/pin",
+            "Pin",
+            target.id === THREAD_ID ? firstRun : secondRun,
+          ),
+        ],
+      },
+    );
+    const trigger = await slot.findByRole("button", {
+      name: "Open quick actions",
+    });
+    await openMenu(trigger);
+    const user = userEvent.setup();
+    await user.click(slot.getByRole("button", { name: "Pin" }));
+    expect(firstRun).toHaveBeenCalledOnce();
+
+    slot.lifecycle.rerender(<QuickActionsOverlay threadId="thr_second" />);
+    await waitFor(() =>
+      expect(trigger).toHaveAttribute("aria-disabled", "false"),
+    );
+    await openMenu(trigger);
+    const secondPin = slot.getByRole("button", { name: "Pin" });
+    expect(secondPin).toBeDisabled();
+    await user.click(secondPin);
+    expect(secondRun).not.toHaveBeenCalled();
+
+    finishFirst?.();
+    await waitFor(() => expect(secondPin).not.toBeDisabled());
+    await user.click(secondPin);
+    expect(secondRun).toHaveBeenCalledOnce();
+    slot.lifecycle.unmount();
+  });
+
   it("uses configured motion and corner", async () => {
     const { slot } = await renderQuickActions({
       settings: { corner: "top-right", motion: "arc" },
@@ -227,6 +473,34 @@ describe("Quick Actions overlay", () => {
     expect(menu).toHaveAttribute("data-motion", "ring");
   });
 
+  it("reanchors a title-bar-safe trigger when the footer mounts late", async () => {
+    const { slot } = await renderQuickActions({
+      settings: { corner: "top-left", motion: "ring" },
+    });
+    const menu = document.querySelector<HTMLElement>(".qa-menu");
+    expect(menu?.style.left).toBe("16px");
+    expect(menu?.style.top).toBe("112px");
+
+    const footer = document.createElement("div");
+    footer.setAttribute("data-scroll-footer", "");
+    footer.getBoundingClientRect = () =>
+      ({
+        left: 320,
+        right: 1100,
+        top: 517,
+      }) as DOMRect;
+    document.body.append(footer);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await advance(40);
+
+    expect(menu?.style.left).toBe("336px");
+    expect(menu?.style.top).toBe("112px");
+    slot.lifecycle.unmount();
+    footer.remove();
+  });
+
   it("anchors to the thread footer and follows observed resizing", async () => {
     const footerRect = { left: 320, right: 1100, top: 517 };
     const windowRect = { top: 0, bottom: 800 };
@@ -267,9 +541,27 @@ describe("Quick Actions overlay", () => {
     footerRect.left = 400;
     footerRect.top = 567;
     await act(async () => resizeObserverCallback?.());
+    await advance(40);
     expect(menu?.style.left).toBe("416px");
     expect(menu?.style.top).toBe("507px");
     slot.lifecycle.unmount();
+    threadWindow.remove();
+  });
+
+  it("cancels a scheduled anchor update on unmount", async () => {
+    const { slot } = await renderQuickActions();
+    await advance(40);
+    expect(frames.size).toBe(0);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+      resizeObserverCallback?.();
+    });
+    expect(frames.size).toBe(1);
+
+    slot.lifecycle.unmount();
+
+    expect(frames.size).toBe(0);
+    await advance(40);
   });
 
   it("runs BB's native thread actions", async () => {

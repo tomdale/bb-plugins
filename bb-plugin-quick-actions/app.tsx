@@ -147,39 +147,73 @@ function useAnimationClock() {
   return { time, play };
 }
 
-function useMenuPosition(corner: Corner): CSSProperties {
+function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
   const [position, setPosition] = useState<CSSProperties>(() => ({
     left: 16,
-    top: corner.startsWith("top") ? 64 : window.innerHeight - 60,
+    top: corner.startsWith("top") ? 112 : window.innerHeight - 60,
   }));
 
   useLayoutEffect(() => {
-    const footer = document.querySelector<HTMLElement>("[data-scroll-footer]");
-    const threadWindow = footer?.closest<HTMLElement>("[data-thread-window]");
+    let footer: HTMLElement | null = null;
+    let threadWindow: HTMLElement | null = null;
+    let frame: number | null = null;
+    const observer =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(() => scheduleUpdate())
+        : null;
     const update = () => {
+      frame = null;
+      const nextFooter =
+        document.querySelector<HTMLElement>("[data-scroll-footer]");
+      const nextThreadWindow =
+        nextFooter?.closest<HTMLElement>("[data-thread-window]") ?? null;
+      if (nextFooter !== footer || nextThreadWindow !== threadWindow) {
+        observer?.disconnect();
+        footer = nextFooter;
+        threadWindow = nextThreadWindow;
+        if (footer) observer?.observe(footer);
+        if (threadWindow) observer?.observe(threadWindow);
+      }
       const footerRect = footer?.getBoundingClientRect();
       const windowRect = threadWindow?.getBoundingClientRect();
       const leftEdge = footerRect?.left ?? 0;
       const rightEdge = footerRect?.right ?? window.innerWidth;
-      const topEdge = (windowRect?.top ?? 0) + 64;
+      const topEdge = (windowRect?.top ?? 48) + 64;
       const bottomCornerTop =
         (footerRect?.top ?? windowRect?.bottom ?? window.innerHeight) - 60;
-      setPosition({
+      const next = {
         left: corner.endsWith("right") ? rightEdge - 60 : leftEdge + 16,
         top: corner.startsWith("top") ? topEdge : bottomCornerTop,
-      });
+      };
+      setPosition((current) =>
+        current.left === next.left && current.top === next.top ? current : next,
+      );
+    };
+    const scheduleUpdate = () => {
+      if (frame === null) frame = requestAnimationFrame(update);
     };
     update();
-    const observer =
-      typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
-    if (footer) observer?.observe(footer);
-    if (threadWindow) observer?.observe(threadWindow);
-    window.addEventListener("resize", update);
+    const mutations =
+      typeof MutationObserver === "function"
+        ? new MutationObserver(() => {
+            const nextFooter =
+              document.querySelector<HTMLElement>("[data-scroll-footer]");
+            const nextThreadWindow =
+              nextFooter?.closest<HTMLElement>("[data-thread-window]") ?? null;
+            if (nextFooter !== footer || nextThreadWindow !== threadWindow) {
+              scheduleUpdate();
+            }
+          })
+        : null;
+    mutations?.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", scheduleUpdate);
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      mutations?.disconnect();
       observer?.disconnect();
-      window.removeEventListener("resize", update);
+      window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [corner]);
+  }, [corner, threadId]);
 
   return position;
 }
@@ -207,20 +241,31 @@ function coreItem(
   };
 }
 
-function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
+function QuickActionsMenu({
+  thread,
+  targetThreadId,
+  threadReady,
+}: {
+  thread: PluginThreadActionTarget;
+  targetThreadId: string;
+  threadReady: boolean;
+}) {
   const settings = useSettings();
   const corner = sanitizeCorner(settings.values?.corner);
   const motion = sanitizeMotion(settings.values?.motion);
   const debugRegions = settings.values?.debugRegions === true;
   const reducedMotion = useReducedMotion();
   const { time, play } = useAnimationClock();
-  const position = useMenuPosition(corner);
+  const position = useMenuPosition(corner, targetThreadId);
   const rpc = useRpc<typeof rpcContract>();
   const sdk = useSdk();
   const navigate = useBbNavigate();
   const { threadId: routeThreadId } = useBbContext();
   const routeThreadIdRef = useRef(routeThreadId);
   routeThreadIdRef.current = routeThreadId;
+  const targetThreadIdRef = useRef(targetThreadId);
+  targetThreadIdRef.current = targetThreadId;
+  const restoringFocusRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -228,9 +273,14 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
       mountedRef.current = false;
     };
   }, []);
-  const [snoozeDialog, setSnoozeDialog] = useState({
+  const [snoozeDialog, setSnoozeDialog] = useState<{
+    open: boolean;
+    childCount: number;
+    thread: PluginThreadActionTarget | null;
+  }>({
     open: false,
     childCount: 0,
+    thread: null,
   });
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
@@ -254,10 +304,11 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
   useEffect(() => cancelScheduledClose, [cancelScheduledClose]);
 
   const open = useCallback(() => {
+    if (!threadReady || settings.isLoading) return;
     cancelScheduledClose();
     setRequestedOpen(true);
     play(1);
-  }, [cancelScheduledClose, play]);
+  }, [cancelScheduledClose, play, settings.isLoading, threadReady]);
   const close = useCallback(() => {
     if (pinned) return;
     cancelScheduledClose();
@@ -275,8 +326,27 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
     play(-1);
   }, [cancelScheduledClose, play]);
 
-  const executeSnooze = async () => {
-    const result = await rpc.call("snooze", { threadId: thread.id });
+  useEffect(() => {
+    const menu = triggerRef.current?.closest(".qa-menu");
+    const focused = document.activeElement;
+    if (
+      focused instanceof HTMLElement &&
+      focused !== triggerRef.current &&
+      menu?.contains(focused)
+    ) {
+      restoringFocusRef.current = true;
+      triggerRef.current?.focus({ preventScroll: true });
+      restoringFocusRef.current = false;
+    }
+    cancelScheduledClose();
+    setPinned(false);
+    setRequestedOpen(false);
+    setSnoozeDialog({ open: false, childCount: 0, thread: null });
+    play(-1);
+  }, [cancelScheduledClose, play, targetThreadId]);
+
+  const executeSnooze = async (target: PluginThreadActionTarget) => {
+    const result = await rpc.call("snooze", { threadId: target.id });
     toast.success(
       `Snoozed until ${new Intl.DateTimeFormat(undefined, {
         weekday: "short",
@@ -284,8 +354,8 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
         minute: "2-digit",
       }).format(result.wakeAt)}`,
     );
-    if (mountedRef.current && routeThreadIdRef.current === thread.id) {
-      navigate.toCompose({ projectId: thread.projectId });
+    if (mountedRef.current && routeThreadIdRef.current === target.id) {
+      navigate.toCompose({ projectId: target.projectId });
     }
   };
 
@@ -300,14 +370,16 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
             const summary = await sdk.threads.childSummary({
               threadId: thread.id,
             });
+            if (targetThreadIdRef.current !== thread.id) return;
             if (summary.unarchivedDescendantCount > 0) {
               setSnoozeDialog({
                 open: true,
                 childCount: summary.unarchivedDescendantCount,
+                thread,
               });
               return;
             }
-            await executeSnooze();
+            await executeSnooze(thread);
           },
         }
       : null,
@@ -316,10 +388,10 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
     coreItem(entries, "bb--core/copyLink"),
   ].filter((item): item is QuickActionItem => item !== null);
 
-  if (settings.isLoading || actions.length === 0) return null;
+  const canOpen = threadReady && !settings.isLoading && actions.length > 0;
 
   const activate = async (item: QuickActionItem) => {
-    if (pending) return;
+    if (pending || !canOpen) return;
     setPending(item.id);
     closeAndFocus();
     try {
@@ -336,11 +408,12 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
   };
 
   const confirmSnooze = async () => {
-    if (pending) return;
+    if (pending || !snoozeDialog.thread) return;
+    const target = snoozeDialog.thread;
     setPending("snooze");
     setSnoozeDialog((current) => ({ ...current, open: false }));
     try {
-      await executeSnooze();
+      await executeSnooze(target);
     } catch (cause) {
       toast.error(
         `Snooze failed: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -361,11 +434,14 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
           data-motion={motion}
           data-debug={debugRegions ? "true" : "false"}
           data-open={isOpen ? "true" : "false"}
+          data-can-open={canOpen ? "true" : "false"}
           style={position}
           role="group"
           aria-label="Quick actions"
-          aria-busy={pending !== null}
-          onPointerEnter={open}
+          aria-busy={!threadReady || settings.isLoading || pending !== null}
+          onPointerEnter={() => {
+            if (canOpen) open();
+          }}
           onPointerLeave={(event) => {
             if (!event.currentTarget.contains(document.activeElement)) close();
           }}
@@ -410,8 +486,12 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
             }
             aria-expanded={requestedOpen}
             aria-controls="qa-actions"
-            onFocus={open}
+            aria-disabled={!canOpen}
+            onFocus={() => {
+              if (!restoringFocusRef.current && canOpen) open();
+            }}
             onClick={() => {
+              if (!canOpen) return;
               if (isOpen && pinned) {
                 setPinned(false);
                 setRequestedOpen(false);
@@ -429,7 +509,11 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
               }}
             />
           </Button>
-          <div id="qa-actions" className="qa-actions" inert={!requestedOpen}>
+          <div
+            id="qa-actions"
+            className="qa-actions"
+            inert={!requestedOpen || !canOpen}
+          >
             {actions.map((item, index) => {
               const frame = actionFrame({
                 motion,
@@ -450,7 +534,7 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
                     data-active={activeAction === item.id ? "true" : "false"}
                     aria-label={item.label}
                     disabled={item.disabled || pending !== null}
-                    tabIndex={requestedOpen ? 0 : -1}
+                    tabIndex={requestedOpen && canOpen ? 0 : -1}
                     onPointerEnter={() => setActiveAction(item.id)}
                     onPointerLeave={() =>
                       setActiveAction((current) =>
@@ -515,6 +599,7 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
   const sdk = useSdk();
   const sidebar = experimental_useSidebarThreads();
   const [fetched, setFetched] = useState<PluginThreadActionTarget | null>(null);
+  const previousThreadRef = useRef<PluginThreadActionTarget | null>(null);
   const listed = sidebar.threads.find((thread) => thread.id === threadId);
   const listedPresent = listed !== undefined;
   useEffect(() => {
@@ -558,7 +643,7 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
     listed?.isUnread,
     listed?.pinnedAt,
   ]);
-  const thread: PluginThreadActionTarget | null = listed
+  const currentThread: PluginThreadActionTarget | null = listed
     ? {
         id: listed.id,
         projectId: listed.projectId,
@@ -573,15 +658,26 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
           ? { id: listed.environment.id, path: listed.environment.path }
           : null,
       }
-    : fetched;
-  return thread ? <QuickActionsMenu thread={thread} /> : null;
+    : fetched?.id === threadId
+      ? fetched
+      : null;
+  if (currentThread) previousThreadRef.current = currentThread;
+  const displayThread = currentThread ?? previousThreadRef.current;
+  return displayThread ? (
+    <QuickActionsMenu
+      thread={displayThread}
+      targetThreadId={threadId}
+      threadReady={currentThread !== null}
+    />
+  ) : null;
 }
 
-function QuickActionsOverlay() {
-  const { threadId } = useBbContext();
-  return threadId ? (
-    <ThreadQuickActions key={threadId} threadId={threadId} />
-  ) : null;
+export function QuickActionsOverlay({
+  threadId: providedThreadId,
+}: { threadId?: string } = {}) {
+  const context = useBbContext();
+  const threadId = providedThreadId ?? context.threadId;
+  return threadId ? <ThreadQuickActions threadId={threadId} /> : null;
 }
 
 export default definePluginApp((app) => {
