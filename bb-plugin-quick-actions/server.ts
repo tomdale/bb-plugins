@@ -327,11 +327,11 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.events.on("thread.unarchived", ({ thread }) => {
     void enqueue(async () => {
+      if (thread.archivedAt !== null) return;
       if ((rollbackEventSuppressions.get(thread.id) ?? 0) > 0) {
         changeRollbackSuppression(thread.id, -1);
         return;
       }
-      if (thread.archivedAt !== null) return;
       const current = await bb.sdk.threads.get({ threadId: thread.id });
       if (current.archivedAt !== null) return;
       if (readSnooze.get(thread.id)) deleteAnySnooze.run(thread.id);

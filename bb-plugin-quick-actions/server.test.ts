@@ -369,6 +369,9 @@ describe("Snooze", () => {
       harness.behavior.callRpc("snooze", { threadId: THREAD_ID }),
     ).rejects.toThrow("write failed");
     await harness.behavior.emitThreadEvent("thread.unarchived", {
+      thread: makeThreadResponse({ id: THREAD_ID, archivedAt: Date.now() }),
+    });
+    await harness.behavior.emitThreadEvent("thread.unarchived", {
       thread: makeThreadResponse({ id: THREAD_ID, archivedAt: null }),
     });
     expect(
