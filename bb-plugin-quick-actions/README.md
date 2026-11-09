@@ -1,18 +1,37 @@
 # Quick Actions
 
-Quick Actions adds a floating radial menu to open BB threads. Hover or focus
-its button to archive, snooze, pin, mark unread, or copy a link to the current
-thread. The menu uses BB's native thread actions where they exist.
+Quick Actions puts archive, snooze, pin, mark unread, and copy link within
+reach of the thread you just finished. Hold Option and the radial menu springs
+open at the pointer, where the cursor already is. The menu uses BB's native
+thread actions where they exist.
+
+## Trigger
+
+- **Hold Option at the pointer:** the default. Holding Option for 200ms opens
+  the fan around the cursor; releasing closes it. Quick Option-letter accents
+  such as ⌥e pass through untouched, and any other keypress dismisses the fan
+  so typing is never interrupted.
+- **Corner button:** the earlier floating trigger, anchored to the composer's
+  corner.
+
+Choose between them with **Settings → Plugins → Quick Actions → Menu trigger**
+or `bb plugin config quick-actions set trigger corner`.
+
+The fan keeps itself inside the window: near an edge the fan centre moves in
+far enough that no action is clipped.
 
 ## Settings
 
 Open **Settings → Plugins → Quick Actions** to choose the menu corner and
 motion.
 
+- **Menu trigger:** Hold Option at the pointer (default) or Corner button.
 - **Menu corner:** Bottom left (default), Bottom right, Top left, or Top right.
-- **Menu motion:** Ring bloom (default) or Arc spring.
+  Applies to the corner trigger only.
+- **Menu motion:** Ring bloom (default) or Arc spring. Applies to the corner
+  trigger only; the hold-Option fan always uses the pie spring.
 - **Debug hover regions:** Off by default. Draws the circular core and radial
-  hit corridors without changing pointer behavior.
+  hit corridors of the corner trigger without changing pointer behavior.
 
 Inspect or change these values from a terminal:
 

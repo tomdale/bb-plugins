@@ -1,6 +1,8 @@
-Quick Actions puts thread actions in a configurable radial menu beside the
-composer. Ring bloom and Arc spring share the same hit targets, keyboard flow,
-and reduced-motion behavior.
+Quick Actions puts thread actions in a radial menu at the pointer. Holding
+Option opens it around the cursor and releasing closes it, so archiving or
+snoozing happens where the hand already is. A corner trigger remains available
+as an alternative. The pie spring, the corner fan's Ring bloom and Arc spring,
+and reduced-motion all share the same hit targets.
 
 The menu runs BB's native Archive, Pin, Mark read or unread, and Copy link
 actions. Snooze stores wake generations on the BB server, archives the current
@@ -8,6 +10,6 @@ thread and its active descendants after confirmation, and unarchives the same
 set at 9:00 AM the next day in the server's time zone. Manual unarchive
 cancels that thread's wake record.
 
-Settings select the menu corner and motion, with an optional debug view of the
-circular core and radial hit corridors. Changes apply to open windows without
-reloading the plugin.
+Settings select the trigger, plus the corner trigger's corner and motion, with
+an optional debug view of its circular core and radial hit corridors. Changes
+apply to open windows without reloading the plugin.

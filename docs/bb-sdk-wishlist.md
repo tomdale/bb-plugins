@@ -1035,3 +1035,21 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Workaround:** cast the captured app to a local structural type in the test
 - **Possible API:** add `commandPaletteActions: PluginCommandRegistration[]`
   (with `defaultShortcut` normalized to `null`) to `CapturedPluginApp`
+
+## Identify the focused thread surface for a modifier-held overlay
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0 / host SDK 0.6.100
+- **Use case:** Quick Actions opens a radial menu at the pointer while Option is
+  held, and the menu acts on the thread in the surface the user is looking at
+- **Limit and evidence:** the `experimental_appOverlay` slot receives no thread
+  or pane identity, so a plugin overlay resolves its target from the route
+  alone. With split panes the route names one thread while the pointer and the
+  keyboard may be in another pane, and no SDK surface reports which pane holds
+  focus. Quick Actions currently acts on the routed thread and is therefore
+  ambiguous in split panes
+- **Workaround:** none reliable; a DOM heuristic over `[data-thread-window]`
+  rects is the only signal, and it is private markup
+- **Possible API:** an app-overlay hook returning the focused thread surface
+  (`focusedThreadId` plus its pane element), or a `focusedThreadId` prop on the
+  overlay component

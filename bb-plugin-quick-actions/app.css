@@ -152,6 +152,34 @@
   pointer-events: none;
 }
 
+/* Hold ⌥ at the pointer: no trigger or hover corridors, the pie spring from
+   the plugin's arc timing, and a container that never swallows clicks aimed at
+   the page underneath. */
+.qa-menu[data-trigger="hold-option"] {
+  pointer-events: none;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action {
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(0, 0, 0) scale(0.7);
+  transition:
+    transform 160ms var(--qa-arc-easing),
+    opacity 40ms linear;
+}
+
+.qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
+  transition-delay: var(--qa-open-delay), var(--qa-open-delay);
+}
+
+/* A keypress dismisses the fan without animating back across the composer. */
+.qa-menu[data-trigger="hold-option"][data-instant="true"] .qa-action {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .qa-trigger [data-icon-root],
   .qa-action [data-icon-root] {

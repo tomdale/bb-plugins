@@ -46,9 +46,12 @@ import type { rpcContract } from "./server";
 import {
   actionCssVariables,
   actionTarget,
+  clampMenuOrigin,
+  cursorActionCssVariables,
   hoverCorridorPoints,
   sanitizeCorner,
   sanitizeMotion,
+  sanitizeTrigger,
   type Corner,
 } from "./motion";
 
@@ -59,6 +62,20 @@ const CORE_ACTION_KEYS = [
   "bb--core/copyLink",
 ] as const;
 const HOVER_CLOSE_DELAY_MS = 300;
+const HOLD_OPTION_DELAY_MS = 200;
+/** Half of the 44px menu box, subtracted so the fan is centred on the pointer. */
+const MENU_BOX_OFFSET_PX = 22;
+/** Keys that steer the open menu instead of typing into the composer. */
+const NAVIGATION_KEYS = new Set([
+  "Tab",
+  "Enter",
+  " ",
+  "Spacebar",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+]);
 
 function Hint({
   label,
@@ -77,13 +94,18 @@ function Hint({
   );
 }
 
-function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
+function useMenuPosition(
+  corner: Corner,
+  threadId: string,
+  enabled: boolean,
+): CSSProperties {
   const [position, setPosition] = useState({
     x: 16,
     y: corner.startsWith("top") ? 112 : window.innerHeight - 60,
   });
 
   useLayoutEffect(() => {
+    if (!enabled) return;
     let active = true;
     let footer: HTMLElement | null = null;
     let threadWindow: HTMLElement | null = null;
@@ -159,7 +181,7 @@ function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [corner, threadId]);
+  }, [corner, threadId, enabled]);
 
   return {
     "--qa-menu-x": `${position.x}px`,
@@ -174,6 +196,27 @@ type QuickActionItem = {
   disabled?: boolean;
   run: () => void | Promise<void>;
 };
+
+/**
+ * Tracks the pointer so the hold-Option fan can open where the user's hand
+ * already is. Clicks update it too: a click without a preceding move (a trackpad
+ * tap, for instance) must still count as the pointer's location.
+ */
+function usePointerPosition() {
+  const point = useRef({ x: 0, y: 0 });
+  useEffect(() => {
+    const track = (event: { clientX: number; clientY: number }) => {
+      point.current = { x: event.clientX, y: event.clientY };
+    };
+    window.addEventListener("pointermove", track, { passive: true });
+    window.addEventListener("pointerdown", track, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener("pointermove", track);
+      window.removeEventListener("pointerdown", track, { capture: true });
+    };
+  }, []);
+  return point;
+}
 
 function coreItem(
   entries: readonly PluginThreadActionEntry[],
@@ -202,8 +245,13 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const settings = useSettings();
   const corner = sanitizeCorner(settings.values?.corner);
   const motion = sanitizeMotion(settings.values?.motion);
+  const trigger = sanitizeTrigger(settings.values?.trigger);
+  const holdOption = trigger === "hold-option";
   const debugRegions = settings.values?.debugRegions === true;
-  const position = useMenuPosition(corner, targetThreadId);
+  const position = useMenuPosition(corner, targetThreadId, !holdOption);
+  const pointer = usePointerPosition();
+  const [origin, setOrigin] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
   const rpc = useRpc<typeof rpcContract>();
   const sdk = useSdk();
   const navigate = useBbNavigate();
@@ -232,6 +280,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [instantClose, setInstantClose] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entries = experimental_useThreadActions(thread, {
@@ -244,6 +293,10 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     closeTimerRef.current = null;
   }, []);
   useEffect(() => cancelScheduledClose, [cancelScheduledClose]);
+
+  const requestedOpenRef = useRef(requestedOpen);
+  requestedOpenRef.current = requestedOpen;
+
 
   const open = useCallback(() => {
     if (!threadReady || settings.isLoading) return;
@@ -328,6 +381,99 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
 
   const canOpen = threadReady && !settings.isLoading && actions.length > 0;
 
+  // Hold Option anywhere and the fan opens at the pointer. A 200ms hold keeps
+  // Option-letter accents (⌥e) intact, and any other keypress drops the menu so
+  // typing is never interrupted by it.
+  useEffect(() => {
+    if (!holdOption) return;
+    if (!canOpen) {
+      setRequestedOpen(false);
+      return;
+    }
+    let holdTimer: ReturnType<typeof setTimeout> | null = null;
+    let held = false;
+    const clearHold = () => {
+      if (holdTimer !== null) clearTimeout(holdTimer);
+      holdTimer = null;
+    };
+    const closeMenu = (immediate = false) => {
+      clearHold();
+      setInstantClose(immediate);
+      setRequestedOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key === "Alt" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.shiftKey
+      ) {
+        event.preventDefault();
+        if (held || event.repeat) return;
+        // A dialog owns the keyboard while it is open.
+        if (
+          document.querySelector(
+            '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+          )
+        ) {
+          return;
+        }
+        held = true;
+        setOrigin(
+          clampMenuOrigin(pointer.current, {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }),
+        );
+        clearHold();
+        holdTimer = setTimeout(() => {
+          holdTimer = null;
+          if (!held) return;
+          setInstantClose(false);
+          setRequestedOpen(true);
+        }, HOLD_OPTION_DELAY_MS);
+        return;
+      }
+      if (event.key === "Escape") {
+        if (!held && !requestedOpenRef.current) return;
+        closeMenu();
+        return;
+      }
+      if (NAVIGATION_KEYS.has(event.key)) return;
+      if (!held && !requestedOpenRef.current) return;
+      // Typing: get out of the way without a retract animation over the composer.
+      closeMenu(true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Alt") return;
+      held = false;
+      clearHold();
+      setInstantClose(false);
+      const focused = document.activeElement;
+      if (
+        containerRef.current !== null &&
+        focused instanceof HTMLElement &&
+        containerRef.current.contains(focused)
+      ) {
+        return;
+      }
+      setRequestedOpen(false);
+    };
+    const onBlur = () => {
+      held = false;
+      closeMenu(true);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      clearHold();
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [canOpen, holdOption, pointer]);
+
   const activate = async (item: QuickActionItem) => {
     if (pending || !canOpen) return;
     setPending(item.id);
@@ -361,58 +507,87 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     }
   };
 
+  const menuStyle: CSSProperties = holdOption
+    ? ({
+        "--qa-menu-x": `${origin.x - MENU_BOX_OFFSET_PX}px`,
+        "--qa-menu-y": `${origin.y - MENU_BOX_OFFSET_PX}px`,
+      } as CSSProperties)
+    : position;
+
   return (
     <>
       <TooltipProvider delayDuration={250} skipDelayDuration={100}>
         <div
+          ref={containerRef}
           className="qa-menu"
           data-bb-plugin-root=""
           data-bb-plugin="quick-actions"
+          data-trigger={trigger}
           data-corner={corner}
           data-motion={motion}
           data-debug={debugRegions ? "true" : "false"}
           data-open={requestedOpen ? "true" : "false"}
           data-can-open={canOpen ? "true" : "false"}
-          style={position}
+          data-instant={instantClose ? "true" : "false"}
+          style={menuStyle}
           role="group"
           aria-label="Quick actions"
           aria-busy={!threadReady || settings.isLoading || pending !== null}
-          onPointerEnter={() => {
-            if (canOpen) open();
-          }}
-          onPointerLeave={(event) => {
-            if (!event.currentTarget.contains(document.activeElement)) close();
-          }}
+          onPointerEnter={
+            holdOption
+              ? undefined
+              : () => {
+                  if (canOpen) open();
+                }
+          }
+          onPointerLeave={
+            holdOption
+              ? undefined
+              : (event) => {
+                  if (!event.currentTarget.contains(document.activeElement)) {
+                    close();
+                  }
+                }
+          }
           onBlur={(event) => {
+            if (holdOption) return;
             if (!event.currentTarget.contains(event.relatedTarget)) close();
           }}
           onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              closeAndFocus();
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            if (holdOption) {
+              setRequestedOpen(false);
+              return;
             }
+            closeAndFocus();
           }}
         >
-          <div className="qa-hover-core" aria-hidden="true" />
-          <svg
-            className="qa-hover-regions"
-            viewBox="-140 -140 280 280"
-            aria-hidden="true"
-            focusable="false"
-          >
-            {actions.map((item, index) => {
-              const points = hoverCorridorPoints(
-                actionTarget(index, actions.length, corner),
-              );
-              return (
-                <path
-                  key={item.id}
-                  className="qa-hover-corridor"
-                  d={`M ${points} Z`}
-                />
-              );
-            })}
-          </svg>
+          {holdOption ? null : (
+            <>
+              <div className="qa-hover-core" aria-hidden="true" />
+              <svg
+                className="qa-hover-regions"
+                viewBox="-140 -140 280 280"
+                aria-hidden="true"
+                focusable="false"
+              >
+                {actions.map((item, index) => {
+                  const points = hoverCorridorPoints(
+                    actionTarget(index, actions.length, corner),
+                  );
+                  return (
+                    <path
+                      key={item.id}
+                      className="qa-hover-corridor"
+                      d={`M ${points} Z`}
+                    />
+                  );
+                })}
+              </svg>
+            </>
+          )}
+          {holdOption ? null : (
           <Button
             ref={triggerRef}
             type="button"
@@ -441,17 +616,23 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           >
             <Icon name="Plus" />
           </Button>
+          )}
           <div
             id="qa-actions"
             className="qa-actions"
             inert={!requestedOpen || !canOpen}
           >
             {actions.map((item, index) => {
-              const style = actionCssVariables({
-                index,
-                count: actions.length,
-                corner,
-              });
+              const style = holdOption
+                ? cursorActionCssVariables({
+                    index,
+                    count: actions.length,
+                  })
+                : actionCssVariables({
+                    index,
+                    count: actions.length,
+                    corner,
+                  });
               return (
                 <Hint key={item.id} label={item.label} side={tooltipSide}>
                   <Button

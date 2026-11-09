@@ -36,6 +36,16 @@ function isMissingThreadError(cause: unknown): boolean {
 
 export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
+    trigger: {
+      type: "select",
+      label: "Menu trigger",
+      options: ["hold-option", "corner"],
+      experimental_optionLabels: {
+        "hold-option": "Hold Option at the pointer",
+        corner: "Corner button",
+      },
+      default: "hold-option",
+    },
     corner: {
       type: "select",
       label: "Menu corner",

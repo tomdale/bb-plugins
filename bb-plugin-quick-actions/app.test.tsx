@@ -89,7 +89,7 @@ function actionEntry(
 }
 
 async function renderQuickActions({
-  settings = { corner: "bottom-left", motion: "ring" },
+  settings = { trigger: "corner", corner: "bottom-left", motion: "ring" },
   archivedAt = null,
   snoozeError = null,
   childCount = 0,
@@ -163,10 +163,11 @@ async function renderQuickActions({
       },
     },
   );
-  const trigger = await slot.findByRole("button", {
+  await slot.findByRole("group", { name: "Quick actions" });
+  const trigger = slot.queryByRole("button", {
     name: "Open quick actions",
   });
-  return { slot, trigger, runs };
+  return { slot, trigger: trigger as HTMLElement, runs };
 }
 
 async function openMenu(trigger: HTMLElement) {
@@ -197,6 +198,7 @@ describe("Quick Actions overlay", () => {
       { threadId: THREAD_ID },
       {
         context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        settings: { trigger: "corner" },
         sdk: { threads: { get: async () => thread } },
         threadActions: () => [],
       },
@@ -247,7 +249,7 @@ describe("Quick Actions overlay", () => {
       { threadId: THREAD_ID },
       {
         context: { projectId: PROJECT_ID, threadId: THREAD_ID },
-        settings: { corner: "bottom-left", motion: "ring" },
+        settings: { trigger: "corner", corner: "bottom-left", motion: "ring" },
         sdk: {
           threads: {
             get: async ({ threadId }: { threadId: string }) =>
@@ -327,6 +329,7 @@ describe("Quick Actions overlay", () => {
       { threadId: THREAD_ID },
       {
         context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        settings: { trigger: "corner" },
         sdk: {
           threads: {
             get: async ({ threadId }: { threadId: string }) =>
@@ -400,6 +403,7 @@ describe("Quick Actions overlay", () => {
       { threadId: THREAD_ID },
       {
         context: { projectId: PROJECT_ID, threadId: THREAD_ID },
+        settings: { trigger: "corner" },
         sdk: {
           threads: {
             get: async ({ threadId }: { threadId: string }) =>
@@ -442,7 +446,7 @@ describe("Quick Actions overlay", () => {
 
   it("uses configured motion and corner", async () => {
     const { slot } = await renderQuickActions({
-      settings: { corner: "top-right", motion: "arc" },
+      settings: { trigger: "corner", corner: "top-right", motion: "arc" },
     });
     const menu = document.querySelector(".qa-menu");
     expect(menu).toHaveAttribute("data-corner", "top-right");
@@ -452,7 +456,7 @@ describe("Quick Actions overlay", () => {
 
   it("renders debug hover regions only when enabled", async () => {
     const { slot } = await renderQuickActions({
-      settings: { debugRegions: true },
+      settings: { trigger: "corner", debugRegions: true },
     });
     const menu = document.querySelector(".qa-menu");
     expect(menu).toHaveAttribute("data-debug", "true");
@@ -463,11 +467,12 @@ describe("Quick Actions overlay", () => {
 
   it("sanitizes each unknown stored setting", async () => {
     await renderQuickActions({
-      settings: { corner: "unknown", motion: "unknown" },
+      settings: { trigger: "unknown", corner: "unknown", motion: "unknown" },
     });
     const menu = document.querySelector(".qa-menu");
     expect(menu).toHaveAttribute("data-corner", "bottom-left");
     expect(menu).toHaveAttribute("data-motion", "ring");
+    expect(menu).toHaveAttribute("data-trigger", "hold-option");
   });
 
   it("reanchors a title-bar-safe trigger when the footer mounts late", async () => {
@@ -476,7 +481,7 @@ describe("Quick Actions overlay", () => {
     threadWindow.getBoundingClientRect = () => ({ top: 48 }) as DOMRect;
     document.body.append(threadWindow);
     const { slot } = await renderQuickActions({
-      settings: { corner: "top-left", motion: "ring" },
+      settings: { trigger: "corner", corner: "top-left", motion: "ring" },
     });
     const menu = document.querySelector<HTMLElement>(".qa-menu");
     expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("16px");
@@ -764,5 +769,101 @@ describe("Quick Actions overlay", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
     slot.lifecycle.unmount();
+  });
+
+  describe("hold Option at the pointer", () => {
+    const hold = { trigger: "hold-option" } as const;
+
+    async function holdOptionAt(
+      point: { clientX: number; clientY: number },
+      waitMs = 260,
+    ) {
+      fireEvent.pointerMove(window, point);
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Alt" });
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      });
+    }
+
+    it("renders no corner trigger and opens at the pointer after a hold", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      expect(menu).toHaveAttribute("data-trigger", "hold-option");
+      expect(
+        slot.queryByRole("button", { name: "Open quick actions" }),
+      ).toBeNull();
+      expect(document.querySelector(".qa-hover-core")).toBeNull();
+      expect(document.querySelectorAll(".qa-hover-corridor")).toHaveLength(0);
+
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+
+      expect(menu).toHaveAttribute("data-open", "true");
+      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("378px");
+      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("278px");
+      slot.lifecycle.unmount();
+    });
+
+    it("ignores a quick tap of Option", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      fireEvent.pointerMove(window, { clientX: 400, clientY: 300 });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Alt" });
+      });
+      await act(async () => {
+        fireEvent.keyUp(window, { key: "Alt" });
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 260));
+      });
+      expect(menu).toHaveAttribute("data-open", "false");
+      slot.lifecycle.unmount();
+    });
+
+    it("moves the fan inside the window near an edge", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 4, clientY: 6 });
+      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("120px");
+      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("120px");
+      slot.lifecycle.unmount();
+    });
+
+    it("closes when Option is released", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      expect(menu).toHaveAttribute("data-open", "true");
+      await act(async () => {
+        fireEvent.keyUp(window, { key: "Alt" });
+      });
+      expect(menu).toHaveAttribute("data-open", "false");
+      slot.lifecycle.unmount();
+    });
+
+    it("gets out of the way without animating when the user types", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "e" });
+      });
+      expect(menu).toHaveAttribute("data-open", "false");
+      expect(menu).toHaveAttribute("data-instant", "true");
+      slot.lifecycle.unmount();
+    });
+
+    it("runs an action from the fan", async () => {
+      const user = userEvent.setup();
+      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await user.click(slot.getByRole("button", { name: "Archive" }));
+      await waitFor(() => expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce());
+      expect(menu).toHaveAttribute("data-open", "false");
+      slot.lifecycle.unmount();
+    });
   });
 });
