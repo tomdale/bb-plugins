@@ -1,9 +1,16 @@
 .qa-menu {
   position: fixed;
+  left: 0;
+  top: 0;
   z-index: 60;
   width: 44px;
   height: 44px;
   color: var(--foreground);
+  transform: translate3d(var(--qa-menu-x, 16px), var(--qa-menu-y, calc(100vh - 60px)), 0);
+  /* Keep overflow visible: paint containment would clip the radial actions. */
+  contain: layout style;
+  isolation: isolate;
+  will-change: transform;
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -85,16 +92,41 @@
 .qa-trigger [data-icon-root] {
   width: 19px;
   height: 19px;
+  transition: transform 60ms cubic-bezier(0.22, 1.12, 0.36, 1);
+}
+
+.qa-menu[data-open="true"] .qa-trigger [data-icon-root] {
+  transform: rotate(45deg);
 }
 
 .qa-action {
+  --qa-open-delay: 0ms;
   left: 22px;
   top: 22px;
   z-index: 1;
   width: 36px;
   height: 36px;
   margin: -18px;
+  opacity: 0;
+  transform: translate3d(0, 0, 0) scale(0.55);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1.12, 0.36, 1),
+    opacity 40ms linear;
   will-change: transform, opacity;
+}
+
+.qa-menu[data-motion="ring"] .qa-action {
+  transform: translate3d(0, 0, 0) scale(0.7);
+  transition-duration: 240ms, 48ms;
+}
+
+.qa-menu[data-open="true"] .qa-action {
+  opacity: 1;
+  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
+}
+
+.qa-menu[data-motion="arc"][data-open="true"] .qa-action {
+  transition-delay: var(--qa-open-delay), var(--qa-open-delay);
 }
 
 .qa-action [data-icon-root] {
@@ -103,21 +135,33 @@
   transition: transform 120ms ease-out;
 }
 
-.qa-action[data-active="true"] {
+.qa-action:is(:hover, :focus-visible) {
   border-color: color-mix(in srgb, var(--foreground) 35%, var(--border));
   background: var(--secondary);
 }
 
-.qa-action[data-active="true"] [data-icon-root] {
+.qa-action:is(:hover, :focus-visible) [data-icon-root] {
   transform: scale(1.12);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .qa-action [data-icon-root] {
-    transition: none;
-  }
 }
 
 .qa-menu[data-open="false"] .qa-action {
   pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qa-trigger [data-icon-root],
+  .qa-action [data-icon-root] {
+    transition: none;
+  }
+
+  .qa-menu[data-open] .qa-trigger [data-icon-root] {
+    transform: none;
+  }
+
+  .qa-menu .qa-action,
+  .qa-menu[data-open="true"] .qa-action {
+    transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
+    transition: opacity 120ms linear;
+    transition-delay: 0ms !important;
+  }
 }

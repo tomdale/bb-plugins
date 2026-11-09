@@ -21,12 +21,14 @@ let now = 0;
 let nextFrame = 1;
 let frames = new Map<number, FrameRequestCallback>();
 let resizeObserverCallback: (() => void) | null = null;
+let resizeObserverDisconnects = 0;
 
 beforeEach(() => {
   now = 0;
   nextFrame = 1;
   frames = new Map();
   resizeObserverCallback = null;
+  resizeObserverDisconnects = 0;
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     const id = nextFrame++;
     frames.set(id, callback);
@@ -40,7 +42,9 @@ beforeEach(() => {
         resizeObserverCallback = callback;
       }
       observe() {}
-      disconnect() {}
+      disconnect() {
+        resizeObserverDisconnects++;
+      }
     },
   );
   Object.defineProperty(window, "matchMedia", {
@@ -167,7 +171,6 @@ async function renderQuickActions({
 
 async function openMenu(trigger: HTMLElement) {
   fireEvent.pointerEnter(trigger);
-  await advance();
 }
 
 describe("Quick Actions overlay", () => {
@@ -234,6 +237,11 @@ describe("Quick Actions overlay", () => {
       actionEntry("bb--core/read", "Mark unread", run),
       actionEntry("bb--core/copyLink", "Copy link", run),
     ];
+    const footer = document.createElement("div");
+    footer.setAttribute("data-scroll-footer", "");
+    footer.getBoundingClientRect = () =>
+      ({ left: 320, right: 1100, top: 517 }) as DOMRect;
+    document.body.append(footer);
     const slot = renderSlot(
       { component: QuickActionsOverlay },
       { threadId: THREAD_ID },
@@ -259,6 +267,9 @@ describe("Quick Actions overlay", () => {
     const user = userEvent.setup();
     await user.tab();
     expect(oldArchive).toHaveFocus();
+    const menu = document.querySelector<HTMLElement>(".qa-menu");
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("336px");
+    footer.remove();
 
     slot.lifecycle.rerender(<QuickActionsOverlay threadId="thr_second" />);
 
@@ -268,6 +279,7 @@ describe("Quick Actions overlay", () => {
     expect(trigger).toHaveAttribute("aria-disabled", "true");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("336px");
     expect(document.getElementById("qa-actions")).toHaveAttribute("inert", "");
     fireEvent.pointerEnter(trigger);
     fireEvent.click(oldArchive);
@@ -449,21 +461,6 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("highlights the selected action on pointer and keyboard focus", async () => {
-    const { slot, trigger } = await renderQuickActions();
-    await openMenu(trigger);
-    const archive = slot.getByRole("button", { name: "Archive" });
-    fireEvent.pointerEnter(archive);
-    expect(archive).toHaveAttribute("data-active", "true");
-    fireEvent.pointerLeave(archive);
-    expect(archive).toHaveAttribute("data-active", "false");
-    fireEvent.focus(archive);
-    expect(archive).toHaveAttribute("data-active", "true");
-    fireEvent.blur(archive);
-    expect(archive).toHaveAttribute("data-active", "false");
-    slot.lifecycle.unmount();
-  });
-
   it("sanitizes each unknown stored setting", async () => {
     await renderQuickActions({
       settings: { corner: "unknown", motion: "unknown" },
@@ -474,12 +471,16 @@ describe("Quick Actions overlay", () => {
   });
 
   it("reanchors a title-bar-safe trigger when the footer mounts late", async () => {
+    const threadWindow = document.createElement("div");
+    threadWindow.setAttribute("data-thread-window", "");
+    threadWindow.getBoundingClientRect = () => ({ top: 48 }) as DOMRect;
+    document.body.append(threadWindow);
     const { slot } = await renderQuickActions({
       settings: { corner: "top-left", motion: "ring" },
     });
     const menu = document.querySelector<HTMLElement>(".qa-menu");
-    expect(menu?.style.left).toBe("16px");
-    expect(menu?.style.top).toBe("112px");
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("16px");
+    expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("112px");
 
     const footer = document.createElement("div");
     footer.setAttribute("data-scroll-footer", "");
@@ -489,16 +490,16 @@ describe("Quick Actions overlay", () => {
         right: 1100,
         top: 517,
       }) as DOMRect;
-    document.body.append(footer);
+    threadWindow.append(footer);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await advance(40);
 
-    expect(menu?.style.left).toBe("336px");
-    expect(menu?.style.top).toBe("112px");
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("336px");
+    expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("112px");
     slot.lifecycle.unmount();
-    footer.remove();
+    threadWindow.remove();
   });
 
   it("anchors to the thread footer and follows observed resizing", async () => {
@@ -536,21 +537,34 @@ describe("Quick Actions overlay", () => {
     threadWindow.getBoundingClientRect = () => rect(windowRect);
     const { slot } = await renderQuickActions();
     const menu = document.querySelector<HTMLElement>(".qa-menu");
-    expect(menu?.style.left).toBe("336px");
-    expect(menu?.style.top).toBe("457px");
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("336px");
+    expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("457px");
     footerRect.left = 400;
     footerRect.top = 567;
     await act(async () => resizeObserverCallback?.());
     await advance(40);
-    expect(menu?.style.left).toBe("416px");
-    expect(menu?.style.top).toBe("507px");
+    expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("416px");
+    expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("507px");
     slot.lifecycle.unmount();
     threadWindow.remove();
   });
 
-  it("cancels a scheduled anchor update on unmount", async () => {
+  it("disconnects idle footer discovery without scheduling layout frames", async () => {
+    const disconnect = vi.spyOn(MutationObserver.prototype, "disconnect");
     const { slot } = await renderQuickActions();
-    await advance(40);
+    expect(frames.size).toBe(0);
+
+    slot.lifecycle.unmount();
+
+    expect(disconnect).toHaveBeenCalled();
+    disconnect.mockRestore();
+  });
+
+  it("cancels a scheduled anchor update on unmount", async () => {
+    const footer = document.createElement("div");
+    footer.setAttribute("data-scroll-footer", "");
+    document.body.append(footer);
+    const { slot } = await renderQuickActions();
     expect(frames.size).toBe(0);
     await act(async () => {
       window.dispatchEvent(new Event("resize"));
@@ -561,7 +575,9 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
 
     expect(frames.size).toBe(0);
+    expect(resizeObserverDisconnects).toBeGreaterThan(0);
     await advance(40);
+    footer.remove();
   });
 
   it("runs BB's native thread actions", async () => {

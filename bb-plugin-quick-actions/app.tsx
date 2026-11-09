@@ -1,8 +1,10 @@
 import "./app.css";
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -42,13 +44,11 @@ import {
 } from "@/components/ui/tooltip";
 import type { rpcContract } from "./server";
 import {
-  actionFrame,
+  actionCssVariables,
   actionTarget,
   hoverCorridorPoints,
-  MENU_DURATION_MS,
   sanitizeCorner,
   sanitizeMotion,
-  triggerRotation,
   type Corner,
 } from "./motion";
 
@@ -77,83 +77,14 @@ function Hint({
   );
 }
 
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setReduced(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-  return reduced;
-}
-
-function useAnimationClock() {
-  const [time, setTime] = useState(0);
-  const timeRef = useRef(0);
-  const directionRef = useRef(0);
-  const frameRef = useRef<number | null>(null);
-  const previousRef = useRef<number | null>(null);
-
-  const tick = useCallback(function step(now: number) {
-    if (directionRef.current === 0) {
-      frameRef.current = null;
-      return;
-    }
-    if (previousRef.current !== null) {
-      const elapsed = now - previousRef.current;
-      timeRef.current = Math.max(
-        0,
-        Math.min(
-          MENU_DURATION_MS,
-          timeRef.current + elapsed * directionRef.current,
-        ),
-      );
-      setTime(timeRef.current);
-    }
-    previousRef.current = now;
-    if (
-      (directionRef.current > 0 && timeRef.current >= MENU_DURATION_MS) ||
-      (directionRef.current < 0 && timeRef.current <= 0)
-    ) {
-      directionRef.current = 0;
-      previousRef.current = null;
-      frameRef.current = null;
-      return;
-    }
-    frameRef.current = requestAnimationFrame(step);
-  }, []);
-
-  const play = useCallback(
-    (direction: 1 | -1) => {
-      directionRef.current = direction;
-      previousRef.current = null;
-      if (frameRef.current === null) {
-        frameRef.current = requestAnimationFrame(tick);
-      }
-    },
-    [tick],
-  );
-
-  useEffect(
-    () => () => {
-      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
-    },
-    [],
-  );
-
-  return { time, play };
-}
-
 function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
-  const [position, setPosition] = useState<CSSProperties>(() => ({
-    left: 16,
-    top: corner.startsWith("top") ? 112 : window.innerHeight - 60,
-  }));
+  const [position, setPosition] = useState({
+    x: 16,
+    y: corner.startsWith("top") ? 112 : window.innerHeight - 60,
+  });
 
   useLayoutEffect(() => {
+    let active = true;
     let footer: HTMLElement | null = null;
     let threadWindow: HTMLElement | null = null;
     let frame: number | null = null;
@@ -161,18 +92,44 @@ function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
       typeof ResizeObserver === "function"
         ? new ResizeObserver(() => scheduleUpdate())
         : null;
+    const anchorMutations =
+      typeof MutationObserver === "function"
+        ? new MutationObserver(() => scheduleUpdate())
+        : null;
+    const discoveryMutations =
+      typeof MutationObserver === "function"
+        ? new MutationObserver(() => scheduleUpdate())
+        : null;
     const update = () => {
       frame = null;
+      if (!active) return;
       const nextFooter =
         document.querySelector<HTMLElement>("[data-scroll-footer]");
+      if (!nextFooter) {
+        discoveryMutations?.disconnect();
+        const nextWindow =
+          document.querySelector<HTMLElement>("[data-thread-window]");
+        if (nextWindow) {
+          discoveryMutations?.observe(nextWindow, {
+            childList: true,
+            subtree: true,
+          });
+        }
+        return;
+      }
+      discoveryMutations?.disconnect();
       const nextThreadWindow =
-        nextFooter?.closest<HTMLElement>("[data-thread-window]") ?? null;
+        nextFooter.closest<HTMLElement>("[data-thread-window]");
       if (nextFooter !== footer || nextThreadWindow !== threadWindow) {
         observer?.disconnect();
+        anchorMutations?.disconnect();
         footer = nextFooter;
         threadWindow = nextThreadWindow;
         if (footer) observer?.observe(footer);
         if (threadWindow) observer?.observe(threadWindow);
+        if (footer?.parentElement) {
+          anchorMutations?.observe(footer.parentElement, { childList: true });
+        }
       }
       const footerRect = footer?.getBoundingClientRect();
       const windowRect = threadWindow?.getBoundingClientRect();
@@ -182,40 +139,32 @@ function useMenuPosition(corner: Corner, threadId: string): CSSProperties {
       const bottomCornerTop =
         (footerRect?.top ?? windowRect?.bottom ?? window.innerHeight) - 60;
       const next = {
-        left: corner.endsWith("right") ? rightEdge - 60 : leftEdge + 16,
-        top: corner.startsWith("top") ? topEdge : bottomCornerTop,
+        x: corner.endsWith("right") ? rightEdge - 60 : leftEdge + 16,
+        y: corner.startsWith("top") ? topEdge : bottomCornerTop,
       };
       setPosition((current) =>
-        current.left === next.left && current.top === next.top ? current : next,
+        current.x === next.x && current.y === next.y ? current : next,
       );
     };
     const scheduleUpdate = () => {
-      if (frame === null) frame = requestAnimationFrame(update);
+      if (active && frame === null) frame = requestAnimationFrame(update);
     };
     update();
-    const mutations =
-      typeof MutationObserver === "function"
-        ? new MutationObserver(() => {
-            const nextFooter =
-              document.querySelector<HTMLElement>("[data-scroll-footer]");
-            const nextThreadWindow =
-              nextFooter?.closest<HTMLElement>("[data-thread-window]") ?? null;
-            if (nextFooter !== footer || nextThreadWindow !== threadWindow) {
-              scheduleUpdate();
-            }
-          })
-        : null;
-    mutations?.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleUpdate);
     return () => {
+      active = false;
       if (frame !== null) cancelAnimationFrame(frame);
-      mutations?.disconnect();
+      discoveryMutations?.disconnect();
+      anchorMutations?.disconnect();
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
   }, [corner, threadId]);
 
-  return position;
+  return {
+    "--qa-menu-x": `${position.x}px`,
+    "--qa-menu-y": `${position.y}px`,
+  } as CSSProperties;
 }
 
 type QuickActionItem = {
@@ -241,7 +190,7 @@ function coreItem(
   };
 }
 
-function QuickActionsMenu({
+const QuickActionsMenu = memo(function QuickActionsMenu({
   thread,
   targetThreadId,
   threadReady,
@@ -254,8 +203,6 @@ function QuickActionsMenu({
   const corner = sanitizeCorner(settings.values?.corner);
   const motion = sanitizeMotion(settings.values?.motion);
   const debugRegions = settings.values?.debugRegions === true;
-  const reducedMotion = useReducedMotion();
-  const { time, play } = useAnimationClock();
   const position = useMenuPosition(corner, targetThreadId);
   const rpc = useRpc<typeof rpcContract>();
   const sdk = useSdk();
@@ -285,17 +232,12 @@ function QuickActionsMenu({
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entries = experimental_useThreadActions(thread, {
     keys: CORE_ACTION_KEYS,
   });
-  const isOpen = time > 0;
   const tooltipSide = corner.startsWith("top") ? "bottom" : "top";
-  useEffect(() => {
-    if (!requestedOpen) setActiveAction(null);
-  }, [requestedOpen]);
 
   const cancelScheduledClose = useCallback(() => {
     if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
@@ -307,24 +249,21 @@ function QuickActionsMenu({
     if (!threadReady || settings.isLoading) return;
     cancelScheduledClose();
     setRequestedOpen(true);
-    play(1);
-  }, [cancelScheduledClose, play, settings.isLoading, threadReady]);
+  }, [cancelScheduledClose, settings.isLoading, threadReady]);
   const close = useCallback(() => {
     if (pinned) return;
     cancelScheduledClose();
     closeTimerRef.current = setTimeout(() => {
       closeTimerRef.current = null;
       setRequestedOpen(false);
-      play(-1);
     }, HOVER_CLOSE_DELAY_MS);
-  }, [cancelScheduledClose, pinned, play]);
+  }, [cancelScheduledClose, pinned]);
   const closeAndFocus = useCallback(() => {
     cancelScheduledClose();
     setPinned(false);
     triggerRef.current?.focus({ preventScroll: true });
     setRequestedOpen(false);
-    play(-1);
-  }, [cancelScheduledClose, play]);
+  }, [cancelScheduledClose]);
 
   useEffect(() => {
     const menu = triggerRef.current?.closest(".qa-menu");
@@ -342,8 +281,7 @@ function QuickActionsMenu({
     setPinned(false);
     setRequestedOpen(false);
     setSnoozeDialog({ open: false, childCount: 0, thread: null });
-    play(-1);
-  }, [cancelScheduledClose, play, targetThreadId]);
+  }, [cancelScheduledClose, targetThreadId]);
 
   const executeSnooze = async (target: PluginThreadActionTarget) => {
     const result = await rpc.call("snooze", { threadId: target.id });
@@ -433,7 +371,7 @@ function QuickActionsMenu({
           data-corner={corner}
           data-motion={motion}
           data-debug={debugRegions ? "true" : "false"}
-          data-open={isOpen ? "true" : "false"}
+          data-open={requestedOpen ? "true" : "false"}
           data-can-open={canOpen ? "true" : "false"}
           style={position}
           role="group"
@@ -492,22 +430,16 @@ function QuickActionsMenu({
             }}
             onClick={() => {
               if (!canOpen) return;
-              if (isOpen && pinned) {
+              if (requestedOpen && pinned) {
                 setPinned(false);
                 setRequestedOpen(false);
-                play(-1);
               } else {
                 setPinned(true);
                 open();
               }
             }}
           >
-            <Icon
-              name="Plus"
-              style={{
-                transform: `rotate(${triggerRotation(time, reducedMotion)}deg)`,
-              }}
-            />
+            <Icon name="Plus" />
           </Button>
           <div
             id="qa-actions"
@@ -515,13 +447,10 @@ function QuickActionsMenu({
             inert={!requestedOpen || !canOpen}
           >
             {actions.map((item, index) => {
-              const frame = actionFrame({
-                motion,
+              const style = actionCssVariables({
                 index,
                 count: actions.length,
                 corner,
-                time,
-                reducedMotion,
               });
               return (
                 <Hint key={item.id} label={item.label} side={tooltipSide}>
@@ -530,23 +459,10 @@ function QuickActionsMenu({
                     variant="outline"
                     size="icon"
                     className="qa-action"
-                    style={frame}
-                    data-active={activeAction === item.id ? "true" : "false"}
+                    style={style}
                     aria-label={item.label}
                     disabled={item.disabled || pending !== null}
                     tabIndex={requestedOpen && canOpen ? 0 : -1}
-                    onPointerEnter={() => setActiveAction(item.id)}
-                    onPointerLeave={() =>
-                      setActiveAction((current) =>
-                        current === item.id ? null : current,
-                      )
-                    }
-                    onFocus={() => setActiveAction(item.id)}
-                    onBlur={() =>
-                      setActiveAction((current) =>
-                        current === item.id ? null : current,
-                      )
-                    }
                     onClick={() => void activate(item)}
                   >
                     <Icon name={item.icon} />
@@ -593,7 +509,7 @@ function QuickActionsMenu({
       </AlertDialog>
     </>
   );
-}
+});
 
 function ThreadQuickActions({ threadId }: { threadId: string }) {
   const sdk = useSdk();
@@ -643,24 +559,28 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
     listed?.isUnread,
     listed?.pinnedAt,
   ]);
-  const currentThread: PluginThreadActionTarget | null = listed
-    ? {
-        id: listed.id,
-        projectId: listed.projectId,
-        parentThreadId: listed.parentThreadId,
-        parentNotifications: listed.parentNotifications,
-        archivedAt: listed.archivedAt,
-        pinnedAt: listed.pinnedAt,
-        sectionId: listed.sectionId,
-        isUnread: listed.isUnread,
-        status: listed.status,
-        environment: listed.environment?.id
-          ? { id: listed.environment.id, path: listed.environment.path }
+  const currentThread = useMemo<PluginThreadActionTarget | null>(
+    () =>
+      listed
+        ? {
+            id: listed.id,
+            projectId: listed.projectId,
+            parentThreadId: listed.parentThreadId,
+            parentNotifications: listed.parentNotifications,
+            archivedAt: listed.archivedAt,
+            pinnedAt: listed.pinnedAt,
+            sectionId: listed.sectionId,
+            isUnread: listed.isUnread,
+            status: listed.status,
+            environment: listed.environment?.id
+              ? { id: listed.environment.id, path: listed.environment.path }
+              : null,
+          }
+        : fetched?.id === threadId
+          ? fetched
           : null,
-      }
-    : fetched?.id === threadId
-      ? fetched
-      : null;
+    [fetched, listed, threadId],
+  );
   if (currentThread) previousThreadRef.current = currentThread;
   const displayThread = currentThread ?? previousThreadRef.current;
   return displayThread ? (

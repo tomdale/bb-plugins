@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  actionFrame,
+  actionCssVariables,
   actionTarget,
   CORNERS,
   hoverCorridorPoints,
-  MENU_DURATION_MS,
   sanitizeCorner,
   sanitizeMotion,
-  spring,
-  triggerRotation,
 } from "./motion";
 
 describe("settings sanitization", () => {
@@ -26,19 +23,7 @@ describe("settings sanitization", () => {
   });
 });
 
-describe("motion frames", () => {
-  it("settles every spring and the trigger exactly", () => {
-    expect(spring(0)).toBe(0);
-    expect(spring(1)).toBe(1);
-    expect(spring(0.5)).toBeGreaterThan(0.8);
-    expect(triggerRotation(MENU_DURATION_MS, false)).toBe(45);
-    expect(triggerRotation(MENU_DURATION_MS, true)).toBe(0);
-  });
-
-  it("finishes the interactive timeline in 240 ms", () => {
-    expect(MENU_DURATION_MS).toBe(240);
-  });
-
+describe("motion geometry", () => {
   it("connects the trigger to each action with a radial corridor", () => {
     const target = actionTarget(0, 5, "bottom-left");
     const ux = target.x / 116;
@@ -62,57 +47,15 @@ describe("motion frames", () => {
     expect(actionTarget(0, 5, "top-left").y).toBe(-bottomLeft.y);
   });
 
-  it("staggers arc items from the trigger", () => {
-    const first = actionFrame({
-      motion: "arc",
-      index: 0,
-      count: 5,
-      corner: "bottom-left",
-      time: 12,
-      reducedMotion: false,
-    });
-    const last = actionFrame({
-      motion: "arc",
-      index: 4,
-      count: 5,
-      corner: "bottom-left",
-      time: 12,
-      reducedMotion: false,
-    });
-    expect(first.opacity).toBeGreaterThan(0);
-    expect(last.opacity).toBe(0);
-    const target = actionTarget(0, 5, "bottom-left");
-    expect(first.transform).not.toBe(
-      `translate(${target.x}px, ${target.y}px) scale(1)`,
-    );
-  });
-
-  it("moves ring items together as one group", () => {
-    const frames = [0, 1, 2].map((index) =>
-      actionFrame({
-        motion: "ring",
-        index,
-        count: 3,
-        corner: "bottom-left",
-        time: 160,
-        reducedMotion: false,
-      }),
-    );
-    expect(new Set(frames.map((frame) => frame.opacity)).size).toBe(1);
-    expect(frames.every((frame) => frame.opacity > 0)).toBe(true);
-  });
-
-  it("uses final positions with only opacity under reduced motion", () => {
+  it("provides transform coordinates and stagger delays to CSS", () => {
     const target = actionTarget(2, 5, "top-right");
-    const frame = actionFrame({
-      motion: "arc",
+    const style = actionCssVariables({
       index: 2,
       count: 5,
       corner: "top-right",
-      time: 60,
-      reducedMotion: true,
-    });
-    expect(frame.transform).toBe(`translate(${target.x}px, ${target.y}px)`);
-    expect(frame.opacity).toBe(0.5);
+    }) as Record<string, string>;
+    expect(style["--qa-action-x"]).toBe(`${target.x}px`);
+    expect(style["--qa-action-y"]).toBe(`${target.y}px`);
+    expect(style["--qa-open-delay"]).toBe("24ms");
   });
 });
