@@ -8,6 +8,28 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Thread-pane geometry for floating UI
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0 / host SDK 0.6.134; Quick Actions plugin pins SDK
+  0.6.133
+- **Use case:** a floating quick-actions menu belongs at a configurable corner
+  of the open thread's chat content and must follow sidebar, window, and
+  split-pane resizing
+- **Limit and evidence:** `experimental_appOverlay` supplies no props and BB
+  supplies no positioning, visibility, focus, or responsive behavior.
+  `useBbContext()` identifies the route's thread but exposes no content
+  rectangle. A fixed overlay can otherwise anchor only to the app viewport,
+  which places it outside the thread content when the sidebar is visible
+- **Workaround:** observe `[data-scroll-footer]` and its closest
+  `[data-thread-window]`, position from their rectangles, and update through
+  ResizeObserver and window resize events. The plugin therefore depends on
+  internal app DOM selectors that the SDK does not cover
+- **Possible API:** an `experimental_threadOverlay` slot with `threadId`,
+  focused pane identity, and a thread-content anchor rectangle, or an
+  app-overlay hook that returns the current thread surface's rectangle and
+  visibility
+
 ## Safe retirement of multi-checkout environments
 
 - **Status:** not filed

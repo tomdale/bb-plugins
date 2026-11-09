@@ -1,0 +1,57 @@
+.qa-menu {
+  position: fixed;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  color: var(--foreground);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.qa-trigger,
+.qa-action {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%; /* slop-ok: 2 BB's icon-only composer actions use circular controls */
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.qa-trigger:hover,
+.qa-action:hover {
+  background: var(--secondary);
+}
+
+.qa-trigger {
+  inset: 0;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+}
+
+.qa-trigger [data-icon-root] {
+  width: 19px;
+  height: 19px;
+}
+
+.qa-action {
+  left: 22px;
+  top: 22px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  margin: -18px;
+  will-change: transform, opacity;
+}
+
+.qa-action [data-icon-root] {
+  width: 17px;
+  height: 17px;
+}
+
+.qa-menu[data-open="false"] .qa-action {
+  pointer-events: none;
+}
