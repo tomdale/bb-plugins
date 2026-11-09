@@ -43,6 +43,8 @@ import {
 import type { rpcContract } from "./server";
 import {
   actionFrame,
+  actionTarget,
+  hoverCorridorPoints,
   MENU_DURATION_MS,
   sanitizeCorner,
   sanitizeMotion,
@@ -209,6 +211,7 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
   const settings = useSettings();
   const corner = sanitizeCorner(settings.values?.corner);
   const motion = sanitizeMotion(settings.values?.motion);
+  const debugRegions = settings.values?.debugRegions === true;
   const reducedMotion = useReducedMotion();
   const { time, play } = useAnimationClock();
   const position = useMenuPosition(corner);
@@ -232,6 +235,7 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
+  const [activeAction, setActiveAction] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entries = experimental_useThreadActions(thread, {
@@ -239,6 +243,9 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
   });
   const isOpen = time > 0;
   const tooltipSide = corner.startsWith("top") ? "bottom" : "top";
+  useEffect(() => {
+    if (!requestedOpen) setActiveAction(null);
+  }, [requestedOpen]);
 
   const cancelScheduledClose = useCallback(() => {
     if (closeTimerRef.current !== null) clearTimeout(closeTimerRef.current);
@@ -352,6 +359,7 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
           data-bb-plugin="quick-actions"
           data-corner={corner}
           data-motion={motion}
+          data-debug={debugRegions ? "true" : "false"}
           data-open={isOpen ? "true" : "false"}
           style={position}
           role="group"
@@ -371,6 +379,26 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
             }
           }}
         >
+          <div className="qa-hover-core" aria-hidden="true" />
+          <svg
+            className="qa-hover-regions"
+            viewBox="-140 -140 280 280"
+            aria-hidden="true"
+            focusable="false"
+          >
+            {actions.map((item, index) => {
+              const points = hoverCorridorPoints(
+                actionTarget(index, actions.length, corner),
+              );
+              return (
+                <path
+                  key={item.id}
+                  className="qa-hover-corridor"
+                  d={`M ${points} Z`}
+                />
+              );
+            })}
+          </svg>
           <Button
             ref={triggerRef}
             type="button"
@@ -419,9 +447,22 @@ function QuickActionsMenu({ thread }: { thread: PluginThreadActionTarget }) {
                     size="icon"
                     className="qa-action"
                     style={frame}
+                    data-active={activeAction === item.id ? "true" : "false"}
                     aria-label={item.label}
                     disabled={item.disabled || pending !== null}
                     tabIndex={requestedOpen ? 0 : -1}
+                    onPointerEnter={() => setActiveAction(item.id)}
+                    onPointerLeave={() =>
+                      setActiveAction((current) =>
+                        current === item.id ? null : current,
+                      )
+                    }
+                    onFocus={() => setActiveAction(item.id)}
+                    onBlur={() =>
+                      setActiveAction((current) =>
+                        current === item.id ? null : current,
+                      )
+                    }
                     onClick={() => void activate(item)}
                   >
                     <Icon name={item.icon} />

@@ -3,6 +3,7 @@ import {
   actionFrame,
   actionTarget,
   CORNERS,
+  hoverCorridorPoints,
   MENU_DURATION_MS,
   sanitizeCorner,
   sanitizeMotion,
@@ -34,6 +35,21 @@ describe("motion frames", () => {
     expect(triggerRotation(MENU_DURATION_MS, true)).toBe(0);
   });
 
+  it("finishes the interactive timeline in 240 ms", () => {
+    expect(MENU_DURATION_MS).toBe(240);
+  });
+
+  it("connects the trigger to each action with a radial corridor", () => {
+    const target = actionTarget(0, 5, "bottom-left");
+    const ux = target.x / 116;
+    const uy = target.y / 116;
+    const points = hoverCorridorPoints(target);
+    expect(points.split(" ")).toHaveLength(4);
+    expect(points.split(" ")[0]).toBe(
+      `${(16 * (ux - uy)).toFixed(2)},${(16 * (uy + ux)).toFixed(2)}`,
+    );
+  });
+
   it("mirrors the arc into every corner without changing its radius", () => {
     const bottomLeft = actionTarget(0, 5, "bottom-left");
     for (const corner of CORNERS) {
@@ -52,7 +68,7 @@ describe("motion frames", () => {
       index: 0,
       count: 5,
       corner: "bottom-left",
-      time: 80,
+      time: 12,
       reducedMotion: false,
     });
     const last = actionFrame({
@@ -60,7 +76,7 @@ describe("motion frames", () => {
       index: 4,
       count: 5,
       corner: "bottom-left",
-      time: 80,
+      time: 12,
       reducedMotion: false,
     });
     expect(first.opacity).toBeGreaterThan(0);

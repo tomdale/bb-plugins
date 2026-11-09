@@ -8,5 +8,6 @@ thread and its active descendants after confirmation, and unarchives the same
 set at 9:00 AM the next day in the server's time zone. Manual unarchive
 cancels that thread's wake record.
 
-Settings select the menu corner and motion. Changes apply to open windows
-without reloading the plugin.
+Settings select the menu corner and motion, with an optional debug view of the
+circular core and radial hit corridors. Changes apply to open windows without
+reloading the plugin.

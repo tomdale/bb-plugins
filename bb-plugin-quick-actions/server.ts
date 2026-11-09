@@ -58,6 +58,11 @@ export default async function plugin(bb: BbPluginApi) {
       },
       default: "ring",
     },
+    debugRegions: {
+      type: "boolean",
+      label: "Debug hover regions",
+      default: false,
+    },
   });
 
   const db = bb.storage.database();

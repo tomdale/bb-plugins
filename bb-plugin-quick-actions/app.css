@@ -8,6 +8,50 @@
   app-region: no-drag;
 }
 
+.qa-hover-core {
+  position: absolute;
+  left: 22px;
+  top: 22px;
+  z-index: 0;
+  width: 144px;
+  height: 144px;
+  margin: -72px;
+  border-radius: 50%;
+}
+
+.qa-hover-regions {
+  position: absolute;
+  left: 22px;
+  top: 22px;
+  z-index: 0;
+  width: 280px;
+  height: 280px;
+  margin: -140px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.qa-hover-corridor {
+  fill: transparent;
+  pointer-events: fill;
+}
+
+.qa-menu[data-open="false"] .qa-hover-corridor {
+  pointer-events: none;
+}
+
+.qa-menu[data-debug="true"] .qa-hover-core {
+  border: 1px dashed color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.qa-menu[data-debug="true"] .qa-hover-corridor {
+  fill: color-mix(in srgb, var(--primary) 10%, transparent);
+  stroke: color-mix(in srgb, var(--primary) 45%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
 .qa-trigger,
 .qa-action {
   position: absolute;
@@ -50,6 +94,22 @@
 .qa-action [data-icon-root] {
   width: 17px;
   height: 17px;
+  transition: transform 120ms ease-out;
+}
+
+.qa-action[data-active="true"] {
+  border-color: color-mix(in srgb, var(--foreground) 35%, var(--border));
+  background: var(--secondary);
+}
+
+.qa-action[data-active="true"] [data-icon-root] {
+  transform: scale(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qa-action [data-icon-root] {
+    transition: none;
+  }
 }
 
 .qa-menu[data-open="false"] .qa-action {

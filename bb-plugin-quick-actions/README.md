@@ -11,6 +11,8 @@ motion.
 
 - **Menu corner:** Bottom left (default), Bottom right, Top left, or Top right.
 - **Menu motion:** Ring bloom (default) or Arc spring.
+- **Debug hover regions:** Off by default. Draws the circular core and radial
+  hit corridors without changing pointer behavior.
 
 Inspect or change these values from a terminal:
 
@@ -18,6 +20,7 @@ Inspect or change these values from a terminal:
 bb plugin config quick-actions --json
 bb plugin config quick-actions set corner bottom-right
 bb plugin config quick-actions set motion arc
+bb plugin config quick-actions set debugRegions true
 ```
 
 Unset a value to restore its default, for example

@@ -91,7 +91,7 @@ async function renderQuickActions({
   snoozeWait = null,
   strictMode = false,
 }: {
-  settings?: Record<string, string>;
+  settings?: Record<string, string | number | boolean>;
   archivedAt?: number | null;
   snoozeError?: Error | null;
   childCount?: number;
@@ -189,6 +189,32 @@ describe("Quick Actions overlay", () => {
     const menu = document.querySelector(".qa-menu");
     expect(menu).toHaveAttribute("data-corner", "top-right");
     expect(menu).toHaveAttribute("data-motion", "arc");
+    slot.lifecycle.unmount();
+  });
+
+  it("renders debug hover regions only when enabled", async () => {
+    const { slot } = await renderQuickActions({
+      settings: { debugRegions: true },
+    });
+    const menu = document.querySelector(".qa-menu");
+    expect(menu).toHaveAttribute("data-debug", "true");
+    expect(document.querySelector(".qa-hover-core")).not.toBeNull();
+    expect(document.querySelectorAll(".qa-hover-corridor")).toHaveLength(5);
+    slot.lifecycle.unmount();
+  });
+
+  it("highlights the selected action on pointer and keyboard focus", async () => {
+    const { slot, trigger } = await renderQuickActions();
+    await openMenu(trigger);
+    const archive = slot.getByRole("button", { name: "Archive" });
+    fireEvent.pointerEnter(archive);
+    expect(archive).toHaveAttribute("data-active", "true");
+    fireEvent.pointerLeave(archive);
+    expect(archive).toHaveAttribute("data-active", "false");
+    fireEvent.focus(archive);
+    expect(archive).toHaveAttribute("data-active", "true");
+    fireEvent.blur(archive);
+    expect(archive).toHaveAttribute("data-active", "false");
     slot.lifecycle.unmount();
   });
 
