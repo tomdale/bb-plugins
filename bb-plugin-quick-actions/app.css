@@ -5,6 +5,9 @@
   z-index: 60;
   width: 44px;
   height: 44px;
+  /* Analytic damped-spring samples at 2.5% intervals, normalized to the target. */
+  --qa-arc-easing: linear(0, 0.0024, 0.00932, 0.02032, 0.035, 0.05297, 0.07387, 0.09733, 0.12303, 0.15067, 0.17994, 0.21058, 0.24233, 0.27494, 0.30821, 0.34193, 0.3759, 0.40995, 0.44393, 0.47769, 0.5111, 0.54404, 0.57642, 0.60813, 0.63909, 0.66923, 0.6985, 0.72683, 0.75418, 0.78053, 0.80583, 0.83008, 0.85325, 0.87534, 0.89634, 0.91626, 0.93511, 0.95289, 0.96962, 0.98531, 1);
+  --qa-ring-easing: linear(0, 0.00235, 0.0091, 0.01979, 0.03403, 0.0514, 0.07155, 0.09414, 0.11885, 0.14538, 0.17346, 0.20283, 0.23327, 0.26455, 0.29647, 0.32885, 0.36153, 0.39435, 0.42717, 0.45987, 0.49233, 0.52446, 0.55617, 0.58736, 0.61798, 0.64796, 0.67725, 0.70581, 0.73358, 0.76055, 0.78669, 0.81197, 0.83638, 0.85992, 0.88256, 0.90433, 0.9252, 0.9452, 0.96433, 0.98259, 1);
   color: var(--foreground);
   transform: translate3d(var(--qa-menu-x, 16px), var(--qa-menu-y, calc(100vh - 60px)), 0);
   /* Keep overflow visible: paint containment would clip the radial actions. */
@@ -92,7 +95,7 @@
 .qa-trigger [data-icon-root] {
   width: 19px;
   height: 19px;
-  transition: transform 60ms cubic-bezier(0.22, 1.12, 0.36, 1);
+  transition: transform 60ms linear;
 }
 
 .qa-menu[data-open="true"] .qa-trigger [data-icon-root] {
@@ -110,7 +113,7 @@
   opacity: 0;
   transform: translate3d(0, 0, 0) scale(0.55);
   transition:
-    transform 160ms cubic-bezier(0.22, 1.12, 0.36, 1),
+    transform 160ms var(--qa-arc-easing),
     opacity 40ms linear;
   will-change: transform, opacity;
 }
@@ -118,6 +121,7 @@
 .qa-menu[data-motion="ring"] .qa-action {
   transform: translate3d(0, 0, 0) scale(0.7);
   transition-duration: 240ms, 48ms;
+  transition-timing-function: var(--qa-ring-easing), linear;
 }
 
 .qa-menu[data-open="true"] .qa-action {
