@@ -32,10 +32,8 @@ const GROW = 1.06;
 const TILE_SLIDE_W = 140;
 
 const COLOR = {
-  tile: [29, 30, 34],
-  tileHi: [36, 37, 42],
+
   edge: [150, 172, 222],
-  flash: [52, 54, 60],
   flashEdge: [200, 212, 238],
   text: [154, 157, 164],
   icon: [116, 119, 127],
@@ -45,6 +43,14 @@ const COLOR = {
   iconOffAimed: [139, 142, 150],
   white: [255, 255, 255],
 } as const;
+/**
+ * The disc is slightly translucent, so the tile is a white wash over it rather
+ * than a solid colour. The wash is applied as element opacity, so the stroke
+ * that rounds its corners never doubles up over the fill.
+ */
+const TILE_ALPHA = 0.045;
+const TILE_ALPHA_HI = 0.075;
+const TILE_ALPHA_FLASH = 0.14;
 const EDGE_ALPHA = 0.55;
 const EDGE_ALPHA_HI = 0.75;
 const EDGE_WIDTH = 1.5;
@@ -549,9 +555,13 @@ export class RingPie {
       );
       el.tile.style.strokeWidth = (2 * c).toFixed(2);
       const hi = n >= 8;
-      const fill = rgba(mix(hi ? COLOR.tileHi : COLOR.tile, COLOR.flash, this.flash.x));
-      el.tile.setAttribute("fill", fill);
-      el.tile.setAttribute("stroke", fill);
+      el.tile.setAttribute("fill", "#fff");
+      el.tile.setAttribute("stroke", "#fff");
+      el.tile.style.opacity = lerp(
+        hi ? TILE_ALPHA_HI : TILE_ALPHA,
+        TILE_ALPHA_FLASH,
+        clamp(this.flash.x),
+      ).toFixed(3);
       const off = this.disabled[this.sel] === true;
       const ea = off ? 0 : clamp((p - 0.6) / 0.4);
       el.edge.style.display = ea > 0 ? "" : "none";
