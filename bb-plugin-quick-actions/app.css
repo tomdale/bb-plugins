@@ -169,7 +169,10 @@
   margin: calc(var(--qa-pie-radius) * -1);
   border-radius: 50%;
   background: #000;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+  /* The hairline rim keeps the disc's edge visible on BB's dark theme. */
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.14),
+    0 12px 40px rgb(0 0 0 / 0.35);
   opacity: 0;
   transform: scale(0.6);
   transition:
