@@ -908,6 +908,7 @@ describe("Quick Actions overlay", () => {
       });
       expect(menu).toHaveAttribute("data-open", "false");
       expect(menu).toHaveAttribute("data-instant", "false");
+      expect(document.querySelectorAll('.qa-pie-slice[data-lit="true"]')).toHaveLength(0);
       await releaseOption();
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 150));

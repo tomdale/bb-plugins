@@ -447,6 +447,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     clearConfirm();
     setCloseKind("cancel");
     setChosen(null);
+    setSelected(null);
     setInstantClose(false);
     if (requestedOpenRef.current) {
       closingUntilRef.current = performance.now() + PIE_CLOSE_MS;
