@@ -7,7 +7,11 @@ import {
   cursorActionCssVariables,
   cursorActionTarget,
   hoverCorridorPoints,
-  MENU_RADIUS_PX,
+  PIE_DEAD_ZONE_PX,
+  PIE_ITEM_RADIUS_PX,
+  PIE_RADIUS_PX,
+  pieSliceAt,
+  pieSlicePath,
   sanitizeCorner,
   sanitizeMotion,
   sanitizeTrigger,
@@ -72,9 +76,9 @@ describe("hold-Option geometry", () => {
   it("spreads the fan evenly from twelve o'clock", () => {
     const first = cursorActionTarget(0, 5);
     expect(first.x).toBeCloseTo(0);
-    expect(first.y).toBeCloseTo(-MENU_RADIUS_PX);
+    expect(first.y).toBeCloseTo(-PIE_ITEM_RADIUS_PX);
     const second = cursorActionTarget(1, 5);
-    expect(Math.hypot(second.x, second.y)).toBeCloseTo(MENU_RADIUS_PX);
+    expect(Math.hypot(second.x, second.y)).toBeCloseTo(PIE_ITEM_RADIUS_PX);
     const angles = [0, 1, 2, 3, 4].map((index) => {
       const target = cursorActionTarget(index, 5);
       return Math.atan2(target.y, target.x);
@@ -99,7 +103,7 @@ describe("hold-Option geometry", () => {
 
   it("keeps the whole fan inside the window", () => {
     const viewport = { width: 1024, height: 768 };
-    const inset = MENU_RADIUS_PX + 26;
+    const inset = PIE_RADIUS_PX + 8;
     expect(clampMenuOrigin({ x: 500, y: 400 }, viewport)).toEqual({
       x: 500,
       y: 400,
@@ -112,5 +116,25 @@ describe("hold-Option geometry", () => {
       x: viewport.width - inset,
       y: viewport.height - inset,
     });
+  });
+
+  it("selects the slice the pointer points into", () => {
+    expect(pieSliceAt({ x: 0, y: -60 }, 5)).toBe(0);
+    expect(pieSliceAt({ x: 0, y: -PIE_DEAD_ZONE_PX + 1 }, 5)).toBeNull();
+    for (let index = 0; index < 5; index += 1) {
+      const target = cursorActionTarget(index, 5);
+      expect(pieSliceAt(target, 5)).toBe(index);
+    }
+    // Just short of the boundary between slice 4 and slice 0.
+    const near = (-Math.PI * 2) / 10 + 0.01;
+    expect(pieSliceAt({ x: Math.sin(near) * 80, y: -Math.cos(near) * 80 }, 5)).toBe(0);
+  });
+
+  it("draws one slice from the centre to the rim", () => {
+    const path = pieSlicePath(4);
+    expect(path.startsWith("M 0 0 L")).toBe(true);
+    const corner = (Math.sin(Math.PI / 4) * PIE_RADIUS_PX).toFixed(2);
+    expect(path).toContain(`-${corner} -${corner}`);
+    expect(path).toContain(`${corner} -${corner} Z`);
   });
 });

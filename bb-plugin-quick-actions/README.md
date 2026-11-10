@@ -8,7 +8,10 @@ thread actions where they exist.
 ## Trigger
 
 - **Hold Option at the pointer:** the default. Holding Option for 200ms opens
-  the fan around the cursor; releasing closes it. Quick Option-letter accents
+  a round black pie around the cursor, each slice labelled with its icon and
+  name. Moving the pointer away from the centre lights the slice it points
+  into; clicking runs that slice's action, and releasing Option closes the pie
+  without running anything. Quick Option-letter accents
   such as ⌥e pass through untouched, and any other keypress dismisses the fan
   so typing is never interrupted.
 - **Corner button:** the earlier floating trigger, anchored to the composer's
@@ -17,8 +20,8 @@ thread actions where they exist.
 Choose between them with **Settings → Plugins → Quick Actions → Menu trigger**
 or `bb plugin config quick-actions set trigger corner`.
 
-The fan keeps itself inside the window: near an edge the fan centre moves in
-far enough that no action is clipped.
+The pie keeps itself inside the window: near an edge its centre moves in far
+enough that no slice is clipped.
 
 ## Settings
 

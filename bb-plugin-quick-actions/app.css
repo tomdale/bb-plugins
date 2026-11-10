@@ -152,31 +152,123 @@
   pointer-events: none;
 }
 
-/* Hold ⌥ at the pointer: no trigger or hover corridors, the pie spring from
-   the plugin's arc timing, and a container that never swallows clicks aimed at
-   the page underneath. */
+/* Hold ⌥ at the pointer: a black pie centred on the pointer, no trigger or
+   hover corridors, and a container that never swallows clicks aimed at the
+   page underneath. */
 .qa-menu[data-trigger="hold-option"] {
   pointer-events: none;
 }
 
+.qa-pie {
+  position: absolute;
+  left: 22px;
+  top: 22px;
+  z-index: 0;
+  width: calc(var(--qa-pie-radius) * 2);
+  height: calc(var(--qa-pie-radius) * 2);
+  margin: calc(var(--qa-pie-radius) * -1);
+  border-radius: 50%;
+  background: #000;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    transform 160ms var(--qa-arc-easing),
+    opacity 40ms linear;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.qa-menu[data-open="true"] .qa-pie {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.qa-pie-slices {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.qa-pie-slice {
+  fill: rgb(255 255 255 / 0.18);
+  opacity: 0;
+  transform-origin: 0 0;
+  transition:
+    transform 90ms ease-out,
+    opacity 60ms linear;
+}
+
+.qa-pie-slice[data-visible="true"] {
+  opacity: 1;
+}
+
+.qa-pie-slice[data-jump="true"] {
+  transition: opacity 60ms linear;
+}
+
 .qa-menu[data-trigger="hold-option"] .qa-action {
+  flex-direction: column;
+  gap: 4px;
+  width: 84px;
+  height: 52px;
+  margin: -26px -42px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgb(255 255 255 / 0.66);
+  font: inherit;
+  cursor: pointer;
   pointer-events: none;
   opacity: 0;
   transform: translate3d(0, 0, 0) scale(0.7);
   transition:
     transform 160ms var(--qa-arc-easing),
-    opacity 40ms linear;
+    opacity 40ms linear,
+    color 60ms linear;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action:focus-visible {
+  outline: none;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action[data-selected="true"] {
+  color: #fff;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action:disabled {
+  cursor: default;
+  color: rgb(255 255 255 / 0.3);
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action [data-icon-root] {
+  width: 20px;
+  height: 20px;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action:is(:hover, :focus-visible) [data-icon-root] {
+  transform: none;
+}
+
+.qa-action-label {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 .qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action {
   pointer-events: auto;
   opacity: 1;
   transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
-  transition-delay: var(--qa-open-delay), var(--qa-open-delay);
+  transition-delay: var(--qa-open-delay), var(--qa-open-delay), 0ms;
 }
 
-/* A keypress dismisses the fan without animating back across the composer. */
-.qa-menu[data-trigger="hold-option"][data-instant="true"] .qa-action {
+/* A keypress dismisses the pie without animating back across the composer. */
+.qa-menu[data-trigger="hold-option"][data-instant="true"] :is(.qa-action, .qa-pie) {
   transition: none;
 }
 
@@ -188,6 +280,16 @@
 
   .qa-menu[data-open] .qa-trigger [data-icon-root] {
     transform: none;
+  }
+
+  .qa-menu .qa-pie,
+  .qa-menu[data-open="true"] .qa-pie {
+    transform: none;
+    transition: opacity 120ms linear;
+  }
+
+  .qa-pie-slice {
+    transition: opacity 60ms linear;
   }
 
   .qa-menu .qa-action,

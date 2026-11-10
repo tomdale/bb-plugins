@@ -49,6 +49,9 @@ import {
   clampMenuOrigin,
   cursorActionCssVariables,
   hoverCorridorPoints,
+  PIE_RADIUS_PX,
+  pieSliceAt,
+  pieSlicePath,
   sanitizeCorner,
   sanitizeMotion,
   sanitizeTrigger,
@@ -380,6 +383,41 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   ].filter((item): item is QuickActionItem => item !== null);
 
   const canOpen = threadReady && !settings.isLoading && actions.length > 0;
+  const actionCount = actions.length;
+
+  // The pie selects by direction: whichever slice the pointer points into from
+  // the centre is lit, wherever along that ray the pointer sits.
+  const [selected, setSelected] = useState<number | null>(null);
+  useEffect(() => {
+    if (!holdOption || !requestedOpen) {
+      setSelected(null);
+      return;
+    }
+    const track = (event: PointerEvent) => {
+      setSelected(
+        pieSliceAt(
+          { x: event.clientX - origin.x, y: event.clientY - origin.y },
+          actionCount,
+        ),
+      );
+    };
+    window.addEventListener("pointermove", track, { passive: true });
+    return () => window.removeEventListener("pointermove", track);
+  }, [actionCount, holdOption, origin, requestedOpen]);
+  // The lit slice turns the short way round, and appears in place rather than
+  // spinning in from wherever it was last shown.
+  const sliceTurnRef = useRef(0);
+  const previousSelectedRef = useRef<number | null>(null);
+  const sliceJump = previousSelectedRef.current === null;
+  if (selected !== null && actionCount > 0) {
+    const target = (selected * 360) / actionCount;
+    const delta =
+      ((((target - sliceTurnRef.current) % 360) + 540) % 360) - 180;
+    sliceTurnRef.current += delta;
+  }
+  useEffect(() => {
+    previousSelectedRef.current = selected;
+  }, [selected]);
 
   // Hold Option anywhere and the fan opens at the pointer. A 200ms hold keeps
   // Option-letter accents (⌥e) intact, and any other keypress drops the menu so
@@ -511,6 +549,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     ? ({
         "--qa-menu-x": `${origin.x - MENU_BOX_OFFSET_PX}px`,
         "--qa-menu-y": `${origin.y - MENU_BOX_OFFSET_PX}px`,
+        "--qa-pie-radius": `${PIE_RADIUS_PX}px`,
       } as CSSProperties)
     : position;
 
@@ -617,6 +656,30 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
             <Icon name="Plus" />
           </Button>
           )}
+          {holdOption ? (
+            <div
+              className="qa-pie"
+              aria-hidden="true"
+              onClick={() => {
+                const item = selected === null ? undefined : actions[selected];
+                if (item && !item.disabled) void activate(item);
+              }}
+            >
+              <svg
+                className="qa-pie-slices"
+                viewBox={`${-PIE_RADIUS_PX} ${-PIE_RADIUS_PX} ${PIE_RADIUS_PX * 2} ${PIE_RADIUS_PX * 2}`}
+                focusable="false"
+              >
+                <path
+                  className="qa-pie-slice"
+                  data-visible={selected === null ? "false" : "true"}
+                  data-jump={sliceJump ? "true" : "false"}
+                  d={pieSlicePath(actionCount)}
+                  style={{ transform: `rotate(${sliceTurnRef.current}deg)` }}
+                />
+              </svg>
+            </div>
+          ) : null}
           <div
             id="qa-actions"
             className="qa-actions"
@@ -633,6 +696,24 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
                     count: actions.length,
                     corner,
                   });
+              if (holdOption) {
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="qa-action"
+                    style={style}
+                    data-selected={selected === index ? "true" : "false"}
+                    disabled={item.disabled || pending !== null}
+                    tabIndex={requestedOpen && canOpen ? 0 : -1}
+                    onFocus={() => setSelected(index)}
+                    onClick={() => void activate(item)}
+                  >
+                    <Icon name={item.icon} />
+                    <span className="qa-action-label">{item.label}</span>
+                  </button>
+                );
+              }
               return (
                 <Hint key={item.id} label={item.label} side={tooltipSide}>
                   <Button

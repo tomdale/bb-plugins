@@ -826,8 +826,8 @@ describe("Quick Actions overlay", () => {
       const { slot } = await renderQuickActions({ settings: { ...hold } });
       const menu = document.querySelector<HTMLElement>(".qa-menu");
       await holdOptionAt({ clientX: 4, clientY: 6 });
-      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("120px");
-      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("120px");
+      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("118px");
+      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("118px");
       slot.lifecycle.unmount();
     });
 
@@ -852,6 +852,37 @@ describe("Quick Actions overlay", () => {
       });
       expect(menu).toHaveAttribute("data-open", "false");
       expect(menu).toHaveAttribute("data-instant", "true");
+      slot.lifecycle.unmount();
+    });
+
+    it("labels every slice and lights the one the pointer points into", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      const archive = slot.getByRole("button", { name: "Archive" });
+      expect(archive).toHaveTextContent("Archive");
+      const slice = document.querySelector(".qa-pie-slice");
+      expect(slice).toHaveAttribute("data-visible", "false");
+      expect(archive).toHaveAttribute("data-selected", "false");
+
+      await act(async () => {
+        fireEvent.pointerMove(window, { clientX: 400, clientY: 220 });
+      });
+      expect(slice).toHaveAttribute("data-visible", "true");
+      expect(archive).toHaveAttribute("data-selected", "true");
+      slot.lifecycle.unmount();
+    });
+
+    it("runs the lit slice when the pie is clicked", async () => {
+      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await act(async () => {
+        fireEvent.pointerMove(window, { clientX: 400, clientY: 250 });
+      });
+      const pie = document.querySelector<HTMLElement>(".qa-pie");
+      await act(async () => {
+        fireEvent.click(pie!);
+      });
+      await waitFor(() => expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce());
       slot.lifecycle.unmount();
     });
 

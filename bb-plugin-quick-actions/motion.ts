@@ -2,6 +2,12 @@ import type { CSSProperties } from "react";
 
 export const ACTION_STAGGER_MS = 12;
 export const MENU_RADIUS_PX = 116;
+/** Outer radius of the hold-Option pie's black disc. */
+export const PIE_RADIUS_PX = 132;
+/** Where each slice's icon and label sit, between the hub and the rim. */
+export const PIE_ITEM_RADIUS_PX = 86;
+/** Pointer travel from the centre before a slice counts as selected. */
+export const PIE_DEAD_ZONE_PX = 24;
 
 export const CORNERS = [
   "bottom-left",
@@ -31,7 +37,7 @@ export function sanitizeTrigger(value: unknown): QuickActionTrigger {
 
 /**
  * Radial slots around the pointer, evenly spaced and starting at twelve
- * o'clock, so the fan reads the same wherever it opens.
+ * o'clock, so the pie reads the same wherever it opens.
  */
 export function cursorActionTarget(
   index: number,
@@ -40,20 +46,52 @@ export function cursorActionTarget(
   const step = (Math.PI * 2) / Math.max(1, count);
   const angle = -Math.PI / 2 + step * index;
   return {
-    x: Math.cos(angle) * MENU_RADIUS_PX,
-    y: Math.sin(angle) * MENU_RADIUS_PX,
+    x: Math.cos(angle) * PIE_ITEM_RADIUS_PX,
+    y: Math.sin(angle) * PIE_ITEM_RADIUS_PX,
   };
 }
 
 /**
- * Keeps the whole fan inside the window: near an edge the fan centre moves in
- * far enough that no action is clipped offscreen.
+ * The slice the pointer points into, measured from the pie centre. Inside the
+ * dead zone nothing is selected, so the pie opens with no slice lit.
+ */
+export function pieSliceAt(
+  offset: { x: number; y: number },
+  count: number,
+): number | null {
+  if (count < 1 || Math.hypot(offset.x, offset.y) < PIE_DEAD_ZONE_PX) {
+    return null;
+  }
+  const step = (Math.PI * 2) / count;
+  // Clockwise angle from twelve o'clock, matching cursorActionTarget.
+  const angle = Math.atan2(offset.x, -offset.y);
+  return ((Math.round(angle / step) % count) + count) % count;
+}
+
+/**
+ * SVG path of one slice pointing at twelve o'clock, from the centre out to the
+ * rim. The highlighted slice is this path rotated to the selected slot.
+ */
+export function pieSlicePath(count: number): string {
+  const r = PIE_RADIUS_PX;
+  if (count <= 1) {
+    return `M 0 ${-r} A ${r} ${r} 0 1 1 0 ${r} A ${r} ${r} 0 1 1 0 ${-r} Z`;
+  }
+  const half = Math.PI / count;
+  const x = (Math.sin(half) * r).toFixed(2);
+  const y = (-Math.cos(half) * r).toFixed(2);
+  return `M 0 0 L -${x} ${y} A ${r} ${r} 0 0 1 ${x} ${y} Z`;
+}
+
+/**
+ * Keeps the whole pie inside the window: near an edge the pie centre moves in
+ * far enough that no slice is clipped offscreen.
  */
 export function clampMenuOrigin(
   point: { x: number; y: number },
   viewport: { width: number; height: number },
 ): { x: number; y: number } {
-  const inset = MENU_RADIUS_PX + 26;
+  const inset = PIE_RADIUS_PX + 8;
   const clamp = (value: number, extent: number) =>
     Math.min(Math.max(value, inset), Math.max(inset, extent - inset));
   return { x: clamp(point.x, viewport.width), y: clamp(point.y, viewport.height) };
