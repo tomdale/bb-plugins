@@ -105,7 +105,6 @@ export function HoldOptionPie({
   const bodyRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLDivElement>(null);
   const tileRef = useRef<SVGPathElement>(null);
-  const edgeRef = useRef<SVGPathElement>(null);
   const hubRef = useRef<HTMLDivElement>(null);
   const hubIconRef = useRef<HTMLSpanElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
@@ -116,16 +115,15 @@ export function HoldOptionPie({
     const body = bodyRef.current;
     const base = baseRef.current;
     const tile = tileRef.current;
-    const edge = edgeRef.current;
     const hub = hubRef.current;
     const hubIcon = hubIconRef.current;
     const items = itemRefs.current
       .slice(0, ring.actions.length)
       .filter((item): item is HTMLDivElement => item !== null);
-    if (!body || !base || !tile || !edge || !hub || !hubIcon) return;
+    if (!body || !base || !tile || !hub || !hubIcon) return;
     const key = ring.key;
     const engine = new RingPie(
-      { body, base, tile, edge, items, hub, hubIcon, title: titleRef.current },
+      { body, base, tile, items, hub, hubIcon, title: titleRef.current },
       ring.actions.map((action) => action.disabled === true),
       prefersReducedMotion(),
       () => {
@@ -332,12 +330,6 @@ export function HoldOptionPie({
             <svg className="qa-ring-tiles" viewBox="-300 -300 600 600" aria-hidden="true">
               <g>
                 <path ref={tileRef} className="qa-ring-tile" />
-                <path
-                  ref={edgeRef}
-                  className="qa-ring-edge"
-                  fill="none"
-                  strokeLinecap="round"
-                />
               </g>
             </svg>
             {ring.actions.map((action, index) => (

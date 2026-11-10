@@ -33,8 +33,6 @@ const TILE_SLIDE_W = 140;
 
 const COLOR = {
 
-  edge: [150, 172, 222],
-  flashEdge: [200, 212, 238],
   text: [154, 157, 164],
   icon: [116, 119, 127],
   textOff: [154, 157, 164],
@@ -51,9 +49,6 @@ const COLOR = {
 const TILE_ALPHA = 0.045;
 const TILE_ALPHA_HI = 0.075;
 const TILE_ALPHA_FLASH = 0.14;
-const EDGE_ALPHA = 0.55;
-const EDGE_ALPHA_HI = 0.75;
-const EDGE_WIDTH = 1.5;
 
 /**
  * Smallest disc and label radii per action count that keep labels clear of
@@ -185,11 +180,6 @@ function wedgePath(R: number, r: number, g: number, a0: number, a1: number) {
   const f = (v: number) => v.toFixed(2);
   return `M${f(x1)} ${f(y1)}A${R} ${R} 0 ${L} 1 ${f(x2)} ${f(y2)}L${f(x3)} ${f(y3)}A${r} ${r} 0 ${L} 0 ${f(x4)} ${f(y4)}Z`;
 }
-function arcPath(r: number, a0: number, a1: number) {
-  const [x0, y0] = pt(r, a0);
-  const [x1, y1] = pt(r, a1);
-  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
-}
 
 type Ease = (u: number) => number;
 const easeOut: Ease = (u) => 1 - Math.pow(1 - u, 3);
@@ -291,7 +281,6 @@ export type RingElements = {
   body: HTMLElement;
   base: HTMLElement;
   tile: SVGPathElement;
-  edge: SVGPathElement;
   items: HTMLElement[];
   hub: HTMLElement;
   hubIcon: HTMLElement;
@@ -562,22 +551,6 @@ export class RingPie {
         TILE_ALPHA_FLASH,
         clamp(this.flash.x),
       ).toFixed(3);
-      const off = this.disabled[this.sel] === true;
-      const ea = off ? 0 : clamp((p - 0.6) / 0.4);
-      el.edge.style.display = ea > 0 ? "" : "none";
-      if (ea > 0) {
-        const er = outer - EDGE_WIDTH / 2 - 0.5;
-        const ed = (((0.6 * c + TILE_GAP_PX / 2) / er) * 180) / Math.PI;
-        el.edge.setAttribute("d", arcPath(er, a0 + ed, a1 - ed));
-        el.edge.setAttribute(
-          "stroke",
-          rgba(
-            mix(COLOR.edge, COLOR.flashEdge, this.flash.x),
-            (hi ? EDGE_ALPHA_HI : EDGE_ALPHA) * ea,
-          ),
-        );
-        el.edge.style.strokeWidth = String(EDGE_WIDTH);
-      }
     }
 
     this.items.forEach((item, i) => {
