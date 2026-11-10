@@ -8,14 +8,16 @@ thread actions where they exist.
 ## Trigger
 
 - **Hold Option at the pointer:** the default. Holding Option for 200ms opens
-  a round black pie centred exactly on the cursor, each slice labelled with its
-  icon and name. The hub in the middle selects nothing; moving the pointer out
-  of it lights the slice it points into. Releasing Option runs the lit slice,
-  and releasing in the hub or over an unavailable action closes the pie without
-  running anything. Clicking a lit slice runs it too. Escape or a press outside
-  the pie cancels. Quick Option-letter accents such as ⌥e pass through
-  untouched, and any other keypress dismisses the pie at once so typing is never
-  interrupted; Shift, Command, and Control do not.
+  a ring of actions centred exactly on the cursor, each with its icon and name,
+  and dims the window slightly behind it. The hub in the middle selects
+  nothing; moving the pointer out of it selects the action in that direction,
+  shown by a quiet tile and a label that grows slightly. Releasing Option runs
+  the selection; releasing in the hub cancels, and releasing on an unavailable
+  action shakes the ring and says why. Clicking the ring runs the selection
+  too. Escape or a press outside the ring cancels. Quick Option-letter accents
+  such as ⌥e pass through untouched, and any other keypress removes the ring
+  at once so typing is never interrupted; Shift, Command, and Control do not.
+  The ring sizes itself to fit its labels, for up to ten actions.
 - **Corner button:** the earlier floating trigger, anchored to the composer's
   corner.
 

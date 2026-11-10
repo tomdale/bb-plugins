@@ -152,199 +152,145 @@
   pointer-events: none;
 }
 
-/* Hold ⌥ at the pointer: a black pie centred exactly on the pointer. The
-   container never swallows clicks aimed at the page underneath; the disc takes
-   every press on the pie, so items stay out of hit testing.
+/* Hold ⌥ at the pointer: a ring centred exactly on the pointer over a slight
+   full-window dim. These are static styles only; RingPie writes every
+   animated property inline each frame. Nothing here takes pointer input
+   except the disc itself. */
+.qa-hold {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
 
-   Each element rests in its closed state, and the transitions declared there
-   are the close motion. The open state declares the open motion. */
-.qa-menu[data-trigger="hold-option"] {
-  /* Damped spring, k 420 c 38: settles without overshoot. */
-  --qa-close-easing: cubic-bezier(0.25, 0.8, 0.3, 1);
+.qa-dim {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.18);
+  opacity: 0;
+  transition: opacity 100ms ease-in;
+}
+
+.qa-dim[data-state="on"] {
+  opacity: 1;
+  transition: opacity 80ms ease-out;
+}
+
+.qa-dim[data-state="instant"] {
+  transition: none;
+}
+
+.qa-ring {
+  position: absolute;
+  width: 0;
+  height: 0;
+  color: #9a9da4;
+  user-select: none;
+}
+
+.qa-ring-body {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.qa-ring-base {
+  position: absolute;
+  border-radius: 50%;
+  background: #1d1e22;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.075),
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 4px 12px rgb(0 0 0 / 0.35),
+    0 22px 50px -6px rgb(0 0 0 / 0.6);
+  pointer-events: auto;
+}
+
+.qa-ring-tiles {
+  position: absolute;
+  left: -300px;
+  top: -300px;
+  width: 600px;
+  height: 600px;
+  overflow: visible;
   pointer-events: none;
 }
 
-.qa-pie {
+.qa-ring-tile {
+  stroke-linejoin: round;
+}
+
+.qa-ring-item {
   position: absolute;
-  left: 22px;
-  top: 22px;
-  z-index: 0;
-  width: calc(var(--qa-pie-radius) * 2);
-  height: calc(var(--qa-pie-radius) * 2);
-  margin: calc(var(--qa-pie-radius) * -1);
-  border-radius: 50%;
-  background: #000;
-  /* The disc stays black, so the inset hairline carries its edge on BB's dark
-     window and the shadow darkens the text behind the rim. */
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.2),
-    0 12px 32px rgb(0 0 0 / 0.65);
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--qa-ring-gap);
   opacity: 0;
-  transform: scale(0.6);
-  transition:
-    transform 120ms var(--qa-close-easing),
-    opacity 110ms linear;
   pointer-events: none;
   will-change: transform, opacity;
 }
 
-.qa-menu[data-close="run"][data-open="false"] .qa-pie {
-  transform: scale(0.86);
+.qa-ring-item [data-icon-root] {
+  flex: none;
+  width: var(--qa-ring-icon);
+  height: var(--qa-ring-icon);
+  color: #74777f;
 }
 
-.qa-menu[data-open="true"] .qa-pie {
-  opacity: 1;
-  transform: scale(1);
-  pointer-events: auto;
-  transition:
-    transform 160ms var(--qa-arc-easing),
-    opacity 40ms linear;
+/* Labels wrap, balanced and centred, only past the wrap width for the count. */
+.qa-ring-label {
+  width: max-content;
+  max-width: var(--qa-ring-wrap);
+  font-size: var(--qa-ring-font);
+  font-weight: 500;
+  line-height: 1.15;
+  text-align: center;
+  text-wrap: balance;
 }
 
-.qa-pie-slices {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.qa-pie-slice {
-  fill: rgb(255 255 255 / 0.18);
-  opacity: 0;
-  transform-origin: 0 0;
-  transition:
-    opacity 20ms linear,
-    fill 50ms linear;
-}
-
-.qa-pie-slice[data-lit="true"] {
-  opacity: 1;
-  transition:
-    opacity 24ms linear,
-    fill 50ms linear;
-}
-
-.qa-menu[data-pressed="true"] .qa-pie-slice[data-lit="true"] {
-  fill: rgb(255 255 255 / 0.26);
-}
-
-.qa-menu[data-confirming="true"] .qa-pie-slice[data-lit="true"],
-.qa-menu[data-close="run"][data-open="false"] .qa-pie-slice[data-chosen="true"] {
-  opacity: 1;
-  fill: rgb(255 255 255 / 0.38);
-}
-
-.qa-pie-hub {
-  fill: rgb(255 255 255 / 0.07);
-}
-
-/* The ring brightens while the pointer rests in the hub: releasing there
-   closes without running anything. */
-.qa-pie-hub-ring {
-  fill: none;
-  stroke: rgb(255 255 255 / 0.12);
-  stroke-width: 1;
-  transition: stroke 60ms linear;
-}
-
-.qa-menu[data-open="true"][data-in-hub="true"] .qa-pie-hub-ring {
-  stroke: rgb(255 255 255 / 0.28);
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action {
-  flex-direction: column;
-  gap: 3px;
-  width: 104px;
-  height: 42px;
-  margin: -21px -52px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: rgb(255 255 255 / 0.72);
-  font: inherit;
-  pointer-events: none;
-  opacity: 0;
-  transform: translate3d(var(--qa-action-from-x), var(--qa-action-from-y), 0)
-    scale(0.7);
-  transition:
-    transform 120ms var(--qa-close-easing) var(--qa-close-delay),
-    opacity 110ms linear var(--qa-close-delay);
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action [data-icon-root] {
-  width: 18px;
-  height: 18px;
-  color: rgb(255 255 255 / 0.88);
-  transition: none;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:hover {
-  background: transparent;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:is(:hover, :focus-visible) [data-icon-root] {
-  transform: none;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:is([data-selected="true"], [data-chosen="true"]),
-.qa-menu[data-trigger="hold-option"] .qa-action:is([data-selected="true"], [data-chosen="true"]) [data-icon-root] {
-  color: #fff;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:disabled,
-.qa-menu[data-trigger="hold-option"] .qa-action:disabled [data-icon-root] {
-  color: rgb(255 255 255 / 0.36);
-}
-
-.qa-action-label {
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 16px;
+/* The note sits in the column, so an unavailable item centres with it. */
+.qa-ring-note {
+  margin-top: calc(-1px - var(--qa-ring-gap));
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: #8b8e96;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 80ms linear;
 }
 
-.qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action {
-  opacity: 1;
-  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
-  transition:
-    transform 160ms var(--qa-arc-easing) var(--qa-open-delay),
-    opacity 40ms linear var(--qa-open-delay);
+/* The hub is the dead zone, and stays exactly as it is while the pointer
+   rests there. */
+.qa-ring-hub {
+  position: absolute;
+  left: -32px;
+  top: -32px;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #16171a;
+  box-shadow:
+    inset 0 1px 3px rgb(0 0 0 / 0.55),
+    0 0 0 1px rgb(255 255 255 / 0.06);
+  color: #4d5058;
+  pointer-events: none;
 }
 
-/* Labels trail their icons by a beat, so none is readable over the hub. */
-.qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action-label {
-  opacity: 1;
-  transition: opacity 64ms linear calc(var(--qa-open-delay) + 32ms);
-}
-
-.qa-menu[data-trigger="hold-option"][data-pressed="true"] .qa-action[data-selected="true"] {
-  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(0.96);
-  transition: transform 60ms ease-out;
-}
-
-.qa-menu[data-trigger="hold-option"][data-confirming="true"] .qa-action[data-selected="true"] {
-  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1.08);
-  transition: transform 50ms ease-out;
-}
-
-/* After a run the chosen item holds its place and fades last while the
-   others retract. */
-.qa-menu[data-trigger="hold-option"][data-close="run"][data-open="false"] .qa-action[data-chosen="true"] {
-  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1.08);
-  transition: opacity 110ms linear 40ms;
-}
-
-.qa-menu[data-trigger="hold-option"][data-close="run"][data-open="false"] .qa-action[data-chosen="true"] .qa-action-label {
-  opacity: 1;
-  transition: none;
-}
-
-/* Typing or leaving the window removes the pie in the same frame. */
-.qa-menu[data-trigger="hold-option"][data-instant="true"] :is(.qa-action, .qa-action-label, .qa-pie, .qa-pie-slice) {
-  transition: none;
+.qa-ring-x [data-icon-root] {
+  display: block;
+  width: 15px;
+  height: 15px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -357,24 +303,10 @@
     transform: none;
   }
 
-  /* Reduced motion: open and close are plain fades at full size, so nothing
-     travels or scales; the slice crossfade stays. */
-  .qa-menu .qa-pie {
-    transform: none !important;
-    transition: opacity 120ms linear !important;
-  }
-
   .qa-menu .qa-action,
-  .qa-menu .qa-action-label {
-    transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1) !important;
-    transition: opacity 120ms linear !important;
-  }
-
-  .qa-menu .qa-action-label {
-    transform: none !important;
-  }
-
-  .qa-menu[data-instant="true"] :is(.qa-pie, .qa-action, .qa-action-label) {
-    transition: none !important;
+  .qa-menu[data-open="true"] .qa-action {
+    transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
+    transition: opacity 120ms linear;
+    transition-delay: 0ms !important;
   }
 }

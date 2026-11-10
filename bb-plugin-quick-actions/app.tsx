@@ -43,15 +43,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { rpcContract } from "./server";
+import { HoldOptionPie } from "./hold-pie";
 import {
   actionCssVariables,
   actionTarget,
-  cursorActionCssVariables,
   hoverCorridorPoints,
-  PIE_HUB_RADIUS_PX,
-  PIE_RADIUS_PX,
-  pieSliceAt,
-  pieSlicePath,
   sanitizeCorner,
   sanitizeMotion,
   sanitizeTrigger,
@@ -65,15 +61,6 @@ const CORE_ACTION_KEYS = [
   "bb--core/copyLink",
 ] as const;
 const HOVER_CLOSE_DELAY_MS = 300;
-const HOLD_OPTION_DELAY_MS = 200;
-/** How long a run's chosen slice brightens before the pie closes. */
-const PIE_CONFIRM_MS = 90;
-/** Length of the pie's close motion, matching the CSS close transitions. */
-const PIE_CLOSE_MS = 150;
-/** Half of the 44px menu box, subtracted so the pie is centred on the pointer. */
-const MENU_BOX_OFFSET_PX = 22;
-/** Keys that leave the open pie alone: modifiers pressed alongside Option. */
-const PASSIVE_KEYS = new Set(["Shift", "Meta", "Control", "CapsLock", "Alt"]);
 
 function Hint({
   label,
@@ -195,27 +182,6 @@ type QuickActionItem = {
   run: () => void | Promise<void>;
 };
 
-/**
- * Tracks the pointer so the hold-Option fan can open where the user's hand
- * already is. Clicks update it too: a click without a preceding move (a trackpad
- * tap, for instance) must still count as the pointer's location.
- */
-function usePointerPosition() {
-  const point = useRef({ x: 0, y: 0 });
-  useEffect(() => {
-    const track = (event: { clientX: number; clientY: number }) => {
-      point.current = { x: event.clientX, y: event.clientY };
-    };
-    window.addEventListener("pointermove", track, { passive: true });
-    window.addEventListener("pointerdown", track, { passive: true, capture: true });
-    return () => {
-      window.removeEventListener("pointermove", track);
-      window.removeEventListener("pointerdown", track, { capture: true });
-    };
-  }, []);
-  return point;
-}
-
 function coreItem(
   entries: readonly PluginThreadActionEntry[],
   key: string,
@@ -247,9 +213,6 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const holdOption = trigger === "hold-option";
   const debugRegions = settings.values?.debugRegions === true;
   const position = useMenuPosition(corner, targetThreadId, !holdOption);
-  const pointer = usePointerPosition();
-  const [origin, setOrigin] = useState({ x: 0, y: 0 });
-  const containerRef = useRef<HTMLDivElement>(null);
   const rpc = useRpc<typeof rpcContract>();
   const sdk = useSdk();
   const navigate = useBbNavigate();
@@ -278,7 +241,6 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [instantClose, setInstantClose] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entries = experimental_useThreadActions(thread, {
@@ -378,243 +340,26 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   ].filter((item): item is QuickActionItem => item !== null);
 
   const canOpen = threadReady && !settings.isLoading && actions.length > 0;
-  const actionCount = actions.length;
-
-  // The pie selects by direction: whichever slice the pointer points into from
-  // the centre is selected, wherever along that ray the pointer sits. Inside
-  // the hub nothing is.
-  const [selected, setSelected] = useState<number | null>(null);
-  const [pressed, setPressed] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [closeKind, setCloseKind] = useState<"cancel" | "run">("cancel");
-  const [chosen, setChosen] = useState<number | null>(null);
-  const pieRef = useRef<HTMLDivElement>(null);
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
-  const confirmingRef = useRef(false);
-  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Until this time a close is still animating, so a reopen keeps its centre. */
-  const closingUntilRef = useRef(0);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-  const pendingRef = useRef(pending);
-  pendingRef.current = pending;
-
-  useEffect(() => {
-    if (!holdOption || !requestedOpen) {
-      setSelected(null);
-      setPressed(false);
-      return;
-    }
-    const track = (event: PointerEvent) => {
-      if (confirmingRef.current) return;
-      setSelected(
-        pieSliceAt(
-          { x: event.clientX - origin.x, y: event.clientY - origin.y },
-          actionCount,
-        ),
-      );
-    };
-    window.addEventListener("pointermove", track, { passive: true });
-    return () => window.removeEventListener("pointermove", track);
-  }, [actionCount, holdOption, origin, requestedOpen]);
-
-  const clearConfirm = useCallback(() => {
-    if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
-    confirmTimerRef.current = null;
-    confirmingRef.current = false;
-    setConfirming(false);
-  }, []);
-  useEffect(() => clearConfirm, [clearConfirm]);
-
-  const runPieItem = useCallback(async (item: QuickActionItem) => {
+  const runHoldAction = useCallback((id: string) => {
+    const item = actionsRef.current.find((candidate) => candidate.id === id);
+    if (!item) return;
     setPending(item.id);
-    try {
-      await item.run();
-    } catch (cause) {
-      toast.error(
-        `${item.label} failed: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
-      );
-    } finally {
-      setPending(null);
-    }
+    void (async () => {
+      try {
+        await item.run();
+      } catch (cause) {
+        toast.error(
+          `${item.label} failed: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+      } finally {
+        setPending(null);
+      }
+    })();
   }, []);
-
-  /** Closes with the cancel motion: the lit slice drops, items retract. */
-  const cancelPie = useCallback(() => {
-    clearConfirm();
-    setCloseKind("cancel");
-    setChosen(null);
-    setSelected(null);
-    setInstantClose(false);
-    if (requestedOpenRef.current) {
-      closingUntilRef.current = performance.now() + PIE_CLOSE_MS;
-    }
-    setRequestedOpen(false);
-  }, [clearConfirm]);
-
-  /** Removes the pie in the same frame, for typing and window blur. */
-  const dismissPie = useCallback(() => {
-    clearConfirm();
-    setChosen(null);
-    setInstantClose(true);
-    setRequestedOpen(false);
-  }, [clearConfirm]);
-
-  /**
-   * Runs a slice: it brightens and its item grows for a beat, then the pie
-   * closes around the chosen item and the action runs. A disabled slice, or
-   * nothing selected, closes without running.
-   */
-  const commitPie = useCallback(
-    (index: number | null) => {
-      if (confirmingRef.current) return;
-      const item = index === null ? undefined : actionsRef.current[index];
-      if (!item || item.disabled || pendingRef.current !== null) {
-        cancelPie();
-        return;
-      }
-      confirmingRef.current = true;
-      setConfirming(true);
-      setSelected(index);
-      const reduced = window.matchMedia?.(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      confirmTimerRef.current = setTimeout(
-        () => {
-          confirmTimerRef.current = null;
-          confirmingRef.current = false;
-          setConfirming(false);
-          setChosen(index);
-          setCloseKind("run");
-          setInstantClose(false);
-          closingUntilRef.current = performance.now() + PIE_CLOSE_MS;
-          setRequestedOpen(false);
-          void runPieItem(item);
-        },
-        reduced ? 0 : PIE_CONFIRM_MS,
-      );
-    },
-    [cancelPie, runPieItem],
-  );
-
-  // A press on the disc shows on the lit slice; a press anywhere else cancels.
-  useEffect(() => {
-    if (!holdOption || !requestedOpen) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const pie = pieRef.current;
-      if (pie && event.target instanceof Node && pie.contains(event.target)) {
-        setPressed(true);
-        return;
-      }
-      if (
-        containerRef.current &&
-        event.target instanceof Node &&
-        containerRef.current.contains(event.target)
-      ) {
-        return;
-      }
-      cancelPie();
-    };
-    const onPointerUp = () => setPressed(false);
-    window.addEventListener("pointerdown", onPointerDown, true);
-    window.addEventListener("pointerup", onPointerUp, true);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown, true);
-      window.removeEventListener("pointerup", onPointerUp, true);
-    };
-  }, [cancelPie, holdOption, requestedOpen]);
-
-  // Hold Option anywhere and the pie opens centred on the pointer. A 200ms hold
-  // keeps Option-letter accents (⌥e) intact. Releasing Option runs the
-  // selected slice, or cancels from the hub; any other keypress drops the pie
-  // so typing is never interrupted by it.
-  useEffect(() => {
-    if (!holdOption) return;
-    if (!canOpen) {
-      setRequestedOpen(false);
-      return;
-    }
-    let holdTimer: ReturnType<typeof setTimeout> | null = null;
-    let held = false;
-    const clearHold = () => {
-      if (holdTimer !== null) clearTimeout(holdTimer);
-      holdTimer = null;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === "Alt" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.shiftKey
-      ) {
-        event.preventDefault();
-        if (held || event.repeat) return;
-        // A dialog owns the keyboard while it is open.
-        if (
-          document.querySelector(
-            '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
-          )
-        ) {
-          return;
-        }
-        held = true;
-        clearHold();
-        holdTimer = setTimeout(() => {
-          holdTimer = null;
-          if (!held || confirmingRef.current) return;
-          // The centre is wherever the pointer is when the hold completes,
-          // unless a close is still animating, which reopens in place.
-          if (performance.now() >= closingUntilRef.current) {
-            setOrigin({ ...pointer.current });
-          }
-          setChosen(null);
-          setCloseKind("cancel");
-          setInstantClose(false);
-          setRequestedOpen(true);
-        }, HOLD_OPTION_DELAY_MS);
-        return;
-      }
-      if (!held && !requestedOpenRef.current && !confirmingRef.current) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        held = false;
-        clearHold();
-        cancelPie();
-        return;
-      }
-      // Chords with Option held are common; modifiers alone never dismiss.
-      if (PASSIVE_KEYS.has(event.key)) return;
-      held = false;
-      clearHold();
-      // Typing: get out of the way without a retract animation over the composer.
-      dismissPie();
-    };
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key !== "Alt") return;
-      held = false;
-      clearHold();
-      if (!requestedOpenRef.current || confirmingRef.current) return;
-      commitPie(selectedRef.current);
-    };
-    const onBlur = () => {
-      held = false;
-      clearHold();
-      dismissPie();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("keyup", onKeyUp, true);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      clearHold();
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("keyup", onKeyUp, true);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [canOpen, cancelPie, commitPie, dismissPie, holdOption, pointer]);
-
   const activate = async (item: QuickActionItem) => {
     if (pending || !canOpen) return;
     setPending(item.id);
@@ -648,197 +393,116 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     }
   };
 
-  const menuStyle: CSSProperties = holdOption
-    ? ({
-        "--qa-menu-x": `${origin.x - MENU_BOX_OFFSET_PX}px`,
-        "--qa-menu-y": `${origin.y - MENU_BOX_OFFSET_PX}px`,
-        "--qa-pie-radius": `${PIE_RADIUS_PX}px`,
-      } as CSSProperties)
-    : position;
-
   return (
     <>
-      <TooltipProvider delayDuration={250} skipDelayDuration={100}>
-        <div
-          ref={containerRef}
-          className="qa-menu"
-          data-bb-plugin-root=""
-          data-bb-plugin="quick-actions"
-          data-trigger={trigger}
-          data-corner={corner}
-          data-motion={motion}
-          data-debug={debugRegions ? "true" : "false"}
-          data-open={requestedOpen ? "true" : "false"}
-          data-can-open={canOpen ? "true" : "false"}
-          data-instant={instantClose ? "true" : "false"}
-          data-close={closeKind}
-          data-confirming={confirming ? "true" : "false"}
-          data-pressed={pressed ? "true" : "false"}
-          data-in-hub={holdOption && selected === null ? "true" : "false"}
-          style={menuStyle}
-          role="group"
-          aria-label="Quick actions"
-          aria-busy={!threadReady || settings.isLoading || pending !== null}
-          onPointerEnter={
-            holdOption
-              ? undefined
-              : () => {
-                  if (canOpen) open();
-                }
+      {holdOption ? (
+        <HoldOptionPie
+          actions={actions}
+          canOpen={canOpen}
+          busy={pending !== null}
+          onRun={runHoldAction}
+          onUnavailable={(item) =>
+            toast(`${item.label} isn't available for this thread`)
           }
-          onPointerLeave={
-            holdOption
-              ? undefined
-              : (event) => {
-                  if (!event.currentTarget.contains(document.activeElement)) {
-                    close();
-                  }
-                }
-          }
-          onBlur={(event) => {
-            if (holdOption) return;
-            if (!event.currentTarget.contains(event.relatedTarget)) close();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            if (holdOption) {
-              cancelPie();
-              return;
-            }
-            closeAndFocus();
-          }}
-        >
-          {holdOption ? null : (
-            <>
-              <div className="qa-hover-core" aria-hidden="true" />
-              <svg
-                className="qa-hover-regions"
-                viewBox="-140 -140 280 280"
-                aria-hidden="true"
-                focusable="false"
-              >
-                {actions.map((item, index) => {
-                  const points = hoverCorridorPoints(
-                    actionTarget(index, actions.length, corner),
-                  );
-                  return (
-                    <path
-                      key={item.id}
-                      className="qa-hover-corridor"
-                      d={`M ${points} Z`}
-                    />
-                  );
-                })}
-              </svg>
-            </>
-          )}
-          {holdOption ? null : (
-          <Button
-            ref={triggerRef}
-            type="button"
-            variant="outline"
-            size="icon"
-            className="qa-trigger"
-            aria-label={
-              requestedOpen ? "Close quick actions" : "Open quick actions"
-            }
-            aria-expanded={requestedOpen}
-            aria-controls="qa-actions"
-            aria-disabled={!canOpen}
-            onFocus={() => {
-              if (!restoringFocusRef.current && canOpen) open();
+        />
+      ) : (
+        <TooltipProvider delayDuration={250} skipDelayDuration={100}>
+          <div
+            className="qa-menu"
+            data-bb-plugin-root=""
+            data-bb-plugin="quick-actions"
+            data-trigger={trigger}
+            data-corner={corner}
+            data-motion={motion}
+            data-debug={debugRegions ? "true" : "false"}
+            data-open={requestedOpen ? "true" : "false"}
+            data-can-open={canOpen ? "true" : "false"}
+            style={position}
+            role="group"
+            aria-label="Quick actions"
+            aria-busy={!threadReady || settings.isLoading || pending !== null}
+            onPointerEnter={() => {
+              if (canOpen) open();
             }}
-            onClick={() => {
-              if (!canOpen) return;
-              if (requestedOpen && pinned) {
-                setPinned(false);
-                setRequestedOpen(false);
-              } else {
-                setPinned(true);
-                open();
+            onPointerLeave={(event) => {
+              if (!event.currentTarget.contains(document.activeElement)) {
+                close();
               }
             }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) close();
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              event.preventDefault();
+              closeAndFocus();
+            }}
           >
-            <Icon name="Plus" />
-          </Button>
-          )}
-          {holdOption ? (
-            <div
-              ref={pieRef}
-              className="qa-pie"
+            <div className="qa-hover-core" aria-hidden="true" />
+            <svg
+              className="qa-hover-regions"
+              viewBox="-140 -140 280 280"
               aria-hidden="true"
-              onClick={() => commitPie(selectedRef.current)}
+              focusable="false"
             >
-              <svg
-                className="qa-pie-slices"
-                viewBox={`${-PIE_RADIUS_PX} ${-PIE_RADIUS_PX} ${PIE_RADIUS_PX * 2} ${PIE_RADIUS_PX * 2}`}
-                focusable="false"
-              >
-                {actions.map((item, index) => (
+              {actions.map((item, index) => {
+                const points = hoverCorridorPoints(
+                  actionTarget(index, actions.length, corner),
+                );
+                return (
                   <path
                     key={item.id}
-                    className="qa-pie-slice"
-                    data-lit={
-                      selected === index && !item.disabled ? "true" : "false"
-                    }
-                    data-chosen={chosen === index ? "true" : "false"}
-                    d={pieSlicePath(actionCount)}
-                    style={{
-                      transform: `rotate(${(index * 360) / actionCount}deg)`,
-                    }}
+                    className="qa-hover-corridor"
+                    d={`M ${points} Z`}
                   />
-                ))}
-                <circle className="qa-pie-hub" r={PIE_HUB_RADIUS_PX} />
-                <circle
-                  className="qa-pie-hub-ring"
-                  r={PIE_HUB_RADIUS_PX - 0.5}
-                />
-              </svg>
-            </div>
-          ) : null}
-          <div
-            id="qa-actions"
-            className="qa-actions"
-            inert={!requestedOpen || !canOpen}
-          >
-            {actions.map((item, index) => {
-              const style = holdOption
-                ? cursorActionCssVariables({
-                    index,
-                    count: actions.length,
-                  })
-                : actionCssVariables({
-                    index,
-                    count: actions.length,
-                    corner,
-                  });
-              if (holdOption) {
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="qa-action"
-                    style={style}
-                    data-selected={selected === index ? "true" : "false"}
-                    data-chosen={chosen === index ? "true" : "false"}
-                    disabled={item.disabled || pending !== null}
-                    tabIndex={-1}
-                    onClick={() => commitPie(index)}
-                  >
-                    <Icon name={item.icon} />
-                    <span className="qa-action-label">{item.label}</span>
-                  </button>
                 );
+              })}
+            </svg>
+            <Button
+              ref={triggerRef}
+              type="button"
+              variant="outline"
+              size="icon"
+              className="qa-trigger"
+              aria-label={
+                requestedOpen ? "Close quick actions" : "Open quick actions"
               }
-              return (
+              aria-expanded={requestedOpen}
+              aria-controls="qa-actions"
+              aria-disabled={!canOpen}
+              onFocus={() => {
+                if (!restoringFocusRef.current && canOpen) open();
+              }}
+              onClick={() => {
+                if (!canOpen) return;
+                if (requestedOpen && pinned) {
+                  setPinned(false);
+                  setRequestedOpen(false);
+                } else {
+                  setPinned(true);
+                  open();
+                }
+              }}
+            >
+              <Icon name="Plus" />
+            </Button>
+            <div
+              id="qa-actions"
+              className="qa-actions"
+              inert={!requestedOpen || !canOpen}
+            >
+              {actions.map((item, index) => (
                 <Hint key={item.id} label={item.label} side={tooltipSide}>
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
                     className="qa-action"
-                    style={style}
+                    style={actionCssVariables({
+                      index,
+                      count: actions.length,
+                      corner,
+                    })}
                     aria-label={item.label}
                     disabled={item.disabled || pending !== null}
                     tabIndex={requestedOpen && canOpen ? 0 : -1}
@@ -847,11 +511,11 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
                     <Icon name={item.icon} />
                   </Button>
                 </Hint>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      </TooltipProvider>
+        </TooltipProvider>
+      )}
       <AlertDialog
         open={snoozeDialog.open}
         onOpenChange={(open) =>
