@@ -199,10 +199,13 @@ function coreItem(
 
 const QuickActionsMenu = memo(function QuickActionsMenu({
   thread,
+  threadTitle,
   targetThreadId,
   threadReady,
 }: {
   thread: PluginThreadActionTarget;
+  /** What the ring names as the thread its actions apply to. */
+  threadTitle: string | null;
   targetThreadId: string;
   threadReady: boolean;
 }) {
@@ -397,6 +400,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     <>
       {holdOption ? (
         <HoldOptionPie
+          title={threadTitle}
           actions={actions}
           canOpen={canOpen}
           busy={pending !== null}
@@ -558,6 +562,7 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
   const sdk = useSdk();
   const sidebar = experimental_useSidebarThreads();
   const [fetched, setFetched] = useState<PluginThreadActionTarget | null>(null);
+  const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
   const previousThreadRef = useRef<PluginThreadActionTarget | null>(null);
   const listed = sidebar.threads.find((thread) => thread.id === threadId);
   const listedPresent = listed !== undefined;
@@ -568,6 +573,7 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
       .get({ threadId, include: "environment" })
       .then((result) => {
         if (!active) return;
+        setFetchedTitle(result.title ?? null);
         setFetched({
           id: result.id,
           projectId: result.projectId,
@@ -626,9 +632,12 @@ function ThreadQuickActions({ threadId }: { threadId: string }) {
   );
   if (currentThread) previousThreadRef.current = currentThread;
   const displayThread = currentThread ?? previousThreadRef.current;
+  const threadTitle =
+    listed?.displayTitle ?? (fetched?.id === threadId ? fetchedTitle : null);
   return displayThread ? (
     <QuickActionsMenu
       thread={displayThread}
+      threadTitle={threadTitle}
       targetThreadId={threadId}
       threadReady={currentThread !== null}
     />

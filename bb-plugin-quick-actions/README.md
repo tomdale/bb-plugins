@@ -9,7 +9,7 @@ thread actions where they exist.
 
 - **Hold Option at the pointer:** the default. Holding Option for 200ms opens
   a ring of actions centred exactly on the cursor, each with its icon and name,
-  and dims the window slightly behind it. The hub in the middle selects
+  with the thread's name above it, and dims the window slightly behind it. The hub in the middle selects
   nothing; moving the pointer out of it selects the action in that direction,
   shown by a quiet tile and a label that grows slightly. Releasing Option runs
   the selection; releasing in the hub cancels, and releasing on an unavailable

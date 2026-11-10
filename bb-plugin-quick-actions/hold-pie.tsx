@@ -52,8 +52,12 @@ type OpenRing = {
   key: number;
   x: number;
   y: number;
+  title: string | null;
   actions: HoldPieAction[];
 };
+
+/** Space between the ring's rim and the thread name. */
+const TITLE_GAP_PX = 10;
 
 /**
  * Hold Option anywhere and the ring opens centred exactly on the pointer. A
@@ -64,12 +68,15 @@ type OpenRing = {
  * While the ring is open the window dims slightly behind it.
  */
 export function HoldOptionPie({
+  title,
   actions,
   canOpen,
   busy,
   onRun,
   onUnavailable,
 }: {
+  /** The thread the actions apply to, named above the ring. */
+  title: string | null;
   actions: readonly HoldPieAction[];
   canOpen: boolean;
   /** An action is still running; the ring cancels instead of running another. */
@@ -86,6 +93,8 @@ export function HoldOptionPie({
   ringRef.current = ring;
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  const latestTitleRef = useRef(title);
+  latestTitleRef.current = title;
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const onRunRef = useRef(onRun);
@@ -99,6 +108,7 @@ export function HoldOptionPie({
   const edgeRef = useRef<SVGPathElement>(null);
   const hubRef = useRef<HTMLDivElement>(null);
   const hubIconRef = useRef<HTMLSpanElement>(null);
+  const titleRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useLayoutEffect(() => {
@@ -115,7 +125,7 @@ export function HoldOptionPie({
     if (!body || !base || !tile || !edge || !hub || !hubIcon) return;
     const key = ring.key;
     const engine = new RingPie(
-      { body, base, tile, edge, items, hub, hubIcon },
+      { body, base, tile, edge, items, hub, hubIcon, title: titleRef.current },
       ring.actions.map((action) => action.disabled === true),
       prefersReducedMotion(),
       () => {
@@ -124,6 +134,15 @@ export function HoldOptionPie({
       },
     );
     engineRef.current = engine;
+    // The name sits above the rim, or below it when the ring opens near the top.
+    const titleNode = titleRef.current;
+    if (titleNode) {
+      const { Rd } = engine.geometry;
+      const above = ring.y - Rd - TITLE_GAP_PX - titleNode.offsetHeight >= 8;
+      titleNode.style.top = above
+        ? `${-Rd - TITLE_GAP_PX - titleNode.offsetHeight}px`
+        : `${Rd + TITLE_GAP_PX}px`;
+    }
     const { x, y } = pointer.current;
     engine.aim(Math.hypot(x - ring.x, y - ring.y), pointerAngle(x - ring.x, y - ring.y));
     return () => {
@@ -237,6 +256,7 @@ export function HoldOptionPie({
             key: keyRef.current,
             x: pointer.current.x,
             y: pointer.current.y,
+            title: latestTitleRef.current,
             actions: list,
           });
           setDim("on");
@@ -295,7 +315,7 @@ export function HoldOptionPie({
           key={ring.key}
           className="qa-ring"
           role="menu"
-          aria-label="Quick actions"
+          aria-label={ring.title ? `Quick actions for ${ring.title}` : "Quick actions"}
           style={
             {
               left: `${ring.x}px`,
@@ -338,6 +358,11 @@ export function HoldOptionPie({
                 ) : null}
               </div>
             ))}
+            {ring.title ? (
+              <div ref={titleRef} className="qa-ring-title">
+                {ring.title}
+              </div>
+            ) : null}
             <div ref={hubRef} className="qa-ring-hub" aria-hidden="true">
               <span ref={hubIconRef} className="qa-ring-x">
                 <Icon name="X" />

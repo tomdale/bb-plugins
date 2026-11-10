@@ -28,10 +28,12 @@ const MAX_TILE_DEG = 130;
 /** A grown label keeps this far from every edge of its tile. */
 const LABEL_MARGIN_PX = 4;
 const GROW = 1.06;
+/** The tile's slide between slots: a short chase that lands within a frame or two. */
+const TILE_SLIDE_W = 140;
 
 const COLOR = {
-  tile: [37, 38, 43],
-  tileHi: [42, 43, 49],
+  tile: [29, 30, 34],
+  tileHi: [36, 37, 42],
   edge: [150, 172, 222],
   flash: [52, 54, 60],
   flashEdge: [200, 212, 238],
@@ -287,6 +289,8 @@ export type RingElements = {
   items: HTMLElement[];
   hub: HTMLElement;
   hubIcon: HTMLElement;
+  /** The thread's name above the ring; it leaves with the labels. */
+  title: HTMLElement | null;
 };
 
 type ItemState = { r: Spring; o: Tween; c: Tween; g: Spring };
@@ -319,6 +323,7 @@ export class RingPie {
   private readonly items: ItemState[];
   private readonly tileAngle: Spring;
   private readonly tilePresence: Spring;
+  private readonly tileFade: Tween;
   private tileShown = false;
   private finished = false;
 
@@ -374,7 +379,7 @@ export class RingPie {
         r: S(reduced ? ri : ri - 12, 900, 0.7),
         o: T(0),
         c: T(0),
-        g: S(1, 1600, 0.7),
+        g: S(1, 2500, 1),
       };
       if (reduced) item.o.go(1, 40, linear, 30);
       else
@@ -386,6 +391,7 @@ export class RingPie {
     });
     this.tileAngle = S(0, 1, 1);
     this.tilePresence = S(0, 1, 1);
+    this.tileFade = T(0);
     this.render();
     this.frame = requestAnimationFrame(this.loop);
   }
@@ -414,18 +420,19 @@ export class RingPie {
     } else if (this.tileShown) {
       // A landing chase, clamped so the event frame is already inside the slot.
       const to = unwrap(sel * this.step, this.tileAngle.x);
-      this.tileAngle.chase(to, 90, 20);
+      this.tileAngle.chase(to, TILE_SLIDE_W, 18);
       const e = to - this.tileAngle.x;
-      const m = 0.35 * this.step;
+      const m = 0.25 * this.step;
       if (Math.abs(e) > m) {
         this.tileAngle.x = to - Math.sign(e) * m;
-        this.tileAngle.v = 90 * (to - this.tileAngle.x);
+        this.tileAngle.v = TILE_SLIDE_W * (to - this.tileAngle.x);
       }
     } else {
+      // Leaving the dead zone: the tile fades in where it lands, without growing.
       this.tileShown = true;
       this.tileAngle.jump(sel * this.step);
-      if (this.tilePresence.x < 0.3) this.tilePresence.jump(0.3);
-      this.tilePresence.chase(1, 55, 12);
+      this.tilePresence.jump(1);
+      this.tileFade.jump(this.reduced ? 1 : 0.4).go(1, 50, linear);
     }
     this.render();
   }
@@ -441,7 +448,7 @@ export class RingPie {
     };
     if (kind === "run") {
       this.flash.jump(1).go(0, 160);
-      this.bump.kick(2.2);
+      this.bump.kick(1);
       this.labOut.go(0, 30, linear);
       this.chosenOut.go(0, 20, linear, 30);
       collapse(50);
@@ -530,7 +537,7 @@ export class RingPie {
     );
     if (group) {
       group.style.opacity = show
-        ? (this.closing ? this.chosenOut.x : 1).toFixed(3)
+        ? (this.tileFade.x * (this.closing ? this.chosenOut.x : 1)).toFixed(3)
         : "0";
     }
     if (show) {
@@ -588,5 +595,6 @@ export class RingPie {
     });
     el.hub.style.transform = `scale(${(R ? 1 : this.hubS.x).toFixed(4)})`;
     el.hubIcon.style.opacity = this.labOut.x.toFixed(3);
+    if (el.title) el.title.style.opacity = this.labOut.x.toFixed(3);
   }
 }

@@ -121,6 +121,7 @@ async function renderQuickActions({
     archivedAt,
     lastReadAt: 0,
     latestAttentionAt: 0,
+    title: "Fix flaky retry test",
   });
   const registration = strictMode
     ? {
@@ -854,7 +855,12 @@ describe("Quick Actions overlay", () => {
     it("labels every action and selects by direction outside the hub", async () => {
       const { slot } = await renderQuickActions({ settings: { ...hold } });
       await holdOptionAt({ clientX: 400, clientY: 300 });
-      expect(slot.getByRole("menu", { name: "Quick actions" })).toBeInTheDocument();
+      expect(
+        slot.getByRole("menu", { name: "Quick actions for Fix flaky retry test" }),
+      ).toBeInTheDocument();
+      expect(document.querySelector(".qa-ring-title")).toHaveTextContent(
+        "Fix flaky retry test",
+      );
       expect(slot.getAllByRole("menuitem")).toHaveLength(5);
       expect(item("Archive")).toHaveAttribute("data-selected", "false");
 
