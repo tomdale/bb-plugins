@@ -205,10 +205,11 @@
 .qa-ring-base {
   position: absolute;
   border-radius: 50%;
-  /* Slightly translucent; the blur keeps labels legible over busy content. */
-  background: rgb(19 20 23 / 0.86);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
+  /* Slightly translucent: the page shows faintly through, and a light blur
+     keeps it from competing with the labels. */
+  background: rgb(19 20 23 / 0.72);
+  -webkit-backdrop-filter: blur(4px) saturate(1.2);
+  backdrop-filter: blur(4px) saturate(1.2);
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.075),
     inset 0 1px 0 rgb(255 255 255 / 0.05),
@@ -301,9 +302,9 @@
   padding: 4px 10px;
   overflow: hidden;
   border-radius: 6px;
-  background: rgb(19 20 23 / 0.86);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
+  background: rgb(19 20 23 / 0.72);
+  -webkit-backdrop-filter: blur(4px) saturate(1.2);
+  backdrop-filter: blur(4px) saturate(1.2);
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 0.075),
     0 0 0 1px rgb(0 0 0 / 0.55),
