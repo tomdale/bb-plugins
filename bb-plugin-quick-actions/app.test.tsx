@@ -822,24 +822,97 @@ describe("Quick Actions overlay", () => {
       slot.lifecycle.unmount();
     });
 
-    it("moves the fan inside the window near an edge", async () => {
-      const { slot } = await renderQuickActions({ settings: { ...hold } });
-      const menu = document.querySelector<HTMLElement>(".qa-menu");
-      await holdOptionAt({ clientX: 4, clientY: 6 });
-      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("118px");
-      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("118px");
-      slot.lifecycle.unmount();
-    });
-
-    it("closes when Option is released", async () => {
-      const { slot } = await renderQuickActions({ settings: { ...hold } });
-      const menu = document.querySelector<HTMLElement>(".qa-menu");
-      await holdOptionAt({ clientX: 400, clientY: 300 });
-      expect(menu).toHaveAttribute("data-open", "true");
+    async function releaseOption() {
       await act(async () => {
         fireEvent.keyUp(window, { key: "Alt" });
       });
+    }
+
+    async function pointAt(point: { clientX: number; clientY: number }) {
+      await act(async () => {
+        fireEvent.pointerMove(window, point);
+      });
+    }
+
+    it("centres the pie exactly on the pointer, even at the window edge", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 4, clientY: 6 });
+      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("-18px");
+      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("-16px");
+      slot.lifecycle.unmount();
+    });
+
+    it("takes the centre from where the pointer is when the hold completes", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      fireEvent.pointerMove(window, { clientX: 100, clientY: 100 });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Alt" });
+      });
+      fireEvent.pointerMove(window, { clientX: 500, clientY: 400 });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 260));
+      });
+      expect(menu?.style.getPropertyValue("--qa-menu-x")).toBe("478px");
+      expect(menu?.style.getPropertyValue("--qa-menu-y")).toBe("378px");
+      slot.lifecycle.unmount();
+    });
+
+    it("selects nothing while the pointer is in the hub", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await pointAt({ clientX: 400, clientY: 280 });
+      expect(menu).toHaveAttribute("data-in-hub", "true");
+      expect(document.querySelectorAll('.qa-pie-slice[data-lit="true"]')).toHaveLength(0);
+      slot.lifecycle.unmount();
+    });
+
+    it("closes without running when Option is released in the hub", async () => {
+      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await releaseOption();
       expect(menu).toHaveAttribute("data-open", "false");
+      expect(menu).toHaveAttribute("data-close", "cancel");
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      });
+      expect(runs.get("bb--core/archive")).not.toHaveBeenCalled();
+      slot.lifecycle.unmount();
+    });
+
+    it("runs the selected slice when Option is released outside the hub", async () => {
+      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await pointAt({ clientX: 400, clientY: 240 });
+      await releaseOption();
+      // The chosen slice brightens for a beat before the pie closes.
+      expect(menu).toHaveAttribute("data-confirming", "true");
+      expect(menu).toHaveAttribute("data-open", "true");
+      await waitFor(() => expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce());
+      expect(menu).toHaveAttribute("data-open", "false");
+      expect(menu).toHaveAttribute("data-close", "run");
+      slot.lifecycle.unmount();
+    });
+
+    it("cancels with Escape", async () => {
+      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+      const menu = document.querySelector<HTMLElement>(".qa-menu");
+      await holdOptionAt({ clientX: 400, clientY: 300 });
+      await pointAt({ clientX: 400, clientY: 240 });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Escape" });
+      });
+      expect(menu).toHaveAttribute("data-open", "false");
+      expect(menu).toHaveAttribute("data-instant", "false");
+      await releaseOption();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      });
+      expect(runs.get("bb--core/archive")).not.toHaveBeenCalled();
       slot.lifecycle.unmount();
     });
 
@@ -847,6 +920,10 @@ describe("Quick Actions overlay", () => {
       const { slot } = await renderQuickActions({ settings: { ...hold } });
       const menu = document.querySelector<HTMLElement>(".qa-menu");
       await holdOptionAt({ clientX: 400, clientY: 300 });
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "Shift" });
+      });
+      expect(menu).toHaveAttribute("data-open", "true");
       await act(async () => {
         fireEvent.keyDown(window, { key: "e" });
       });
@@ -860,14 +937,12 @@ describe("Quick Actions overlay", () => {
       await holdOptionAt({ clientX: 400, clientY: 300 });
       const archive = slot.getByRole("button", { name: "Archive" });
       expect(archive).toHaveTextContent("Archive");
-      const slice = document.querySelector(".qa-pie-slice");
-      expect(slice).toHaveAttribute("data-visible", "false");
-      expect(archive).toHaveAttribute("data-selected", "false");
+      const slices = document.querySelectorAll(".qa-pie-slice");
+      expect(slices).toHaveLength(5);
+      expect(slices[0]).toHaveAttribute("data-lit", "false");
 
-      await act(async () => {
-        fireEvent.pointerMove(window, { clientX: 400, clientY: 220 });
-      });
-      expect(slice).toHaveAttribute("data-visible", "true");
+      await pointAt({ clientX: 400, clientY: 220 });
+      expect(slices[0]).toHaveAttribute("data-lit", "true");
       expect(archive).toHaveAttribute("data-selected", "true");
       slot.lifecycle.unmount();
     });
@@ -875,24 +950,27 @@ describe("Quick Actions overlay", () => {
     it("runs the lit slice when the pie is clicked", async () => {
       const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
       await holdOptionAt({ clientX: 400, clientY: 300 });
-      await act(async () => {
-        fireEvent.pointerMove(window, { clientX: 400, clientY: 250 });
-      });
+      await pointAt({ clientX: 400, clientY: 250 });
       const pie = document.querySelector<HTMLElement>(".qa-pie");
       await act(async () => {
+        fireEvent.pointerDown(pie!);
+      });
+      expect(document.querySelector(".qa-menu")).toHaveAttribute("data-pressed", "true");
+      await act(async () => {
+        fireEvent.pointerUp(pie!);
         fireEvent.click(pie!);
       });
       await waitFor(() => expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce());
       slot.lifecycle.unmount();
     });
 
-    it("runs an action from the fan", async () => {
-      const user = userEvent.setup();
-      const { slot, runs } = await renderQuickActions({ settings: { ...hold } });
+    it("cancels when the user presses outside the pie", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
       const menu = document.querySelector<HTMLElement>(".qa-menu");
       await holdOptionAt({ clientX: 400, clientY: 300 });
-      await user.click(slot.getByRole("button", { name: "Archive" }));
-      await waitFor(() => expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce());
+      await act(async () => {
+        fireEvent.pointerDown(document.body);
+      });
       expect(menu).toHaveAttribute("data-open", "false");
       slot.lifecycle.unmount();
     });

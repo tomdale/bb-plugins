@@ -1,6 +1,7 @@
 Quick Actions puts thread actions in a radial menu at the pointer. Holding
-Option opens it around the cursor and releasing closes it, so archiving or
-snoozing happens where the hand already is. A corner trigger remains available
+Option opens a labelled pie centred on the cursor, and releasing Option runs the
+slice the pointer points into, so archiving or snoozing happens where the hand
+already is. Releasing in the hub cancels. A corner trigger remains available
 as an alternative. The pie spring, the corner fan's Ring bloom and Arc spring,
 and reduced-motion all share the same hit targets.
 

@@ -8,20 +8,22 @@ thread actions where they exist.
 ## Trigger
 
 - **Hold Option at the pointer:** the default. Holding Option for 200ms opens
-  a round black pie around the cursor, each slice labelled with its icon and
-  name. Moving the pointer away from the centre lights the slice it points
-  into; clicking runs that slice's action, and releasing Option closes the pie
-  without running anything. Quick Option-letter accents
-  such as ⌥e pass through untouched, and any other keypress dismisses the fan
-  so typing is never interrupted.
+  a round black pie centred exactly on the cursor, each slice labelled with its
+  icon and name. The hub in the middle selects nothing; moving the pointer out
+  of it lights the slice it points into. Releasing Option runs the lit slice,
+  and releasing in the hub or over an unavailable action closes the pie without
+  running anything. Clicking a lit slice runs it too. Escape or a press outside
+  the pie cancels. Quick Option-letter accents such as ⌥e pass through
+  untouched, and any other keypress dismisses the pie at once so typing is never
+  interrupted; Shift, Command, and Control do not.
 - **Corner button:** the earlier floating trigger, anchored to the composer's
   corner.
 
 Choose between them with **Settings → Plugins → Quick Actions → Menu trigger**
 or `bb plugin config quick-actions set trigger corner`.
 
-The pie keeps itself inside the window: near an edge its centre moves in far
-enough that no slice is clipped.
+Near a window edge the pie stays centred on the cursor and the window clips
+the slices that fall outside it.
 
 ## Settings
 

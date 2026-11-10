@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   actionCssVariables,
   actionTarget,
-  clampMenuOrigin,
   CORNERS,
   cursorActionCssVariables,
   cursorActionTarget,
   hoverCorridorPoints,
-  PIE_DEAD_ZONE_PX,
+  PIE_HUB_RADIUS_PX,
   PIE_ITEM_RADIUS_PX,
+  PIE_ITEM_START_RADIUS_PX,
   PIE_RADIUS_PX,
   pieSliceAt,
   pieSlicePath,
@@ -101,26 +101,9 @@ describe("hold-Option geometry", () => {
     expect(style["--qa-open-delay"]).toBe("36ms");
   });
 
-  it("keeps the whole fan inside the window", () => {
-    const viewport = { width: 1024, height: 768 };
-    const inset = PIE_RADIUS_PX + 8;
-    expect(clampMenuOrigin({ x: 500, y: 400 }, viewport)).toEqual({
-      x: 500,
-      y: 400,
-    });
-    expect(clampMenuOrigin({ x: 4, y: 6 }, viewport)).toEqual({
-      x: inset,
-      y: inset,
-    });
-    expect(clampMenuOrigin({ x: 5000, y: 5000 }, viewport)).toEqual({
-      x: viewport.width - inset,
-      y: viewport.height - inset,
-    });
-  });
-
   it("selects the slice the pointer points into", () => {
     expect(pieSliceAt({ x: 0, y: -60 }, 5)).toBe(0);
-    expect(pieSliceAt({ x: 0, y: -PIE_DEAD_ZONE_PX + 1 }, 5)).toBeNull();
+    expect(pieSliceAt({ x: 0, y: -PIE_HUB_RADIUS_PX + 1 }, 5)).toBeNull();
     for (let index = 0; index < 5; index += 1) {
       const target = cursorActionTarget(index, 5);
       expect(pieSliceAt(target, 5)).toBe(index);
@@ -130,11 +113,22 @@ describe("hold-Option geometry", () => {
     expect(pieSliceAt({ x: Math.sin(near) * 80, y: -Math.cos(near) * 80 }, 5)).toBe(0);
   });
 
-  it("draws one slice from the centre to the rim", () => {
+  it("draws one slice from the hub's edge to the rim", () => {
     const path = pieSlicePath(4);
-    expect(path.startsWith("M 0 0 L")).toBe(true);
-    const corner = (Math.sin(Math.PI / 4) * PIE_RADIUS_PX).toFixed(2);
-    expect(path).toContain(`-${corner} -${corner}`);
-    expect(path).toContain(`${corner} -${corner} Z`);
+    const f = (value: number) => value.toFixed(2);
+    const inner = Math.sin(Math.PI / 4) * PIE_HUB_RADIUS_PX;
+    const outer = Math.sin(Math.PI / 4) * PIE_RADIUS_PX;
+    expect(path.startsWith(`M -${f(inner)} -${f(inner)} L -${f(outer)} -${f(outer)}`)).toBe(true);
+    expect(path).toContain(`A ${PIE_RADIUS_PX} ${PIE_RADIUS_PX} 0 0 1 ${f(outer)} -${f(outer)}`);
+    expect(path).toContain(`A ${PIE_HUB_RADIUS_PX} ${PIE_HUB_RADIUS_PX} 0 0 0`);
+  });
+
+  it("flies each item out from clear of the hub and closes in reverse order", () => {
+    const style = cursorActionCssVariables({ index: 1, count: 5 }) as Record<string, string>;
+    const start = cursorActionTarget(1, 5, PIE_ITEM_START_RADIUS_PX);
+    expect(style["--qa-action-from-x"]).toBe(`${start.x}px`);
+    expect(style["--qa-action-from-y"]).toBe(`${start.y}px`);
+    expect(style["--qa-close-delay"]).toBe("36ms");
+    expect(PIE_ITEM_START_RADIUS_PX - 21 * 0.7).toBeGreaterThan(PIE_HUB_RADIUS_PX);
   });
 });

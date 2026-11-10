@@ -46,9 +46,9 @@ import type { rpcContract } from "./server";
 import {
   actionCssVariables,
   actionTarget,
-  clampMenuOrigin,
   cursorActionCssVariables,
   hoverCorridorPoints,
+  PIE_HUB_RADIUS_PX,
   PIE_RADIUS_PX,
   pieSliceAt,
   pieSlicePath,
@@ -66,19 +66,14 @@ const CORE_ACTION_KEYS = [
 ] as const;
 const HOVER_CLOSE_DELAY_MS = 300;
 const HOLD_OPTION_DELAY_MS = 200;
-/** Half of the 44px menu box, subtracted so the fan is centred on the pointer. */
+/** How long a run's chosen slice brightens before the pie closes. */
+const PIE_CONFIRM_MS = 90;
+/** Length of the pie's close motion, matching the CSS close transitions. */
+const PIE_CLOSE_MS = 150;
+/** Half of the 44px menu box, subtracted so the pie is centred on the pointer. */
 const MENU_BOX_OFFSET_PX = 22;
-/** Keys that steer the open menu instead of typing into the composer. */
-const NAVIGATION_KEYS = new Set([
-  "Tab",
-  "Enter",
-  " ",
-  "Spacebar",
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-]);
+/** Keys that leave the open pie alone: modifiers pressed alongside Option. */
+const PASSIVE_KEYS = new Set(["Shift", "Meta", "Control", "CapsLock", "Alt"]);
 
 function Hint({
   label,
@@ -386,14 +381,33 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const actionCount = actions.length;
 
   // The pie selects by direction: whichever slice the pointer points into from
-  // the centre is lit, wherever along that ray the pointer sits.
+  // the centre is selected, wherever along that ray the pointer sits. Inside
+  // the hub nothing is.
   const [selected, setSelected] = useState<number | null>(null);
+  const [pressed, setPressed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [closeKind, setCloseKind] = useState<"cancel" | "run">("cancel");
+  const [chosen, setChosen] = useState<number | null>(null);
+  const pieRef = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const confirmingRef = useRef(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Until this time a close is still animating, so a reopen keeps its centre. */
+  const closingUntilRef = useRef(0);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+
   useEffect(() => {
     if (!holdOption || !requestedOpen) {
       setSelected(null);
+      setPressed(false);
       return;
     }
     const track = (event: PointerEvent) => {
+      if (confirmingRef.current) return;
       setSelected(
         pieSliceAt(
           { x: event.clientX - origin.x, y: event.clientY - origin.y },
@@ -404,24 +418,118 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     window.addEventListener("pointermove", track, { passive: true });
     return () => window.removeEventListener("pointermove", track);
   }, [actionCount, holdOption, origin, requestedOpen]);
-  // The lit slice turns the short way round, and appears in place rather than
-  // spinning in from wherever it was last shown.
-  const sliceTurnRef = useRef(0);
-  const previousSelectedRef = useRef<number | null>(null);
-  const sliceJump = previousSelectedRef.current === null;
-  if (selected !== null && actionCount > 0) {
-    const target = (selected * 360) / actionCount;
-    const delta =
-      ((((target - sliceTurnRef.current) % 360) + 540) % 360) - 180;
-    sliceTurnRef.current += delta;
-  }
-  useEffect(() => {
-    previousSelectedRef.current = selected;
-  }, [selected]);
 
-  // Hold Option anywhere and the fan opens at the pointer. A 200ms hold keeps
-  // Option-letter accents (⌥e) intact, and any other keypress drops the menu so
-  // typing is never interrupted by it.
+  const clearConfirm = useCallback(() => {
+    if (confirmTimerRef.current !== null) clearTimeout(confirmTimerRef.current);
+    confirmTimerRef.current = null;
+    confirmingRef.current = false;
+    setConfirming(false);
+  }, []);
+  useEffect(() => clearConfirm, [clearConfirm]);
+
+  const runPieItem = useCallback(async (item: QuickActionItem) => {
+    setPending(item.id);
+    try {
+      await item.run();
+    } catch (cause) {
+      toast.error(
+        `${item.label} failed: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    } finally {
+      setPending(null);
+    }
+  }, []);
+
+  /** Closes with the cancel motion: the lit slice drops, items retract. */
+  const cancelPie = useCallback(() => {
+    clearConfirm();
+    setCloseKind("cancel");
+    setChosen(null);
+    setInstantClose(false);
+    if (requestedOpenRef.current) {
+      closingUntilRef.current = performance.now() + PIE_CLOSE_MS;
+    }
+    setRequestedOpen(false);
+  }, [clearConfirm]);
+
+  /** Removes the pie in the same frame, for typing and window blur. */
+  const dismissPie = useCallback(() => {
+    clearConfirm();
+    setChosen(null);
+    setInstantClose(true);
+    setRequestedOpen(false);
+  }, [clearConfirm]);
+
+  /**
+   * Runs a slice: it brightens and its item grows for a beat, then the pie
+   * closes around the chosen item and the action runs. A disabled slice, or
+   * nothing selected, closes without running.
+   */
+  const commitPie = useCallback(
+    (index: number | null) => {
+      if (confirmingRef.current) return;
+      const item = index === null ? undefined : actionsRef.current[index];
+      if (!item || item.disabled || pendingRef.current !== null) {
+        cancelPie();
+        return;
+      }
+      confirmingRef.current = true;
+      setConfirming(true);
+      setSelected(index);
+      const reduced = window.matchMedia?.(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+      confirmTimerRef.current = setTimeout(
+        () => {
+          confirmTimerRef.current = null;
+          confirmingRef.current = false;
+          setConfirming(false);
+          setChosen(index);
+          setCloseKind("run");
+          setInstantClose(false);
+          closingUntilRef.current = performance.now() + PIE_CLOSE_MS;
+          setRequestedOpen(false);
+          void runPieItem(item);
+        },
+        reduced ? 0 : PIE_CONFIRM_MS,
+      );
+    },
+    [cancelPie, runPieItem],
+  );
+
+  // A press on the disc shows on the lit slice; a press anywhere else cancels.
+  useEffect(() => {
+    if (!holdOption || !requestedOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const pie = pieRef.current;
+      if (pie && event.target instanceof Node && pie.contains(event.target)) {
+        setPressed(true);
+        return;
+      }
+      if (
+        containerRef.current &&
+        event.target instanceof Node &&
+        containerRef.current.contains(event.target)
+      ) {
+        return;
+      }
+      cancelPie();
+    };
+    const onPointerUp = () => setPressed(false);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointerup", onPointerUp, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp, true);
+    };
+  }, [cancelPie, holdOption, requestedOpen]);
+
+  // Hold Option anywhere and the pie opens centred on the pointer. A 200ms hold
+  // keeps Option-letter accents (⌥e) intact. Releasing Option runs the
+  // selected slice, or cancels from the hub; any other keypress drops the pie
+  // so typing is never interrupted by it.
   useEffect(() => {
     if (!holdOption) return;
     if (!canOpen) {
@@ -433,11 +541,6 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     const clearHold = () => {
       if (holdTimer !== null) clearTimeout(holdTimer);
       holdTimer = null;
-    };
-    const closeMenu = (immediate = false) => {
-      clearHold();
-      setInstantClose(immediate);
-      setRequestedOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (
@@ -457,49 +560,48 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           return;
         }
         held = true;
-        setOrigin(
-          clampMenuOrigin(pointer.current, {
-            width: window.innerWidth,
-            height: window.innerHeight,
-          }),
-        );
         clearHold();
         holdTimer = setTimeout(() => {
           holdTimer = null;
-          if (!held) return;
+          if (!held || confirmingRef.current) return;
+          // The centre is wherever the pointer is when the hold completes,
+          // unless a close is still animating, which reopens in place.
+          if (performance.now() >= closingUntilRef.current) {
+            setOrigin({ ...pointer.current });
+          }
+          setChosen(null);
+          setCloseKind("cancel");
           setInstantClose(false);
           setRequestedOpen(true);
         }, HOLD_OPTION_DELAY_MS);
         return;
       }
+      if (!held && !requestedOpenRef.current && !confirmingRef.current) return;
       if (event.key === "Escape") {
-        if (!held && !requestedOpenRef.current) return;
-        closeMenu();
+        event.preventDefault();
+        held = false;
+        clearHold();
+        cancelPie();
         return;
       }
-      if (NAVIGATION_KEYS.has(event.key)) return;
-      if (!held && !requestedOpenRef.current) return;
+      // Chords with Option held are common; modifiers alone never dismiss.
+      if (PASSIVE_KEYS.has(event.key)) return;
+      held = false;
+      clearHold();
       // Typing: get out of the way without a retract animation over the composer.
-      closeMenu(true);
+      dismissPie();
     };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key !== "Alt") return;
       held = false;
       clearHold();
-      setInstantClose(false);
-      const focused = document.activeElement;
-      if (
-        containerRef.current !== null &&
-        focused instanceof HTMLElement &&
-        containerRef.current.contains(focused)
-      ) {
-        return;
-      }
-      setRequestedOpen(false);
+      if (!requestedOpenRef.current || confirmingRef.current) return;
+      commitPie(selectedRef.current);
     };
     const onBlur = () => {
       held = false;
-      closeMenu(true);
+      clearHold();
+      dismissPie();
     };
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
@@ -510,7 +612,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [canOpen, holdOption, pointer]);
+  }, [canOpen, cancelPie, commitPie, dismissPie, holdOption, pointer]);
 
   const activate = async (item: QuickActionItem) => {
     if (pending || !canOpen) return;
@@ -568,6 +670,10 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           data-open={requestedOpen ? "true" : "false"}
           data-can-open={canOpen ? "true" : "false"}
           data-instant={instantClose ? "true" : "false"}
+          data-close={closeKind}
+          data-confirming={confirming ? "true" : "false"}
+          data-pressed={pressed ? "true" : "false"}
+          data-in-hub={holdOption && selected === null ? "true" : "false"}
           style={menuStyle}
           role="group"
           aria-label="Quick actions"
@@ -596,7 +702,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
             if (event.key !== "Escape") return;
             event.preventDefault();
             if (holdOption) {
-              setRequestedOpen(false);
+              cancelPie();
               return;
             }
             closeAndFocus();
@@ -658,24 +764,34 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           )}
           {holdOption ? (
             <div
+              ref={pieRef}
               className="qa-pie"
               aria-hidden="true"
-              onClick={() => {
-                const item = selected === null ? undefined : actions[selected];
-                if (item && !item.disabled) void activate(item);
-              }}
+              onClick={() => commitPie(selectedRef.current)}
             >
               <svg
                 className="qa-pie-slices"
                 viewBox={`${-PIE_RADIUS_PX} ${-PIE_RADIUS_PX} ${PIE_RADIUS_PX * 2} ${PIE_RADIUS_PX * 2}`}
                 focusable="false"
               >
-                <path
-                  className="qa-pie-slice"
-                  data-visible={selected === null ? "false" : "true"}
-                  data-jump={sliceJump ? "true" : "false"}
-                  d={pieSlicePath(actionCount)}
-                  style={{ transform: `rotate(${sliceTurnRef.current}deg)` }}
+                {actions.map((item, index) => (
+                  <path
+                    key={item.id}
+                    className="qa-pie-slice"
+                    data-lit={
+                      selected === index && !item.disabled ? "true" : "false"
+                    }
+                    data-chosen={chosen === index ? "true" : "false"}
+                    d={pieSlicePath(actionCount)}
+                    style={{
+                      transform: `rotate(${(index * 360) / actionCount}deg)`,
+                    }}
+                  />
+                ))}
+                <circle className="qa-pie-hub" r={PIE_HUB_RADIUS_PX} />
+                <circle
+                  className="qa-pie-hub-ring"
+                  r={PIE_HUB_RADIUS_PX - 0.5}
                 />
               </svg>
             </div>
@@ -704,10 +820,10 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
                     className="qa-action"
                     style={style}
                     data-selected={selected === index ? "true" : "false"}
+                    data-chosen={chosen === index ? "true" : "false"}
                     disabled={item.disabled || pending !== null}
-                    tabIndex={requestedOpen && canOpen ? 0 : -1}
-                    onFocus={() => setSelected(index)}
-                    onClick={() => void activate(item)}
+                    tabIndex={-1}
+                    onClick={() => commitPie(index)}
                   >
                     <Icon name={item.icon} />
                     <span className="qa-action-label">{item.label}</span>

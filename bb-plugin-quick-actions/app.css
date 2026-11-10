@@ -152,10 +152,15 @@
   pointer-events: none;
 }
 
-/* Hold ⌥ at the pointer: a black pie centred on the pointer, no trigger or
-   hover corridors, and a container that never swallows clicks aimed at the
-   page underneath. */
+/* Hold ⌥ at the pointer: a black pie centred exactly on the pointer. The
+   container never swallows clicks aimed at the page underneath; the disc takes
+   every press on the pie, so items stay out of hit testing.
+
+   Each element rests in its closed state, and the transitions declared there
+   are the close motion. The open state declares the open motion. */
 .qa-menu[data-trigger="hold-option"] {
+  /* Damped spring, k 420 c 38: settles without overshoot. */
+  --qa-close-easing: cubic-bezier(0.25, 0.8, 0.3, 1);
   pointer-events: none;
 }
 
@@ -169,23 +174,31 @@
   margin: calc(var(--qa-pie-radius) * -1);
   border-radius: 50%;
   background: #000;
-  /* The hairline rim keeps the disc's edge visible on BB's dark theme. */
+  /* The disc stays black, so the inset hairline carries its edge on BB's dark
+     window and the shadow darkens the text behind the rim. */
   box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.14),
-    0 12px 40px rgb(0 0 0 / 0.35);
+    inset 0 0 0 1px rgb(255 255 255 / 0.2),
+    0 12px 32px rgb(0 0 0 / 0.65);
   opacity: 0;
   transform: scale(0.6);
   transition:
-    transform 160ms var(--qa-arc-easing),
-    opacity 40ms linear;
+    transform 120ms var(--qa-close-easing),
+    opacity 110ms linear;
   pointer-events: none;
   will-change: transform, opacity;
+}
+
+.qa-menu[data-close="run"][data-open="false"] .qa-pie {
+  transform: scale(0.86);
 }
 
 .qa-menu[data-open="true"] .qa-pie {
   opacity: 1;
   transform: scale(1);
   pointer-events: auto;
+  transition:
+    transform 160ms var(--qa-arc-easing),
+    opacity 40ms linear;
 }
 
 .qa-pie-slices {
@@ -200,78 +213,137 @@
   opacity: 0;
   transform-origin: 0 0;
   transition:
-    transform 90ms ease-out,
-    opacity 60ms linear;
+    opacity 20ms linear,
+    fill 50ms linear;
 }
 
-.qa-pie-slice[data-visible="true"] {
+.qa-pie-slice[data-lit="true"] {
   opacity: 1;
+  transition:
+    opacity 24ms linear,
+    fill 50ms linear;
 }
 
-.qa-pie-slice[data-jump="true"] {
-  transition: opacity 60ms linear;
+.qa-menu[data-pressed="true"] .qa-pie-slice[data-lit="true"] {
+  fill: rgb(255 255 255 / 0.26);
+}
+
+.qa-menu[data-confirming="true"] .qa-pie-slice[data-lit="true"],
+.qa-menu[data-close="run"][data-open="false"] .qa-pie-slice[data-chosen="true"] {
+  opacity: 1;
+  fill: rgb(255 255 255 / 0.38);
+}
+
+.qa-pie-hub {
+  fill: rgb(255 255 255 / 0.07);
+}
+
+/* The ring brightens while the pointer rests in the hub: releasing there
+   closes without running anything. */
+.qa-pie-hub-ring {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.12);
+  stroke-width: 1;
+  transition: stroke 60ms linear;
+}
+
+.qa-menu[data-open="true"][data-in-hub="true"] .qa-pie-hub-ring {
+  stroke: rgb(255 255 255 / 0.28);
 }
 
 .qa-menu[data-trigger="hold-option"] .qa-action {
   flex-direction: column;
-  gap: 4px;
-  width: 84px;
-  height: 52px;
-  margin: -26px -42px;
+  gap: 3px;
+  width: 104px;
+  height: 42px;
+  margin: -21px -52px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: rgb(255 255 255 / 0.66);
+  color: rgb(255 255 255 / 0.72);
   font: inherit;
-  cursor: pointer;
   pointer-events: none;
   opacity: 0;
-  transform: translate3d(0, 0, 0) scale(0.7);
+  transform: translate3d(var(--qa-action-from-x), var(--qa-action-from-y), 0)
+    scale(0.7);
   transition:
-    transform 160ms var(--qa-arc-easing),
-    opacity 40ms linear,
-    color 60ms linear;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:focus-visible {
-  outline: none;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action[data-selected="true"] {
-  color: #fff;
-}
-
-.qa-menu[data-trigger="hold-option"] .qa-action:disabled {
-  cursor: default;
-  color: rgb(255 255 255 / 0.3);
+    transform 120ms var(--qa-close-easing) var(--qa-close-delay),
+    opacity 110ms linear var(--qa-close-delay);
 }
 
 .qa-menu[data-trigger="hold-option"] .qa-action [data-icon-root] {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
+  color: rgb(255 255 255 / 0.88);
+  transition: none;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action:hover {
+  background: transparent;
 }
 
 .qa-menu[data-trigger="hold-option"] .qa-action:is(:hover, :focus-visible) [data-icon-root] {
   transform: none;
 }
 
+.qa-menu[data-trigger="hold-option"] .qa-action:is([data-selected="true"], [data-chosen="true"]),
+.qa-menu[data-trigger="hold-option"] .qa-action:is([data-selected="true"], [data-chosen="true"]) [data-icon-root] {
+  color: #fff;
+}
+
+.qa-menu[data-trigger="hold-option"] .qa-action:disabled,
+.qa-menu[data-trigger="hold-option"] .qa-action:disabled [data-icon-root] {
+  color: rgb(255 255 255 / 0.36);
+}
+
 .qa-action-label {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   line-height: 16px;
   white-space: nowrap;
+  opacity: 0;
+  transition: opacity 80ms linear;
 }
 
 .qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action {
-  pointer-events: auto;
   opacity: 1;
   transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
-  transition-delay: var(--qa-open-delay), var(--qa-open-delay), 0ms;
+  transition:
+    transform 160ms var(--qa-arc-easing) var(--qa-open-delay),
+    opacity 40ms linear var(--qa-open-delay);
 }
 
-/* A keypress dismisses the pie without animating back across the composer. */
-.qa-menu[data-trigger="hold-option"][data-instant="true"] :is(.qa-action, .qa-pie) {
+/* Labels trail their icons by a beat, so none is readable over the hub. */
+.qa-menu[data-trigger="hold-option"][data-open="true"] .qa-action-label {
+  opacity: 1;
+  transition: opacity 64ms linear calc(var(--qa-open-delay) + 32ms);
+}
+
+.qa-menu[data-trigger="hold-option"][data-pressed="true"] .qa-action[data-selected="true"] {
+  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(0.96);
+  transition: transform 60ms ease-out;
+}
+
+.qa-menu[data-trigger="hold-option"][data-confirming="true"] .qa-action[data-selected="true"] {
+  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1.08);
+  transition: transform 50ms ease-out;
+}
+
+/* After a run the chosen item holds its place and fades last while the
+   others retract. */
+.qa-menu[data-trigger="hold-option"][data-close="run"][data-open="false"] .qa-action[data-chosen="true"] {
+  transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1.08);
+  transition: opacity 110ms linear 40ms;
+}
+
+.qa-menu[data-trigger="hold-option"][data-close="run"][data-open="false"] .qa-action[data-chosen="true"] .qa-action-label {
+  opacity: 1;
+  transition: none;
+}
+
+/* Typing or leaving the window removes the pie in the same frame. */
+.qa-menu[data-trigger="hold-option"][data-instant="true"] :is(.qa-action, .qa-action-label, .qa-pie, .qa-pie-slice) {
   transition: none;
 }
 
@@ -285,20 +357,24 @@
     transform: none;
   }
 
-  .qa-menu .qa-pie,
-  .qa-menu[data-open="true"] .qa-pie {
-    transform: none;
-    transition: opacity 120ms linear;
-  }
-
-  .qa-pie-slice {
-    transition: opacity 60ms linear;
+  /* Reduced motion: open and close are plain fades at full size, so nothing
+     travels or scales; the slice crossfade stays. */
+  .qa-menu .qa-pie {
+    transform: none !important;
+    transition: opacity 120ms linear !important;
   }
 
   .qa-menu .qa-action,
-  .qa-menu[data-open="true"] .qa-action {
-    transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1);
-    transition: opacity 120ms linear;
-    transition-delay: 0ms !important;
+  .qa-menu .qa-action-label {
+    transform: translate3d(var(--qa-action-x), var(--qa-action-y), 0) scale(1) !important;
+    transition: opacity 120ms linear !important;
+  }
+
+  .qa-menu .qa-action-label {
+    transform: none !important;
+  }
+
+  .qa-menu[data-instant="true"] :is(.qa-pie, .qa-action, .qa-action-label) {
+    transition: none !important;
   }
 }
