@@ -867,7 +867,7 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 ## Incremental agent-message text from every provider
 
 - **Status:** not filed
-- **Observed:** BB 0.48.x, Plugin SDK 0.5.29, a Pi-provider worker thread (`thr_kvaezpexxh`)
+- **Observed:** BB 0.48.x, Plugin SDK 0.5.29, a Pi-provider worker thread
 - **Use case:** Walkthrough shows a worker's message as it is written, so the first words appear in about a second
 - **Limit and evidence:** the thread's event log holds exactly one `item/agentMessage/delta` per message, emitted when the message ends (6 deltas for 6 messages, 65 to 739 characters each). A plugin cannot tell a provider that streams from one that buffers, and on a buffering provider the preview arrives all at once after the whole message has been generated
 - **Workaround:** the worker opens with a one- or two-sentence message before reading code, so something real is on screen within seconds whatever the provider does

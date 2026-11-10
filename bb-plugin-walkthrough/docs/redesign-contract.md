@@ -197,7 +197,7 @@ The `:::reply{...}` ... `:::` wrapper the helper may inherit from its thread is 
 
 Reports: 20-28 s to the first words and part 1 only at 50-130 s on the tool-initiated path; whole-part arrival with one provider and chunks with another; one failed first write with unreadable figures.
 
-What the code and a recorded real worker thread show (thread `thr_kvaezpexxh`, a spawned worker on a PR review, read with `bb thread log`; the redesign-era workers are gone, so this is the pre-redesign flow):
+What the code and a recorded real worker thread show (a spawned worker on a PR review, read with `bb thread log`; the redesign-era workers are gone, so this is the pre-redesign flow):
 - The provider emits one `item/agentMessage/delta` per message, at the end of the message (6 deltas for 6 messages in the log): no incremental text. "Chunked" arrival comes only from providers that stream deltas. The tail adds 0.1-0.3 s on top of when BB stores the event (`scripts/measure-stream.ts` on the real deltas: first block 104 ms after the delta, publish delay median 106 ms, p95 270 ms).
 - Tool-call arguments arrive complete at `item/started`; generating them is invisible. In the log, the plan call's 2.8 KB of arguments took 9.5 s to generate and a 2.1 KB part write 8.3 s, at about 280 characters per second.
 - Before any text, the worker spent about 4.3 s starting, then 26 s over seven tool steps (reading skill files, a todo list, `gh`, `git`); the model's per-step latency was 4-9 s. The old worker guide told it to "use the tdx-narrative style when available", which made it open skill files.

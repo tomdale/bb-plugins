@@ -3,8 +3,8 @@ import { exportFileName } from "./file-name.js";
 
 describe("exportFileName", () => {
   it("reads like the thread title, with a short id and the date", () => {
-    const name = exportFileName("Fix the flaky, flaky test!", "thr_ex6ajzgtq3");
-    expect(name).toMatch(/^fix-the-flaky-flaky-test-ex6ajzgt-\d{4}-\d{2}-\d{2}\.html$/);
+    const name = exportFileName("Fix the flaky, flaky test!", "thr_demo5aaaaa");
+    expect(name).toMatch(/^fix-the-flaky-flaky-test-demo5aaa-\d{4}-\d{2}-\d{2}\.html$/);
   });
 
   it("folds accents instead of dropping the letters", () => {
