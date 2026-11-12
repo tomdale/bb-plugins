@@ -786,6 +786,42 @@ describe("Quick Actions overlay", () => {
   describe("hold Option at the pointer", () => {
     const hold = { trigger: "hold-option" } as const;
 
+    // jsdom has no layout, so hit testing follows a fixed window: a 240px
+    // sidebar on the left, a 40px title bar across the rest of the top, and
+    // the thread pane below it.
+    let sidebar: HTMLElement;
+    let titleBar: HTMLElement;
+    let threadWindow: HTMLElement;
+    let timeline: HTMLElement;
+    let hitTest: (x: number, y: number) => Element[];
+
+    beforeEach(() => {
+      sidebar = document.createElement("aside");
+      titleBar = document.createElement("header");
+      threadWindow = document.createElement("div");
+      threadWindow.setAttribute("data-thread-window", "");
+      timeline = document.createElement("div");
+      threadWindow.append(timeline);
+      document.body.append(sidebar, titleBar, threadWindow);
+      hitTest = (x, y) => [
+        x < 240 ? sidebar : y < 40 ? titleBar : timeline,
+        ...(x >= 240 && y >= 40 ? [threadWindow] : []),
+        document.body,
+        document.documentElement,
+      ];
+      Object.defineProperty(document, "elementsFromPoint", {
+        configurable: true,
+        value: (x: number, y: number) => hitTest(x, y),
+      });
+    });
+
+    afterEach(() => {
+      sidebar.remove();
+      titleBar.remove();
+      threadWindow.remove();
+      Reflect.deleteProperty(document, "elementsFromPoint");
+    });
+
     async function holdOptionAt(point: { clientX: number; clientY: number }) {
       fireEvent.pointerMove(window, point);
       await act(async () => {
@@ -832,9 +868,45 @@ describe("Quick Actions overlay", () => {
 
     it("stays centred on the pointer at the window edge", async () => {
       const { slot } = await renderQuickActions({ settings: { ...hold } });
-      await holdOptionAt({ clientX: 4, clientY: 6 });
-      expect(ring()?.style.left).toBe("4px");
-      expect(ring()?.style.top).toBe("6px");
+      await holdOptionAt({ clientX: 1436, clientY: 894 });
+      expect(ring()?.style.left).toBe("1436px");
+      expect(ring()?.style.top).toBe("894px");
+      slot.lifecycle.unmount();
+    });
+
+    it("opens only over a thread pane, not the sidebar or title bar", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+
+      // Option-clicking the green window button holds Option over the corner.
+      await holdOptionAt({ clientX: 20, clientY: 18 });
+      expect(ring()).toBeNull();
+      expect(document.querySelector(".qa-dim")).toHaveAttribute("data-state", "off");
+      await releaseOption();
+
+      await holdOptionAt({ clientX: 120, clientY: 500 });
+      expect(ring()).toBeNull();
+      await releaseOption();
+
+      await holdOptionAt({ clientX: 700, clientY: 20 });
+      expect(ring()).toBeNull();
+      await releaseOption();
+
+      await holdOptionAt({ clientX: 700, clientY: 300 });
+      expect(ring()).not.toBeNull();
+      slot.lifecycle.unmount();
+    });
+
+    it("opens over a thread pane covered by a ring that is still closing", async () => {
+      const { slot } = await renderQuickActions({ settings: { ...hold } });
+      await holdOptionAt({ clientX: 700, clientY: 300 });
+      await releaseOption();
+      const closingDisc = document.querySelector(".qa-ring-base");
+      expect(closingDisc).not.toBeNull();
+      const underneath = hitTest;
+      hitTest = (x, y) => [closingDisc!, ...underneath(x, y)];
+
+      await holdOptionAt({ clientX: 720, clientY: 310 });
+      expect(ring()?.style.left).toBe("720px");
       slot.lifecycle.unmount();
     });
 

@@ -1,15 +1,18 @@
 # Quick Actions
 
 Quick Actions puts archive, snooze, pin, mark unread, and copy link within
-reach of the thread you just finished. Hold Option and the radial menu springs
-open at the pointer, where the cursor already is. The menu uses BB's native
+reach of the thread you just finished. Hold Option over a thread and the radial
+menu springs open at the pointer, where the cursor already is. The menu uses BB's native
 thread actions where they exist.
 
 ## Trigger
 
-- **Hold Option at the pointer:** the default. Holding Option for 200ms opens
-  a ring of actions centred exactly on the cursor, each with its icon and name,
-  with the thread's name above it, and dims the window slightly behind it. The hub in the middle selects
+- **Hold Option at the pointer:** the default. Holding Option for 200ms with
+  the pointer over a thread's timeline or composer opens a ring of actions
+  centred exactly on the cursor, each with its icon and name, with the
+  thread's name above it, and dims the window slightly behind it. Over the
+  sidebar, the title bar, or the window controls, Option does nothing, so
+  Option-clicks there behave as usual. The hub in the middle selects
   nothing; moving the pointer out of it selects the action in that direction,
   shown by a quiet tile and a label that grows slightly. Releasing Option runs
   the selection; releasing in the hub cancels, and releasing on an unavailable

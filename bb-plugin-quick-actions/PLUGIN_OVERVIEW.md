@@ -1,5 +1,6 @@
 Quick Actions puts thread actions in a radial menu at the pointer. Holding
-Option opens a labelled ring centred on the cursor over a slight window dim,
+Option over a thread pane opens a labelled ring centred on the cursor over a
+slight window dim,
 and releasing Option runs the action the pointer points toward, so archiving or
 snoozing happens where the hand already is. Releasing in the hub cancels. A
 corner trigger remains available as an alternative.

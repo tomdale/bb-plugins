@@ -44,6 +44,22 @@ function usePointerPosition() {
   return point;
 }
 
+/**
+ * The ring acts on the open thread, so it opens only over a thread pane's
+ * timeline and composer (BB's `[data-thread-window]`), never over the
+ * sidebar, the title bar, or the window controls. The check hit-tests the
+ * topmost element under the pointer, skipping this plugin's own overlay so a
+ * ring still closing there does not hide the pane beneath it.
+ */
+function isOverThreadPane(x: number, y: number): boolean {
+  if (typeof document.elementsFromPoint !== "function") return false;
+  for (const element of document.elementsFromPoint(x, y)) {
+    if (element.closest('[data-bb-plugin="quick-actions"]')) continue;
+    return element.closest("[data-thread-window]") !== null;
+  }
+  return false;
+}
+
 const prefersReducedMotion = () =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -60,8 +76,8 @@ type OpenRing = {
 const TITLE_GAP_PX = 10;
 
 /**
- * Hold Option anywhere and the ring opens centred exactly on the pointer. A
- * 200ms hold keeps Option-letter accents (⌥e) intact. Direction selects;
+ * Hold Option over a thread pane and the ring opens centred exactly on the
+ * pointer. A 200ms hold keeps Option-letter accents (⌥e) intact. Direction selects;
  * the centre is a dead zone. Releasing Option runs the selection, or closes
  * from the centre; Escape and a press outside the ring cancel; any other
  * keypress removes it in the same frame so typing is never interrupted.
@@ -247,13 +263,15 @@ export function HoldOptionPie({
           if (!held) return;
           const list = actionsRef.current.slice(0, RING_MAX_ACTIONS);
           if (list.length === 0) return;
+          const { x, y } = pointer.current;
+          if (!isOverThreadPane(x, y)) return;
           // A ring still closing makes way for the new one.
           engineRef.current?.destroy();
           keyRef.current += 1;
           setRing({
             key: keyRef.current,
-            x: pointer.current.x,
-            y: pointer.current.y,
+            x,
+            y,
             title: latestTitleRef.current,
             actions: list,
           });
