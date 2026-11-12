@@ -161,8 +161,10 @@
   inset: 0;
   z-index: 60;
   pointer-events: none;
-  -webkit-app-region: no-drag;
-  app-region: no-drag;
+  /* Never app-region here: this box spans the whole window, and Chromium
+     collects no-drag boxes for the native draggable region from the layout
+     tree without consulting pointer-events, so a no-drag overlay this size
+     makes the title bar undraggable everywhere. Only the disc opts out. */
 }
 
 .qa-dim {
@@ -204,6 +206,10 @@
 
 .qa-ring-base {
   position: absolute;
+  /* The clickable disc can sit over the title bar's drag strip, and native
+     window dragging would otherwise swallow the click. */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
   border-radius: 50%;
   /* Slightly translucent: the page shows faintly through, and a light blur
      keeps it from competing with the labels. */
