@@ -60,6 +60,8 @@ export type RingBandElements = {
   items: HTMLElement[];
   /** The thread name plate, which the band covers at the top of the ring. */
   title: HTMLElement | null;
+  /** The parent item's outward chevron, which shows while the band is folded. */
+  more: HTMLElement | null;
 };
 
 type BandItem = { r: Spring; o: Tween; c: Tween; g: Spring; rad: number; tanDeg: number; shown: boolean };
@@ -83,6 +85,7 @@ export class RingBand {
   private readonly tileAngle: Spring;
   private readonly tileFade: Tween;
   private readonly titleFade: Tween;
+  private readonly moreFade: Tween;
   private tileShown = false;
   private readonly items: BandItem[];
   private rm: number;
@@ -149,6 +152,7 @@ export class RingBand {
     this.tileAngle = S(0, 1, 1);
     this.tileFade = T(0);
     this.titleFade = T(1);
+    this.moreFade = T(1);
     this.items = el.items.map((_, i) => ({
       r: S(this.rm - 10, 900, 0.7),
       o: T(0),
@@ -192,8 +196,10 @@ export class RingBand {
     this.presence.set(1);
     this.unfold.set(1);
     this.fade.go(1, this.reduced ? 60 : 40, linear);
-    // The band covers the top of the ring, where the thread name sits.
+    // The band covers the top of the ring, where the thread name sits, and
+    // takes over from the chevron that pointed to it.
     this.titleFade.go(0, 30, linear);
+    this.moreFade.go(0, 40, linear);
     // Each option fades in once the unfolding band covers it (see render), so
     // they appear outward from the default.
     for (const item of this.items) item.r.set(this.rm);
@@ -220,6 +226,7 @@ export class RingBand {
     });
     this.fade.go(0, 60, easeIn2, 80);
     this.titleFade.go(1, 80, linear);
+    this.moreFade.go(1, 80, linear, 100);
     this.start();
   }
 
@@ -316,6 +323,7 @@ export class RingBand {
     const visible = this.fade.x > 0.002 && outer - this.R0 > 1.5;
     el.svg.style.opacity = visible ? this.fade.x.toFixed(3) : "0";
     if (el.title) el.title.style.opacity = this.titleFade.x.toFixed(3);
+    if (el.more) el.more.style.opacity = this.moreFade.x.toFixed(3);
     if (visible) {
       const d = wedgePath(outer - c, this.R0 + c, 2 * c, centre - half, centre + half);
       // Three layers of one rounded shape: black outline, light rim, fill.

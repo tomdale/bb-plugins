@@ -1041,7 +1041,7 @@ describe("Quick Actions overlay", () => {
       const snoozeCalls = (slot: Awaited<ReturnType<typeof renderQuickActions>>["slot"]) =>
         slot.inspection.rpcCalls.filter((call) => call.method === "snooze");
 
-      it("opens past Snooze's label, lighting Tomorrow, and folds for another action", async () => {
+      it("opens a little past the hub on Snooze, lighting Tomorrow, and folds for another action", async () => {
         const { slot } = await renderQuickActions({ settings: { ...hold } });
         await holdOptionAt(centre);
         const presets = slot.getByRole("menu", { name: "Snooze until" });
@@ -1049,13 +1049,16 @@ describe("Quick Actions overlay", () => {
           Array.from(presets.querySelectorAll(".qa-ring-label")).map((n) => n.textContent),
         ).toEqual(["In 1 hour", "This evening", "Tomorrow", "This weekend", "Next week"]);
         expect(band()).not.toHaveAttribute("data-extended", "true");
+        // Snooze alone carries the chevron that points to its band.
+        expect(document.querySelectorAll(".qa-ring-more")).toHaveLength(1);
+        expect(item("Snooze")?.querySelector(".qa-ring-more")).not.toBeNull();
 
-        // Inside the label radius Snooze is selected but the band stays folded.
-        await pointAt(towardSnooze(60));
+        // Just out of the 36px hub Snooze is selected but the band stays folded.
+        await pointAt(towardSnooze(42));
         expect(item("Snooze")).toHaveAttribute("data-selected", "true");
         expect(band()).toHaveAttribute("data-extended", "false");
 
-        await pointAt(towardSnooze(100));
+        await pointAt(towardSnooze(52));
         expect(band()).toHaveAttribute("data-extended", "true");
         expect(item("Snooze")).toHaveAttribute("data-selected", "true");
         expect(item("Tomorrow")).toHaveAttribute("data-selected", "true");
@@ -1106,7 +1109,7 @@ describe("Quick Actions overlay", () => {
       it("keeps the server's default when Snooze is released before the band opens", async () => {
         const { slot } = await renderQuickActions({ settings: { ...hold } });
         await holdOptionAt(centre);
-        await pointAt(towardSnooze(60));
+        await pointAt(towardSnooze(42));
         await releaseOption();
         await waitFor(() =>
           expect(snoozeCalls(slot)).toEqual([

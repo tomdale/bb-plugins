@@ -14,8 +14,9 @@ thread actions where they exist.
   sidebar, the title bar, or the window controls, Option does nothing, so
   Option-clicks there behave as usual. The hub in the middle selects
   nothing; moving the pointer out of it selects the action in that direction,
-  shown by a quiet tile and a label that grows slightly. Moving past Snooze's
-  label grows an outer band of wake times out of its slice (see Snooze).
+  shown by a quiet tile and a label that grows slightly. A chevron at Snooze's
+  rim marks its second level: selecting Snooze grows an outer band of wake
+  times out of its slice (see Snooze).
   Releasing Option runs
   the selection; releasing in the hub cancels, and releasing on an unavailable
   action shakes the ring and says why. Clicking the ring runs the selection
@@ -60,9 +61,9 @@ Unset a value to restore its default, for example
 ## Snooze
 
 Snooze archives the current thread and its active child threads until a wake
-time, then returns to New thread. In the hold-Option ring, moving the pointer
-past Snooze's label grows a band of presets out of its slice, worked out in
-your time zone:
+time, then returns to New thread. In the hold-Option ring, a chevron points
+outward from Snooze. Moving the pointer a little past the hub onto Snooze grows
+a band of presets out of its slice, worked out in your time zone:
 
 - **In 1 hour:** an hour from now.
 - **This evening:** 6:00 PM, offered before 5:00 PM.

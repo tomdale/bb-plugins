@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { CSSProperties } from "react";
 import { Icon } from "@/components/ui/icon";
 import {
+  RING_DEAD_ZONE_PX,
   RING_MAX_ACTIONS,
   RingPie,
   pointerAngle,
@@ -26,9 +27,9 @@ export type HoldPieAction = {
   icon: string;
   disabled?: boolean;
   /**
-   * Choices for an outer band that grows out of this action's slice when the
-   * pointer passes its label. Called as the ring opens, so time-based choices
-   * are current. Only the first such action in a ring gets a band.
+   * Choices for an outer band that grows out of this action's slice once the
+   * action is selected. Called as the ring opens, so time-based choices are
+   * current. Only the first such action in a ring gets a band.
    */
   options?: () => readonly HoldPieOption[];
 };
@@ -99,11 +100,20 @@ function bandFor(actions: readonly HoldPieAction[]): OpenRing["band"] {
 }
 
 /**
+ * The band extends once the pointer is this far from the centre with the
+ * parent selected: a little past the hub, so the selection settles before the
+ * band moves, and it stays open until the parent is no longer selected.
+ */
+const BAND_OPEN_PX = RING_DEAD_ZONE_PX + 12;
+/** The chevron sits this far inside the rim, beyond the parent's label. */
+const MORE_INSET_PX = 13;
+
+/**
  * Aims the ring and its band at the pointer. On the band, the parent action
  * stays selected and the band selects by angle. Elsewhere the ring aims as
- * usual; once the parent is selected past its label the band extends, lighting
- * the default option that releasing would take, and selecting anything else
- * folds it back.
+ * usual; once the parent is selected and the pointer is past BAND_OPEN_PX the
+ * band extends, lighting the default option that releasing would take, and
+ * selecting anything else folds it back.
  */
 function steer(
   engine: RingPie,
@@ -127,7 +137,7 @@ function steer(
   }
   engine.aim(dist, ang);
   if (engine.sel === parent) {
-    if (dist >= ri && !band.extended) band.extend();
+    if (dist >= BAND_OPEN_PX && !band.extended) band.extend();
     band.aim(!band.extended ? null : onBand() ? ang : band.defaultAngle);
   } else {
     band.aim(null);
@@ -199,6 +209,7 @@ export function HoldOptionPie({
   const bandTileGroupRef = useRef<SVGGElement>(null);
   const bandTileRef = useRef<SVGPathElement>(null);
   const bandItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const moreRef = useRef<HTMLSpanElement>(null);
 
   useLayoutEffect(() => {
     if (!ring) return;
@@ -234,6 +245,17 @@ export function HoldOptionPie({
     }
     // An action with options grows its band out of its own slice.
     const spec = ring.band;
+    const more = moreRef.current;
+    if (spec && more) {
+      // From the parent's label out to just inside the rim, along its angle.
+      const { Rd, ri } = engine.geometry;
+      const angle = (spec.parent * 360) / ring.actions.length;
+      const reach = Rd - MORE_INSET_PX - ri;
+      const t = (angle * Math.PI) / 180;
+      more.style.setProperty("--qa-more-x", `${(reach * Math.sin(t)).toFixed(2)}px`);
+      more.style.setProperty("--qa-more-y", `${(-reach * Math.cos(t)).toFixed(2)}px`);
+      more.style.setProperty("--qa-more-turn", `${(angle - 90).toFixed(2)}deg`);
+    }
     const svg = bandSvgRef.current;
     const outline = bandOutlineRef.current;
     const rim = bandRimRef.current;
@@ -254,6 +276,7 @@ export function HoldOptionPie({
                 .slice(0, spec.options.length)
                 .filter((item): item is HTMLDivElement => item !== null),
               title: plate,
+              more,
             },
             (spec.parent * 360) / ring.actions.length,
             180 / ring.actions.length,
@@ -511,6 +534,12 @@ export function HoldOptionPie({
                 <span className="qa-ring-label">{action.label}</span>
                 {action.disabled ? (
                   <span className="qa-ring-note">Unavailable</span>
+                ) : null}
+                {ring.band?.parent === index ? (
+                  // Points outward to the band of options this action opens.
+                  <span ref={moreRef} className="qa-ring-more" aria-hidden="true">
+                    <Icon name="ChevronRight" />
+                  </span>
                 ) : null}
               </div>
             ))}

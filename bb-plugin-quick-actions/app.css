@@ -325,6 +325,27 @@
   pointer-events: none;
 }
 
+/* An action with a band of options carries a chevron near the rim, pointing
+   outward along its slice to where the band opens. It takes the label's
+   colour, so it brightens with the selection. */
+.qa-ring-more {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  transform: translate(-50%, -50%)
+    translate(var(--qa-more-x, 0px), var(--qa-more-y, 0px))
+    rotate(var(--qa-more-turn, 0deg));
+}
+
+.qa-ring-item .qa-ring-more [data-icon-root] {
+  display: block;
+  width: 12px;
+  height: 12px;
+  color: inherit;
+  opacity: 0.7;
+}
+
 /* The plate's anchor: the ring fades the anchor with its labels, and an open
    band fades the plate, which it covers at the top of the ring. */
 .qa-title-anchor {
