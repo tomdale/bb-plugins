@@ -13,7 +13,7 @@
   },
   "bb": {
     "name": "Quick Actions",
-    "description": "Open configurable radial thread actions beside the composer and snooze threads until tomorrow.",
+    "description": "Open configurable radial thread actions beside the composer and snooze threads until a chosen time.",
     "branding": {
       "icon": "Zap"
     },

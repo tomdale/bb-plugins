@@ -14,7 +14,9 @@ thread actions where they exist.
   sidebar, the title bar, or the window controls, Option does nothing, so
   Option-clicks there behave as usual. The hub in the middle selects
   nothing; moving the pointer out of it selects the action in that direction,
-  shown by a quiet tile and a label that grows slightly. Releasing Option runs
+  shown by a quiet tile and a label that grows slightly. Moving past Snooze's
+  label grows an outer band of wake times out of its slice (see Snooze).
+  Releasing Option runs
   the selection; releasing in the hub cancels, and releasing on an unavailable
   action shakes the ring and says why. Clicking the ring runs the selection
   too. Escape or a press outside the ring cancels. Quick Option-letter accents
@@ -28,7 +30,7 @@ Choose between them with **Settings → Plugins → Quick Actions → Menu trigg
 or `bb plugin config quick-actions set trigger corner`.
 
 Near a window edge the pie stays centred on the cursor and the window clips
-the slices that fall outside it.
+the slices, and the Snooze band, that fall outside it.
 
 ## Settings
 
@@ -57,9 +59,22 @@ Unset a value to restore its default, for example
 
 ## Snooze
 
-Snooze archives the current thread and its active child threads until 9:00 AM
-the next day in the BB server's time zone, then returns to New thread. BB asks
-for confirmation when active child threads are present. Wake times persist
+Snooze archives the current thread and its active child threads until a wake
+time, then returns to New thread. In the hold-Option ring, moving the pointer
+past Snooze's label grows a band of presets out of its slice, worked out in
+your time zone:
+
+- **In 1 hour:** an hour from now.
+- **This evening:** 6:00 PM, offered before 5:00 PM.
+- **Tomorrow:** 9:00 AM.
+- **This weekend:** Saturday 9:00 AM, offered Monday to Thursday.
+- **Next week:** Monday 9:00 AM, unless that is tomorrow.
+
+Slide along the band and release on a preset. Tomorrow sits straight out from
+Snooze and stays lit while the pointer is on Snooze, so releasing there takes
+it. Releasing on Snooze before the band opens, or using the corner button,
+snoozes until 9:00 AM the next day in the BB server's time zone. BB asks for
+confirmation when active child threads are present. Wake times persist
 across BB restarts, and the same threads wake together. Manually unarchiving a
 thread cancels its own wake record.
 

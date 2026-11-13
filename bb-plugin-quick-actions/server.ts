@@ -4,7 +4,13 @@ import { z } from "zod";
 
 export const rpcContract = defineRpcContract({
   snooze: {
-    input: z.object({ threadId: z.string().min(1).max(200) }).strict(),
+    input: z
+      .object({
+        threadId: z.string().min(1).max(200),
+        /** When to wake, in epoch ms. Omitted, Snooze wakes at 9:00 AM tomorrow. */
+        wakeAt: z.number().int().optional(),
+      })
+      .strict(),
     output: z.object({
       threadId: z.string(),
       wakeAt: z.number().int(),
@@ -27,6 +33,25 @@ export function nextSnoozeWake(now: Date): number {
   wake.setDate(wake.getDate() + 1);
   wake.setHours(9, 0, 0, 0);
   return wake.getTime();
+}
+
+/** The latest wake a caller may ask for: a year out. */
+export const MAX_SNOOZE_MS = 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * The wake time for a Snooze at `now`: the caller's choice when it is in the
+ * future and within a year, otherwise 9:00 AM tomorrow when the caller made
+ * none. A choice in the past or too far out is an error, not a silent default.
+ */
+export function resolveSnoozeWake(now: Date, requested: number | undefined): number {
+  if (requested === undefined) return nextSnoozeWake(now);
+  if (requested <= now.getTime()) {
+    throw new Error("Snooze wake time must be in the future");
+  }
+  if (requested > now.getTime() + MAX_SNOOZE_MS) {
+    throw new Error("Snooze wake time must be within a year");
+  }
+  return requested;
 }
 
 function isMissingThreadError(cause: unknown): boolean {
@@ -144,7 +169,9 @@ export default async function plugin(bb: BbPluginApi) {
     return result;
   }
 
-  async function snoozeThread(threadId: string) {
+  async function snoozeThread(threadId: string, requestedWakeAt?: number) {
+    // Checked before anything is written or archived.
+    resolveSnoozeWake(new Date(), requestedWakeAt);
     return enqueue(async () => {
       const previousRoot = readSnooze.get(threadId);
       const previousGroup = previousRoot?.groupId
@@ -186,7 +213,7 @@ export default async function plugin(bb: BbPluginApi) {
         depthById.set(entry.threadId, entry.ancestorIds.length);
       }
       const snoozedAt = Date.now();
-      const wakeAt = nextSnoozeWake(new Date(snoozedAt));
+      const wakeAt = resolveSnoozeWake(new Date(snoozedAt), requestedWakeAt);
       const makeRecord = (id: string): SnoozeRecord => ({
         threadId: id,
         groupId,
@@ -337,7 +364,7 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   bb.rpc.register(rpcContract, {
-    snooze: async ({ threadId }) => snoozeThread(threadId),
+    snooze: async ({ threadId, wakeAt }) => snoozeThread(threadId, wakeAt),
   });
 
   bb.events.on("thread.unarchived", ({ thread }) => {

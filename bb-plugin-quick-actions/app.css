@@ -325,6 +325,87 @@
   pointer-events: none;
 }
 
+/* The plate's anchor: the ring fades the anchor with its labels, and an open
+   band fades the plate, which it covers at the top of the ring. */
+.qa-title-anchor {
+  position: absolute;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.qa-title-anchor .qa-ring-title {
+  top: 0;
+}
+
+/* An action's outer band of options (Snooze wake times), drawn on the rim in
+   the disc's dark material. Its motion is inline. */
+.qa-band {
+  position: absolute;
+  left: -300px;
+  top: -300px;
+  width: 600px;
+  height: 600px;
+  overflow: visible;
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 12px rgb(0 0 0 / 0.35))
+    drop-shadow(0 18px 36px rgb(0 0 0 / 0.45));
+}
+
+/* The band is opaque: an SVG shape can't take the disc's backdrop blur, and
+   page text showing through it unblurred reads as clutter. The outline, a
+   lighter rim and the fill stack into one rounded shape. */
+.qa-band-outline {
+  fill: #000;
+  stroke: #000;
+  stroke-linejoin: round;
+}
+
+.qa-band-rim {
+  fill: rgb(38 39 42);
+  stroke: rgb(38 39 42);
+  stroke-linejoin: round;
+}
+
+.qa-band-fill {
+  fill: rgb(19 20 23);
+  stroke: rgb(19 20 23);
+  stroke-linejoin: round;
+}
+
+/* Only an open band takes presses, which run its selection like the disc. */
+.qa-band[data-extended="true"] .qa-band-plate path {
+  pointer-events: visiblePainted;
+}
+
+.qa-band .qa-ring-tile {
+  fill: #fff;
+  stroke: #fff;
+}
+
+.qa-band-items {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+.qa-ring-time {
+  margin-top: calc(1px - var(--qa-ring-gap));
+  color: #8b8e96;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.qa-ring-item[data-selected="true"] .qa-ring-time {
+  color: #c8cad0;
+}
+
 .qa-ring-x [data-icon-root] {
   display: block;
   width: 15px;

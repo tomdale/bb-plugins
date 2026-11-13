@@ -5,7 +5,7 @@ import {
   experimental_scanPublicSdkOnly,
   makeThreadResponse,
 } from "@get-bb/plugin-sdk/testing";
-import plugin, { nextSnoozeWake } from "./server";
+import plugin, { MAX_SNOOZE_MS, nextSnoozeWake } from "./server";
 
 const THREAD_ID = "thr_test";
 
@@ -87,6 +87,38 @@ describe("Snooze", () => {
         .prepare("SELECT thread_id AS threadId, wake_at AS wakeAt FROM snoozes")
         .all(),
     ).toEqual([{ threadId: THREAD_ID, wakeAt: result.wakeAt }]);
+    await harness.lifecycle.dispose();
+  });
+
+  it("persists a chosen wake time", async () => {
+    const { bb, harness, archive } = await setup();
+    const wakeAt = new Date("2026-11-14T09:00:00").getTime();
+    const result = (await harness.behavior.callRpc("snooze", {
+      threadId: THREAD_ID,
+      wakeAt,
+    })) as { wakeAt: number };
+    expect(result.wakeAt).toBe(wakeAt);
+    expect(archive).toHaveBeenCalledWith({ threadId: THREAD_ID });
+    expect(
+      bb.storage
+        .database()
+        .prepare("SELECT wake_at AS wakeAt FROM snoozes")
+        .all(),
+    ).toEqual([{ wakeAt }]);
+    await harness.lifecycle.dispose();
+  });
+
+  it("refuses a wake time in the past or more than a year out without archiving", async () => {
+    const { bb, harness, archive } = await setup();
+    for (const wakeAt of [Date.now(), Date.now() + MAX_SNOOZE_MS + 1]) {
+      await expect(
+        harness.behavior.callRpc("snooze", { threadId: THREAD_ID, wakeAt }),
+      ).rejects.toThrow(/Snooze wake time must be/);
+    }
+    expect(archive).not.toHaveBeenCalled();
+    expect(
+      bb.storage.database().prepare("SELECT * FROM snoozes").all(),
+    ).toEqual([]);
     await harness.lifecycle.dispose();
   });
 

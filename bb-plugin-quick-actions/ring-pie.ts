@@ -21,17 +21,17 @@ const TILE_INNER_PX = 40;
 /** The tile's outer edge sits this far inside the disc rim. */
 const RIM_INSET_PX = 7;
 /** Gap between a selected tile and its neighbours' slots. */
-const TILE_GAP_PX = 2;
+export const TILE_GAP_PX = 2;
 const TILE_CORNER_PX = 8;
 /** A tile never spans more than this, so two- and three-action rings keep a wedge. */
 const MAX_TILE_DEG = 130;
 /** A grown label keeps this far from every edge of its tile. */
 const LABEL_MARGIN_PX = 4;
-const GROW = 1.06;
+export const GROW = 1.06;
 /** The tile's slide between slots: a short chase that lands within a frame or two. */
-const TILE_SLIDE_W = 140;
+export const TILE_SLIDE_W = 140;
 
-const COLOR = {
+export const COLOR = {
 
   text: [154, 157, 164],
   icon: [116, 119, 127],
@@ -46,9 +46,9 @@ const COLOR = {
  * than a solid colour. The wash is applied as element opacity, so the stroke
  * that rounds its corners never doubles up over the fill.
  */
-const TILE_ALPHA = 0.045;
+export const TILE_ALPHA = 0.045;
 const TILE_ALPHA_HI = 0.075;
-const TILE_ALPHA_FLASH = 0.14;
+export const TILE_ALPHA_FLASH = 0.14;
 
 /**
  * Smallest disc and label radii per action count that keep labels clear of
@@ -85,13 +85,13 @@ export function slotOf(angle: number, count: number): number {
   return Math.round(angle / (360 / count)) % count;
 }
 
-const pt = (r: number, a: number): [number, number] => {
+export const pt = (r: number, a: number): [number, number] => {
   const t = (a * Math.PI) / 180;
   return [r * Math.sin(t), -r * Math.cos(t)];
 };
-const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
-const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
-const unwrap = (target: number, from: number) => {
+export const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+export const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
+export const unwrap = (target: number, from: number) => {
   let t = target;
   while (t - from > 180) t -= 360;
   while (t - from < -180) t += 360;
@@ -162,7 +162,7 @@ export function fitRing(
 }
 
 /** Annular sector with round corners from a stroke of width 2c in the fill colour. */
-function wedgePath(R: number, r: number, g: number, a0: number, a1: number) {
+export function wedgePath(R: number, r: number, g: number, a0: number, a1: number) {
   const po = (((g / 2) / R) * 180) / Math.PI;
   const pi = (((g / 2) / r) * 180) / Math.PI;
   let s = a0;
@@ -181,13 +181,13 @@ function wedgePath(R: number, r: number, g: number, a0: number, a1: number) {
   return `M${f(x1)} ${f(y1)}A${R} ${R} 0 ${L} 1 ${f(x2)} ${f(y2)}L${f(x3)} ${f(y3)}A${r} ${r} 0 ${L} 0 ${f(x4)} ${f(y4)}Z`;
 }
 
-type Ease = (u: number) => number;
+export type Ease = (u: number) => number;
 const easeOut: Ease = (u) => 1 - Math.pow(1 - u, 3);
-const easeIn2: Ease = (u) => u * u;
-const linear: Ease = (u) => u;
+export const easeIn2: Ease = (u) => u * u;
+export const linear: Ease = (u) => u;
 
 /** Damped spring on unit mass; spatial springs jump under reduced motion. */
-class Spring {
+export class Spring {
   v = 0;
   to: number;
   constructor(
@@ -241,7 +241,7 @@ class Spring {
 }
 
 /** Timed tween on the ring's clock, retargeted from its current value. */
-class Tween {
+export class Tween {
   private a: number;
   private b: number;
   private t0 = 0;

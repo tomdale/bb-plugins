@@ -933,7 +933,10 @@ describe("Quick Actions overlay", () => {
       expect(document.querySelector(".qa-ring-title")).toHaveTextContent(
         "Fix flaky retry test",
       );
-      expect(slot.getAllByRole("menuitem")).toHaveLength(5);
+      const actionItems = slot
+        .getAllByRole("menuitem")
+        .filter((node) => !node.closest(".qa-band-items"));
+      expect(actionItems).toHaveLength(5);
       expect(item("Archive")).toHaveAttribute("data-selected", "false");
 
       await pointAt({ clientX: 400, clientY: 280 });
@@ -1009,6 +1012,152 @@ describe("Quick Actions overlay", () => {
         "instant",
       );
       slot.lifecycle.unmount();
+    });
+
+    describe("Snooze's band of wake times", () => {
+      // Wednesday 11 November 2026, 10:40: all five presets are offered.
+      beforeEach(() => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date(2026, 10, 11, 10, 40));
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      const centre = { clientX: 400, clientY: 300 };
+      // Snooze is the second of five slots, at 72 degrees clockwise from up.
+      const towardSnooze = (r: number) => ({
+        clientX: centre.clientX + r * Math.sin((72 * Math.PI) / 180),
+        clientY: centre.clientY - r * Math.cos((72 * Math.PI) / 180),
+      });
+      const band = () => document.querySelector<SVGElement>(".qa-band");
+      /** A point on the band in the direction of one of its presets. */
+      const onBand = (label: string) => {
+        const match = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(item(label)!.style.transform);
+        const [x, y] = [Number(match![1]), Number(match![2])];
+        const r = Math.hypot(x, y);
+        return { clientX: centre.clientX + (x / r) * 180, clientY: centre.clientY + (y / r) * 180 };
+      };
+      const snoozeCalls = (slot: Awaited<ReturnType<typeof renderQuickActions>>["slot"]) =>
+        slot.inspection.rpcCalls.filter((call) => call.method === "snooze");
+
+      it("opens past Snooze's label, lighting Tomorrow, and folds for another action", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold } });
+        await holdOptionAt(centre);
+        const presets = slot.getByRole("menu", { name: "Snooze until" });
+        expect(
+          Array.from(presets.querySelectorAll(".qa-ring-label")).map((n) => n.textContent),
+        ).toEqual(["In 1 hour", "This evening", "Tomorrow", "This weekend", "Next week"]);
+        expect(band()).not.toHaveAttribute("data-extended", "true");
+
+        // Inside the label radius Snooze is selected but the band stays folded.
+        await pointAt(towardSnooze(60));
+        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
+        expect(band()).toHaveAttribute("data-extended", "false");
+
+        await pointAt(towardSnooze(100));
+        expect(band()).toHaveAttribute("data-extended", "true");
+        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
+        expect(item("Tomorrow")).toHaveAttribute("data-selected", "true");
+
+        // Pin, the next slot clockwise.
+        await pointAt({ clientX: 400 + 100 * Math.sin((144 * Math.PI) / 180), clientY: 300 - 100 * Math.cos((144 * Math.PI) / 180) });
+        expect(item("Pin")).toHaveAttribute("data-selected", "true");
+        expect(band()).toHaveAttribute("data-extended", "false");
+        expect(item("Tomorrow")).toHaveAttribute("data-selected", "false");
+        slot.lifecycle.unmount();
+      });
+
+      it("snoozes until the preset under the pointer when Option is released", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold } });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await pointAt(onBand("This weekend"));
+        expect(item("This weekend")).toHaveAttribute("data-selected", "true");
+        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
+        await releaseOption();
+        await waitFor(() =>
+          expect(snoozeCalls(slot)).toEqual([
+            {
+              method: "snooze",
+              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 14, 9).getTime() },
+            },
+          ]),
+        );
+        slot.lifecycle.unmount();
+      });
+
+      it("snoozes until Tomorrow from Snooze itself once the band is open", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold } });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await releaseOption();
+        await waitFor(() =>
+          expect(snoozeCalls(slot)).toEqual([
+            {
+              method: "snooze",
+              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 12, 9).getTime() },
+            },
+          ]),
+        );
+        slot.lifecycle.unmount();
+      });
+
+      it("keeps the server's default when Snooze is released before the band opens", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold } });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(60));
+        await releaseOption();
+        await waitFor(() =>
+          expect(snoozeCalls(slot)).toEqual([
+            { method: "snooze", input: { threadId: THREAD_ID } },
+          ]),
+        );
+        slot.lifecycle.unmount();
+      });
+
+      it("names the chosen wake time when confirming active descendants", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold }, childCount: 2 });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await pointAt(onBand("Next week"));
+        await releaseOption();
+        const dialog = await slot.findByRole("alertdialog");
+        const monday = new Intl.DateTimeFormat(undefined, {
+          weekday: "short",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(2026, 10, 16, 9));
+        expect(dialog).toHaveTextContent(`until ${monday}. They wake together.`);
+        await act(async () => {
+          fireEvent.click(slot.getByRole("button", { name: "Snooze 3 threads" }));
+        });
+        await waitFor(() =>
+          expect(snoozeCalls(slot)).toEqual([
+            {
+              method: "snooze",
+              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 16, 9).getTime() },
+            },
+          ]),
+        );
+        slot.lifecycle.unmount();
+      });
+
+      it("cancels without snoozing on Escape, folding the band", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...hold } });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await pointAt(onBand("In 1 hour"));
+        await act(async () => {
+          fireEvent.keyDown(window, { key: "Escape" });
+        });
+        expect(band()).toHaveAttribute("data-extended", "false");
+        await releaseOption();
+        await advance(400);
+        expect(ring()).toBeNull();
+        expect(snoozeCalls(slot)).toEqual([]);
+        slot.lifecycle.unmount();
+      });
     });
 
     it("runs the selection when the disc is clicked", async () => {

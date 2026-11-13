@@ -8,12 +8,29 @@ import {
   ringType,
   type RingCloseKind,
 } from "./ring-pie";
+import { RingBand } from "./ring-band";
+
+/** One choice in an action's outer band, such as a Snooze wake time. */
+export type HoldPieOption = {
+  id: string;
+  label: string;
+  /** A second line under the label, such as the wake time. */
+  detail: string;
+  /** Releasing on the parent action takes this option, so the band lights it. */
+  isDefault?: boolean;
+};
 
 export type HoldPieAction = {
   id: string;
   label: string;
   icon: string;
   disabled?: boolean;
+  /**
+   * Choices for an outer band that grows out of this action's slice when the
+   * pointer passes its label. Called as the ring opens, so time-based choices
+   * are current. Only the first such action in a ring gets a band.
+   */
+  options?: () => readonly HoldPieOption[];
 };
 
 const HOLD_OPTION_DELAY_MS = 200;
@@ -70,7 +87,53 @@ type OpenRing = {
   y: number;
   title: string | null;
   actions: HoldPieAction[];
+  /** The action with an outer band, and the band's choices as the ring opened. */
+  band: { parent: number; options: readonly HoldPieOption[] } | null;
 };
+
+function bandFor(actions: readonly HoldPieAction[]): OpenRing["band"] {
+  const parent = actions.findIndex((action) => action.options && !action.disabled);
+  if (parent < 0) return null;
+  const options = actions[parent]!.options!();
+  return options.length > 0 ? { parent, options } : null;
+}
+
+/**
+ * Aims the ring and its band at the pointer. On the band, the parent action
+ * stays selected and the band selects by angle. Elsewhere the ring aims as
+ * usual; once the parent is selected past its label the band extends, lighting
+ * the default option that releasing would take, and selecting anything else
+ * folds it back.
+ */
+function steer(
+  engine: RingPie,
+  band: RingBand | null,
+  open: OpenRing,
+  dist: number,
+  ang: number,
+) {
+  if (engine.closing) return;
+  if (!band || !open.band) {
+    engine.aim(dist, ang);
+    return;
+  }
+  const { ri } = engine.geometry;
+  const parent = open.band.parent;
+  const onBand = () => band.extended && dist >= band.R0 - 2 && band.contains(ang);
+  if (onBand()) {
+    engine.aim(ri, (parent * 360) / open.actions.length);
+    band.aim(ang);
+    return;
+  }
+  engine.aim(dist, ang);
+  if (engine.sel === parent) {
+    if (dist >= ri && !band.extended) band.extend();
+    band.aim(!band.extended ? null : onBand() ? ang : band.defaultAngle);
+  } else {
+    band.aim(null);
+    if (band.extended) band.retract();
+  }
+}
 
 /** Space between the ring's rim and the thread name. */
 const TITLE_GAP_PX = 10;
@@ -78,7 +141,8 @@ const TITLE_GAP_PX = 10;
 /**
  * Hold Option over a thread pane and the ring opens centred exactly on the
  * pointer. A 200ms hold keeps Option-letter accents (⌥e) intact. Direction selects;
- * the centre is a dead zone. Releasing Option runs the selection, or closes
+ * the centre is a dead zone. An action with options (Snooze) grows an outer
+ * band of them past its label. Releasing Option runs the selection, or closes
  * from the centre; Escape and a press outside the ring cancel; any other
  * keypress removes it in the same frame so typing is never interrupted.
  * While the ring is open the window dims slightly behind it.
@@ -97,13 +161,15 @@ export function HoldOptionPie({
   canOpen: boolean;
   /** An action is still running; the ring cancels instead of running another. */
   busy: boolean;
-  onRun: (id: string) => void;
+  /** Runs an action, with the band option chosen for it, if any. */
+  onRun: (id: string, optionId?: string) => void;
   onUnavailable: (action: HoldPieAction) => void;
 }) {
   const pointer = usePointerPosition();
   const [ring, setRing] = useState<OpenRing | null>(null);
   const [dim, setDim] = useState<"off" | "on" | "instant">("off");
   const engineRef = useRef<RingPie | null>(null);
+  const bandRef = useRef<RingBand | null>(null);
   const keyRef = useRef(0);
   const ringRef = useRef(ring);
   ringRef.current = ring;
@@ -124,7 +190,15 @@ export function HoldOptionPie({
   const hubRef = useRef<HTMLDivElement>(null);
   const hubIconRef = useRef<HTMLSpanElement>(null);
   const titleRef = useRef<HTMLDivElement>(null);
+  const titlePlateRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const bandSvgRef = useRef<SVGSVGElement>(null);
+  const bandOutlineRef = useRef<SVGPathElement>(null);
+  const bandRimRef = useRef<SVGPathElement>(null);
+  const bandPlateRef = useRef<SVGPathElement>(null);
+  const bandTileGroupRef = useRef<SVGGElement>(null);
+  const bandTileRef = useRef<SVGPathElement>(null);
+  const bandItemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useLayoutEffect(() => {
     if (!ring) return;
@@ -150,18 +224,52 @@ export function HoldOptionPie({
     engineRef.current = engine;
     // The name sits above the rim, or below it when the ring opens near the top.
     const titleNode = titleRef.current;
-    if (titleNode) {
+    const plate = titlePlateRef.current;
+    if (titleNode && plate) {
       const { Rd } = engine.geometry;
-      const above = ring.y - Rd - TITLE_GAP_PX - titleNode.offsetHeight >= 8;
+      const above = ring.y - Rd - TITLE_GAP_PX - plate.offsetHeight >= 8;
       titleNode.style.top = above
-        ? `${-Rd - TITLE_GAP_PX - titleNode.offsetHeight}px`
+        ? `${-Rd - TITLE_GAP_PX - plate.offsetHeight}px`
         : `${Rd + TITLE_GAP_PX}px`;
     }
+    // An action with options grows its band out of its own slice.
+    const spec = ring.band;
+    const svg = bandSvgRef.current;
+    const outline = bandOutlineRef.current;
+    const rim = bandRimRef.current;
+    const fill = bandPlateRef.current;
+    const tileGroup = bandTileGroupRef.current;
+    const bandTile = bandTileRef.current;
+    const band =
+      spec && svg && outline && rim && fill && tileGroup && bandTile
+        ? new RingBand(
+            {
+              svg,
+              outline,
+              rim,
+              plate: fill,
+              tileGroup,
+              tile: bandTile,
+              items: bandItemRefs.current
+                .slice(0, spec.options.length)
+                .filter((item): item is HTMLDivElement => item !== null),
+              title: plate,
+            },
+            (spec.parent * 360) / ring.actions.length,
+            180 / ring.actions.length,
+            Math.max(0, spec.options.findIndex((option) => option.isDefault)),
+            engine.geometry.Rd,
+            prefersReducedMotion(),
+          )
+        : null;
+    bandRef.current = band;
     const { x, y } = pointer.current;
-    engine.aim(Math.hypot(x - ring.x, y - ring.y), pointerAngle(x - ring.x, y - ring.y));
+    steer(engine, band, ring, Math.hypot(x - ring.x, y - ring.y), pointerAngle(x - ring.x, y - ring.y));
     return () => {
       if (engineRef.current === engine) engineRef.current = null;
+      if (bandRef.current === band) bandRef.current = null;
       engine.destroy();
+      band?.destroy();
     };
   }, [pointer, ring?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -169,6 +277,8 @@ export function HoldOptionPie({
   const vanish = useCallback(() => {
     engineRef.current?.destroy();
     engineRef.current = null;
+    bandRef.current?.destroy();
+    bandRef.current = null;
     setRing(null);
     setDim((current) => (current === "off" ? current : "instant"));
   }, []);
@@ -176,6 +286,8 @@ export function HoldOptionPie({
   const closeRing = useCallback((kind: RingCloseKind) => {
     const engine = engineRef.current;
     if (!engine || engine.closing) return;
+    // A run confirms its band option itself; any other close folds the band.
+    if (kind !== "run") bandRef.current?.retract();
     engine.close(kind);
     setDim("off");
   }, []);
@@ -188,6 +300,18 @@ export function HoldOptionPie({
     const engine = engineRef.current;
     const open = ringRef.current;
     if (!engine || !open || engine.closing) return;
+    const band = bandRef.current;
+    const option = band && open.band && band.sel >= 0 ? open.band.options[band.sel] : undefined;
+    if (option && open.band) {
+      if (busyRef.current) {
+        closeRing("cancel");
+        return;
+      }
+      band!.confirm();
+      closeRing("run");
+      onRunRef.current(open.actions[open.band.parent]!.id, option.id);
+      return;
+    }
     const action = engine.sel >= 0 ? open.actions[engine.sel] : undefined;
     if (!action || busyRef.current) {
       closeRing("cancel");
@@ -205,15 +329,18 @@ export function HoldOptionPie({
   useEffect(() => {
     if (!ring) return;
     const track = (event: PointerEvent) => {
+      const engine = engineRef.current;
+      if (!engine) return;
       const dx = event.clientX - ring.x;
       const dy = event.clientY - ring.y;
-      engineRef.current?.aim(Math.hypot(dx, dy), pointerAngle(dx, dy));
+      steer(engine, bandRef.current, ring, Math.hypot(dx, dy), pointerAngle(dx, dy));
     };
     const press = (event: PointerEvent) => {
+      // A press on the disc or the open band runs the selection on click.
+      const target = event.target;
       if (
-        baseRef.current &&
-        event.target instanceof Node &&
-        baseRef.current.contains(event.target)
+        target instanceof Node &&
+        (baseRef.current?.contains(target) || bandSvgRef.current?.contains(target))
       ) {
         return;
       }
@@ -274,6 +401,7 @@ export function HoldOptionPie({
             y,
             title: latestTitleRef.current,
             actions: list,
+            band: bandFor(list),
           });
           setDim("on");
         }, HOLD_OPTION_DELAY_MS);
@@ -350,6 +478,23 @@ export function HoldOptionPie({
                 <path ref={tileRef} className="qa-ring-tile" />
               </g>
             </svg>
+            {ring.band ? (
+              <svg
+                ref={bandSvgRef}
+                className="qa-band"
+                viewBox="-300 -300 600 600"
+                aria-hidden="true"
+              >
+                <g className="qa-band-plate" onClick={commit}>
+                  <path ref={bandOutlineRef} className="qa-band-outline" />
+                  <path ref={bandRimRef} className="qa-band-rim" />
+                  <path ref={bandPlateRef} className="qa-band-fill" />
+                </g>
+                <g ref={bandTileGroupRef}>
+                  <path ref={bandTileRef} className="qa-ring-tile" />
+                </g>
+              </svg>
+            ) : null}
             {ring.actions.map((action, index) => (
               <div
                 key={action.id}
@@ -359,6 +504,7 @@ export function HoldOptionPie({
                 className="qa-ring-item"
                 role="menuitem"
                 aria-disabled={action.disabled ? "true" : undefined}
+                aria-haspopup={ring.band?.parent === index ? "menu" : undefined}
                 data-selected="false"
               >
                 <Icon name={action.icon} />
@@ -368,9 +514,35 @@ export function HoldOptionPie({
                 ) : null}
               </div>
             ))}
+            {ring.band ? (
+              <div
+                className="qa-band-items"
+                role="menu"
+                aria-label={`${ring.actions[ring.band.parent]!.label} until`}
+              >
+                {ring.band.options.map((option, index) => (
+                  <div
+                    key={option.id}
+                    ref={(node) => {
+                      bandItemRefs.current[index] = node;
+                    }}
+                    className="qa-ring-item"
+                    role="menuitem"
+                    data-selected="false"
+                  >
+                    <span className="qa-ring-label">{option.label}</span>
+                    <span className="qa-ring-time">{option.detail}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {ring.title ? (
-              <div ref={titleRef} className="qa-ring-title">
-                {ring.title}
+              // The ring fades this anchor with its labels; the band fades the
+              // plate inside it while covering the top of the ring.
+              <div ref={titleRef} className="qa-title-anchor">
+                <div ref={titlePlateRef} className="qa-ring-title">
+                  {ring.title}
+                </div>
               </div>
             ) : null}
             <div ref={hubRef} className="qa-ring-hub" aria-hidden="true">

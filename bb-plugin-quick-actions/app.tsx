@@ -43,7 +43,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { rpcContract } from "./server";
-import { HoldOptionPie } from "./hold-pie";
+import { HoldOptionPie, type HoldPieOption } from "./hold-pie";
+import { snoozePresets, type SnoozePreset } from "./snooze-presets";
 import {
   actionCssVariables,
   actionTarget,
@@ -179,8 +180,18 @@ type QuickActionItem = {
   label: string;
   icon: string;
   disabled?: boolean;
-  run: () => void | Promise<void>;
+  /** Choices for the hold ring's outer band; see `HoldPieAction.options`. */
+  options?: () => readonly HoldPieOption[];
+  /** Runs the action, with the band option chosen for it, if any. */
+  run: (optionId?: string) => void | Promise<void>;
 };
+
+const formatWake = (wakeAt: number) =>
+  new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(wakeAt);
 
 function coreItem(
   entries: readonly PluginThreadActionEntry[],
@@ -236,6 +247,8 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     open: boolean;
     childCount: number;
     thread: PluginThreadActionTarget | null;
+    /** The chosen wake time; omitted, Snooze wakes at 9:00 AM tomorrow. */
+    wakeAt?: number;
   }>({
     open: false,
     childCount: 0,
@@ -299,20 +312,19 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     setSnoozeDialog({ open: false, childCount: 0, thread: null });
   }, [cancelScheduledClose, targetThreadId]);
 
-  const executeSnooze = async (target: PluginThreadActionTarget) => {
-    const result = await rpc.call("snooze", { threadId: target.id });
-    toast.success(
-      `Snoozed until ${new Intl.DateTimeFormat(undefined, {
-        weekday: "short",
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(result.wakeAt)}`,
+  const executeSnooze = async (target: PluginThreadActionTarget, wakeAt?: number) => {
+    const result = await rpc.call(
+      "snooze",
+      wakeAt === undefined ? { threadId: target.id } : { threadId: target.id, wakeAt },
     );
+    toast.success(`Snoozed until ${formatWake(result.wakeAt)}`);
     if (mountedRef.current && routeThreadIdRef.current === target.id) {
       navigate.toCompose({ projectId: target.projectId });
     }
   };
 
+  // The presets the hold ring last offered; a chosen one is looked up here.
+  const offeredPresetsRef = useRef<SnoozePreset[]>([]);
   const actions: QuickActionItem[] = [
     coreItem(entries, "bb--core/archive"),
     thread.archivedAt === null
@@ -320,7 +332,21 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           id: "snooze",
           label: "Snooze",
           icon: "Clock",
-          run: async () => {
+          options: () => {
+            const presets = snoozePresets(new Date());
+            offeredPresetsRef.current = presets;
+            return presets.map((preset) => ({
+              id: preset.id,
+              label: preset.label,
+              detail: preset.time,
+              isDefault: preset.isDefault,
+            }));
+          },
+          run: async (optionId?: string) => {
+            const wakeAt =
+              optionId === undefined
+                ? undefined
+                : offeredPresetsRef.current.find((preset) => preset.id === optionId)?.wakeAt;
             const summary = await sdk.threads.childSummary({
               threadId: thread.id,
             });
@@ -330,10 +356,11 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
                 open: true,
                 childCount: summary.unarchivedDescendantCount,
                 thread,
+                wakeAt,
               });
               return;
             }
-            await executeSnooze(thread);
+            await executeSnooze(thread, wakeAt);
           },
         }
       : null,
@@ -345,13 +372,13 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const canOpen = threadReady && !settings.isLoading && actions.length > 0;
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
-  const runHoldAction = useCallback((id: string) => {
+  const runHoldAction = useCallback((id: string, optionId?: string) => {
     const item = actionsRef.current.find((candidate) => candidate.id === id);
     if (!item) return;
     setPending(item.id);
     void (async () => {
       try {
-        await item.run();
+        await item.run(optionId);
       } catch (cause) {
         toast.error(
           `${item.label} failed: ${
@@ -386,7 +413,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     setPending("snooze");
     setSnoozeDialog((current) => ({ ...current, open: false }));
     try {
-      await executeSnooze(target);
+      await executeSnooze(target, snoozeDialog.wakeAt);
     } catch (cause) {
       toast.error(
         `Snooze failed: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -540,7 +567,11 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
               This archives the current thread and {snoozeDialog.childCount}{" "}
               active{" "}
               {snoozeDialog.childCount === 1 ? "child thread" : "child threads"}{" "}
-              until 9:00 AM tomorrow. They wake together.
+              until{" "}
+              {snoozeDialog.wakeAt === undefined
+                ? "9:00 AM tomorrow"
+                : formatWake(snoozeDialog.wakeAt)}
+              . They wake together.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
