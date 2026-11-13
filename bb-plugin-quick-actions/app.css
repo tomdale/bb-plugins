@@ -340,10 +340,14 @@
 
 .qa-ring-item .qa-ring-more [data-icon-root] {
   display: block;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   color: inherit;
-  opacity: 0.7;
+}
+
+/* At this size BB's 1.5 stroke draws under a pixel wide; this draws 1.5px. */
+.qa-ring-more [data-icon-root] path {
+  stroke-width: 2.25;
 }
 
 /* The plate's anchor: the ring fades the anchor with its labels, and an open
