@@ -16,7 +16,7 @@ export type HoldPieOption = {
   id: string;
   label: string;
   /** A second line under the label, such as the wake time. */
-  detail: string;
+  detail?: string;
   /** Releasing on the parent action takes this option, so the band lights it. */
   isDefault?: boolean;
 };
@@ -138,7 +138,9 @@ function steer(
   engine.aim(dist, ang);
   if (engine.sel === parent) {
     if (dist >= BAND_OPEN_PX && !band.extended) band.extend();
-    band.aim(!band.extended ? null : onBand() ? ang : band.defaultAngle);
+    // Off the band, light what releasing takes: the default option, if any.
+    const lit = open.band.options.some((option) => option.isDefault);
+    band.aim(!band.extended ? null : onBand() ? ang : lit ? band.defaultAngle : null);
   } else {
     band.aim(null);
     if (band.extended) band.retract();
@@ -560,7 +562,9 @@ export function HoldOptionPie({
                     data-selected="false"
                   >
                     <span className="qa-ring-label">{option.label}</span>
-                    <span className="qa-ring-time">{option.detail}</span>
+                    {option.detail ? (
+                      <span className="qa-ring-time">{option.detail}</span>
+                    ) : null}
                   </div>
                 ))}
               </div>

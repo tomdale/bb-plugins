@@ -1053,3 +1053,28 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
 - **Possible API:** an app-overlay hook returning the focused thread surface
   (`focusedThreadId` plus its pane element), or a `focusedThreadId` prop on the
   overlay component
+
+## Per-choice detail and a default choice on thread actions
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0; Quick Actions pins SDK 0.6.133. Workstreams pins
+  SDK 0.6.5, whose types predate `experimental_threadAction`, so it declares
+  the slot's shape itself and registers only when BB provides it
+- **Use case:** Workstreams registers its Snooze as a thread action
+  (`workstreams/snooze`) whose choices are the user's presets, and the Quick
+  Actions hold ring shows those choices as a band out of its Snooze slice.
+  Both surfaces should match Workstreams' own Snooze menu, which lists each
+  preset's wake time beside its name and marks the preset a plain Snooze takes
+  with "(default)"
+- **Limit and evidence:** `PluginThreadActionChoice` has only `id`, `label`,
+  `icon`, `selected`, and `disabled`. A choice has nowhere to carry its wake
+  time, and nothing marks a default; `selected` means the current value, which
+  would draw a check beside a preset the thread is not snoozed for
+- **Workaround:** BB's thread menus and the ring show preset names only.
+  Workstreams sets the action's `detail` to the default preset's label, and
+  Quick Actions lights the choice whose label matches it. Two presets with the
+  same label would both match; Quick Actions takes the first
+- **Possible API:** `detail?: string` on `PluginThreadActionChoice`, shown as
+  a muted trailing line or column, and `default?: boolean` (or
+  `choices.defaultId`) naming the choice that running the action without a
+  value takes

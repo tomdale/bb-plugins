@@ -12,6 +12,7 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   definePluginApp,
   experimental_useSidebarThreads,
+  experimental_useThreadActionRegistrations,
   experimental_useThreadActions,
   useBbContext,
   useBbNavigate,
@@ -61,6 +62,13 @@ const CORE_ACTION_KEYS = [
   "bb--core/read",
   "bb--core/copyLink",
 ] as const;
+/**
+ * Workstreams' Snooze, registered as a BB thread action. When Workstreams is
+ * installed it is this plugin's Snooze, so every snooze menu offers the same
+ * presets and snoozes into Workstreams' Snoozed fold; without it, Snooze
+ * archives the thread until a wake time (server.ts).
+ */
+const WORKSTREAMS_SNOOZE_KEY = "workstreams/snooze";
 const HOVER_CLOSE_DELAY_MS = 300;
 
 function Hint({
@@ -193,6 +201,30 @@ const formatWake = (wakeAt: number) =>
     minute: "2-digit",
   }).format(wakeAt);
 
+/**
+ * Workstreams' Snooze as a ring action: its choices fill the band, and the one
+ * its `detail` names, the default preset, is lit while the pointer is on
+ * Snooze. A plain run, from the corner menu or before the band opens, takes
+ * that default.
+ */
+function workstreamsSnoozeItem(entry: PluginThreadActionEntry): QuickActionItem {
+  const { action } = entry;
+  const choices = (action.choices?.items ?? []).filter((choice) => !choice.disabled);
+  return {
+    id: "snooze",
+    label: "Snooze",
+    icon: "Clock",
+    disabled: action.disabled,
+    options: () =>
+      choices.map((choice) => ({
+        id: choice.id,
+        label: choice.label,
+        isDefault: choice.label === action.detail,
+      })),
+    run: (optionId) => action.run(optionId),
+  };
+}
+
 function coreItem(
   entries: readonly PluginThreadActionEntry[],
   key: string,
@@ -260,8 +292,14 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const entries = experimental_useThreadActions(thread, {
-    keys: CORE_ACTION_KEYS,
+    keys: [...CORE_ACTION_KEYS, WORKSTREAMS_SNOOZE_KEY],
   });
+  const workstreamsSnooze = entries.find((entry) => entry.key === WORKSTREAMS_SNOOZE_KEY);
+  // Registered but absent for this thread means Workstreams has no Snooze for
+  // it (a thread its sidebar doesn't list), so the ring has none either.
+  const workstreamsSnoozeRegistered = experimental_useThreadActionRegistrations().some(
+    (registration) => registration.key === WORKSTREAMS_SNOOZE_KEY,
+  );
   const tooltipSide = corner.startsWith("top") ? "bottom" : "top";
 
   const cancelScheduledClose = useCallback(() => {
@@ -325,8 +363,9 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
 
   // The presets the hold ring last offered; a chosen one is looked up here.
   const offeredPresetsRef = useRef<SnoozePreset[]>([]);
-  const actions: QuickActionItem[] = [
-    coreItem(entries, "bb--core/archive"),
+  // Without Workstreams, this plugin's own Snooze, which archives until a
+  // wake time.
+  const ownSnooze: QuickActionItem | null =
     thread.archivedAt === null
       ? {
           id: "snooze",
@@ -363,7 +402,15 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
             await executeSnooze(thread, wakeAt);
           },
         }
-      : null,
+      : null;
+  const snoozeItem = workstreamsSnooze
+    ? workstreamsSnoozeItem(workstreamsSnooze)
+    : workstreamsSnoozeRegistered
+      ? null
+      : ownSnooze;
+  const actions: QuickActionItem[] = [
+    coreItem(entries, "bb--core/archive"),
+    snoozeItem,
     coreItem(entries, "bb--core/pin"),
     coreItem(entries, "bb--core/read"),
     coreItem(entries, "bb--core/copyLink"),

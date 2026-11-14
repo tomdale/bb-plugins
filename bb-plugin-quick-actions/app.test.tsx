@@ -95,6 +95,8 @@ async function renderQuickActions({
   childCount = 0,
   snoozeWait = null,
   strictMode = false,
+  workstreamsSnooze = null,
+  workstreamsRegistered = workstreamsSnooze !== null,
 }: {
   settings?: Record<string, string | number | boolean>;
   archivedAt?: number | null;
@@ -102,6 +104,10 @@ async function renderQuickActions({
   childCount?: number;
   snoozeWait?: Promise<void> | null;
   strictMode?: boolean;
+  /** Workstreams' Snooze thread action for this thread, if it offers one. */
+  workstreamsSnooze?: PluginThreadActionEntry["action"] | null;
+  /** Whether Workstreams registered Snooze, even if not for this thread. */
+  workstreamsRegistered?: boolean;
 } = {}) {
   const runs = new Map<string, (value?: string) => Promise<void>>();
   const definitions = [
@@ -115,6 +121,14 @@ async function renderQuickActions({
     runs.set(key, run);
     return actionEntry(key, label, run);
   });
+  if (workstreamsSnooze) {
+    entries.push({
+      key: "workstreams/snooze",
+      pluginId: "workstreams",
+      group: "1_state",
+      action: workstreamsSnooze,
+    });
+  }
   const thread = makeThreadResponse({
     id: THREAD_ID,
     projectId: PROJECT_ID,
@@ -152,6 +166,9 @@ async function renderQuickActions({
         },
       },
       threadActions: () => entries,
+      threadActionRegistrations: workstreamsRegistered
+        ? [{ key: "workstreams/snooze", pluginId: "workstreams", title: "Snooze", icon: "Clock" }]
+        : [],
       rpc: {
         snooze: async () => {
           if (snoozeWait) await snoozeWait;
@@ -638,6 +655,25 @@ describe("Quick Actions overlay", () => {
       method: "toCompose",
       options: { projectId: PROJECT_ID },
     });
+    slot.lifecycle.unmount();
+  });
+
+  it("runs Workstreams' default Snooze from the corner menu", async () => {
+    const user = userEvent.setup();
+    const run = vi.fn(async (_value?: string) => undefined);
+    const { slot, trigger } = await renderQuickActions({
+      workstreamsSnooze: {
+        label: "Snooze",
+        icon: "Clock",
+        detail: "3 hours",
+        choices: { items: [{ id: "3h", label: "3 hours" }] },
+        run,
+      },
+    });
+    await openMenu(trigger);
+    await user.click(slot.getByRole("button", { name: "Snooze" }));
+    expect(run).toHaveBeenCalledExactlyOnceWith(undefined);
+    expect(slot.inspection.rpcCalls.filter((call) => call.method === "snooze")).toEqual([]);
     slot.lifecycle.unmount();
   });
 
@@ -1159,6 +1195,96 @@ describe("Quick Actions overlay", () => {
         await advance(400);
         expect(ring()).toBeNull();
         expect(snoozeCalls(slot)).toEqual([]);
+        slot.lifecycle.unmount();
+      });
+    });
+
+    describe("with Workstreams' Snooze", () => {
+      const centre = { clientX: 400, clientY: 300 };
+      const towardSnooze = (r: number) => ({
+        clientX: centre.clientX + r * Math.sin((72 * Math.PI) / 180),
+        clientY: centre.clientY - r * Math.cos((72 * Math.PI) / 180),
+      });
+      const onBand = (label: string) => {
+        const match = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(item(label)!.style.transform);
+        const [x, y] = [Number(match![1]), Number(match![2])];
+        const r = Math.hypot(x, y);
+        return { clientX: centre.clientX + (x / r) * 180, clientY: centre.clientY + (y / r) * 180 };
+      };
+      const presets = [
+        { id: "20m", label: "20 minutes" },
+        { id: "1h", label: "1 hour" },
+        { id: "3h", label: "3 hours" },
+        { id: "tomorrow", label: "Tomorrow morning" },
+        { id: "next-week", label: "Next week" },
+      ];
+      const workstreams = (overrides: Partial<PluginThreadActionEntry["action"]> = {}) => ({
+        label: "Snooze",
+        icon: "Clock",
+        detail: "3 hours",
+        choices: { items: presets },
+        run: vi.fn(async (_value?: string) => undefined),
+        ...overrides,
+      });
+      const bandLabels = () =>
+        Array.from(document.querySelectorAll(".qa-band-items .qa-ring-label")).map(
+          (node) => node.textContent,
+        );
+
+      it("fills the band with Workstreams' presets, lights its default, and runs the one chosen", async () => {
+        const action = workstreams();
+        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
+        await holdOptionAt(centre);
+        expect(bandLabels()).toEqual(presets.map((preset) => preset.label));
+        // Workstreams' presets carry no wake times.
+        expect(document.querySelectorAll(".qa-band-items .qa-ring-time")).toHaveLength(0);
+
+        await pointAt(towardSnooze(52));
+        expect(item("3 hours")).toHaveAttribute("data-selected", "true");
+        await pointAt(onBand("Tomorrow morning"));
+        expect(item("Tomorrow morning")).toHaveAttribute("data-selected", "true");
+        await releaseOption();
+        expect(action.run).toHaveBeenCalledExactlyOnceWith("tomorrow");
+        expect(slot.inspection.rpcCalls.filter((call) => call.method === "snooze")).toEqual([]);
+        slot.lifecycle.unmount();
+      });
+
+      it("takes Workstreams' default from Snooze before the band opens", async () => {
+        const action = workstreams();
+        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(42));
+        await releaseOption();
+        expect(action.run).toHaveBeenCalledExactlyOnceWith(undefined);
+        slot.lifecycle.unmount();
+      });
+
+      it("lights nothing off the band when Workstreams names no default", async () => {
+        // A snoozed thread: Wake now first, and no default preset.
+        const action = workstreams({
+          detail: undefined,
+          choices: { items: [{ id: "wake-now", label: "Wake now" }, ...presets] },
+        });
+        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(52));
+        expect(document.querySelector(".qa-band")).toHaveAttribute("data-extended", "true");
+        expect(
+          document.querySelectorAll('.qa-band-items .qa-ring-item[data-selected="true"]'),
+        ).toHaveLength(0);
+        await releaseOption();
+        expect(action.run).toHaveBeenCalledExactlyOnceWith(undefined);
+        slot.lifecycle.unmount();
+      });
+
+      it("has no Snooze for a thread Workstreams offers none for", async () => {
+        const { slot } = await renderQuickActions({
+          settings: { ...hold },
+          workstreamsRegistered: true,
+        });
+        await holdOptionAt(centre);
+        expect(item("Snooze")).toBeUndefined();
+        expect(document.querySelector(".qa-band")).toBeNull();
         slot.lifecycle.unmount();
       });
     });

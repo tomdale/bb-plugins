@@ -60,10 +60,20 @@ Unset a value to restore its default, for example
 
 ## Snooze
 
-Snooze archives the current thread and its active child threads until a wake
-time, then returns to New thread. In the hold-Option ring, a chevron points
-outward from Snooze. Moving the pointer a little past the hub onto Snooze grows
-a band of presets out of its slice, worked out in your time zone:
+In the hold-Option ring, a chevron points outward from Snooze. Moving the
+pointer a little past the hub onto Snooze grows a band of presets out of its
+slice; slide along it and release on one.
+
+With Workstreams installed, Snooze is Workstreams' Snooze. The band lists your
+Workstreams presets in their order, after **Wake now** for a snoozed thread,
+and lights your default while the pointer is on Snooze, so releasing there
+takes it. A snoozed thread moves to Workstreams' **Snoozed** fold, and
+Workstreams confirms it with Undo. The band shows preset names without wake
+times. For a thread Workstreams offers no Snooze for, the ring has none.
+
+Without Workstreams, Snooze archives the current thread and its active child
+threads until a wake time, then returns to New thread. The band offers presets
+worked out in your time zone:
 
 - **In 1 hour:** an hour from now.
 - **This evening:** 6:00 PM, offered before 5:00 PM.
@@ -71,9 +81,8 @@ a band of presets out of its slice, worked out in your time zone:
 - **This weekend:** Saturday 9:00 AM, offered Monday to Thursday.
 - **Next week:** Monday 9:00 AM, unless that is tomorrow.
 
-Slide along the band and release on a preset. Tomorrow sits straight out from
-Snooze and stays lit while the pointer is on Snooze, so releasing there takes
-it. Releasing on Snooze before the band opens, or using the corner button,
+Tomorrow sits straight out from Snooze and stays lit while the pointer is on
+Snooze, so releasing there takes it. Releasing on Snooze before the band opens, or using the corner button,
 snoozes until 9:00 AM the next day in the BB server's time zone. BB asks for
 confirmation when active child threads are present. Wake times persist
 across BB restarts, and the same threads wake together. Manually unarchiving a
