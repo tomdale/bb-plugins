@@ -72,6 +72,8 @@ export class RingBand {
   readonly R0: number;
   readonly R1: number;
   readonly step: number;
+  /** ITEM_SIDE_PX as an angle on the labels' radius. */
+  private readonly sideDeg: number;
   private t = 0;
   private last: number | null = null;
   private frame: number | null = null;
@@ -131,6 +133,7 @@ export class RingBand {
     }
     this.step = step;
     this.rm = rm;
+    this.sideDeg = (ITEM_SIDE_PX / (rm - radMax / 2)) * (180 / Math.PI);
     const fitted = boxes.map((b, i) => extent(b, this.center + (i - anchor) * step));
     this.R1 = Math.ceil(rm + radMax + ITEM_PAD_PX);
     const now = () => this.t;
@@ -176,8 +179,15 @@ export class RingBand {
     return this.center + (i - this.anchor) * this.step;
   }
 
+  /**
+   * The band's angular extent: half a step past each end option, or further
+   * when an end label is wider than that, so it keeps the side gap to the
+   * band's end like its neighbours keep between them.
+   */
   private get span() {
-    return [this.angleOf(0) - this.step / 2, this.angleOf(this.items.length - 1) + this.step / 2] as const;
+    const last = this.items.length - 1;
+    const reach = (item: BandItem) => Math.max(this.step / 2, item.tanDeg + this.sideDeg);
+    return [this.angleOf(0) - reach(this.items[0]!), this.angleOf(last) + reach(this.items[last]!)] as const;
   }
 
   /** True when this direction falls on the band, with a few degrees of slack. */
