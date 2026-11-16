@@ -271,12 +271,12 @@ export class RingBand {
     this.flash.jump(1).go(0, 160);
     this.bump.kick(1);
     // The disc's run timing: other labels go in 30ms, the chosen one 20ms
-    // after, and the plate is gone before the ring's collapse can fling it.
+    // after, and the plate fades as the ring's collapse shrinks it.
     this.items.forEach((item, i) => {
       if (i === this.sel) item.o.go(0, 20, linear, 30);
       else item.o.go(0, 30, linear);
     });
-    this.fade.go(0, 40, linear, 30);
+    this.fade.go(0, 40, linear, 10);
     this.start();
   }
 

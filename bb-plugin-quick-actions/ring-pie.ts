@@ -441,12 +441,14 @@ export class RingPie {
       else this.out.go(0, 60, easeIn2, delay);
       this.at(delay + (this.reduced ? 40 : 60), () => this.finish());
     };
+    // A run or cancel collapses from the first frame, so the ring answers the
+    // release at once; the labels fade during the collapse.
     if (kind === "run") {
       this.flash.jump(1).go(0, 160);
       this.bump.kick(1);
       this.labOut.go(0, 30, linear);
       this.chosenOut.go(0, 20, linear, 30);
-      collapse(50);
+      collapse(0);
     } else if (kind === "reject") {
       this.shake.kick(480);
       this.labOut.go(0, 30, linear, 40);
@@ -461,7 +463,7 @@ export class RingPie {
       }
       this.labOut.go(0, 30, linear);
       this.chosenOut.go(0, 30, linear);
-      collapse(30);
+      collapse(0);
     }
     this.render();
   }

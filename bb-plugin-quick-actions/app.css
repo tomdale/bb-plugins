@@ -172,7 +172,8 @@
   inset: 0;
   background: rgb(0 0 0 / 0.18);
   opacity: 0;
-  transition: opacity 100ms ease-in;
+  /* Ease-out, so the window brightens on the frame the ring closes. */
+  transition: opacity 90ms ease-out;
 }
 
 .qa-dim[data-state="on"] {

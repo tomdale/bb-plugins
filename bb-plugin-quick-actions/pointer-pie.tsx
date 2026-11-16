@@ -795,12 +795,8 @@ export function PointerPie({
           }
         >
           <div ref={bodyRef} className="qa-ring-body">
-            <div ref={baseRef} className="qa-ring-base" onClick={commit} />
-            <svg className="qa-ring-tiles" viewBox="-300 -300 600 600" aria-hidden="true">
-              <g>
-                <path ref={tileRef} className="qa-ring-tile" />
-              </g>
-            </svg>
+            {/* Bands paint before the disc, so the disc and its shadow sit over
+                the band where they meet. */}
             {ring.bands.map((spec, index) => (
               <svg
                 key={spec.parent}
@@ -845,6 +841,12 @@ export function PointerPie({
                 </g>
               </svg>
             ))}
+            <div ref={baseRef} className="qa-ring-base" onClick={commit} />
+            <svg className="qa-ring-tiles" viewBox="-300 -300 600 600" aria-hidden="true">
+              <g>
+                <path ref={tileRef} className="qa-ring-tile" />
+              </g>
+            </svg>
             {ring.actions.map((action, index) => {
               const band = ring.bands.findIndex((spec) => spec.parent === index);
               return (
