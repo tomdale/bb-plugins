@@ -364,7 +364,7 @@
   top: 0;
 }
 
-/* An action's outer band of options (Snooze wake times), drawn on the rim in
+/* An action's outer band of choices (Snooze presets), drawn on the rim in
    the disc's dark material. Its motion is inline. */
 .qa-band {
   position: absolute;
@@ -416,19 +416,6 @@
   top: 0;
   width: 0;
   height: 0;
-}
-
-.qa-ring-time {
-  margin-top: calc(1px - var(--qa-ring-gap));
-  color: #8b8e96;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.qa-ring-item[data-selected="true"] .qa-ring-time {
-  color: #c8cad0;
 }
 
 .qa-ring-x [data-icon-root] {

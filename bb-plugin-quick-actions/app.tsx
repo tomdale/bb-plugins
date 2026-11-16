@@ -12,11 +12,8 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   definePluginApp,
   experimental_useSidebarThreads,
-  experimental_useThreadActionRegistrations,
   experimental_useThreadActions,
   useBbContext,
-  useBbNavigate,
-  useRpc,
   useSdk,
   useSettings,
 } from "@get-bb/plugin-sdk/app";
@@ -25,16 +22,6 @@ import type {
   PluginThreadActionEntry,
 } from "@get-bb/plugin-sdk/app";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -43,9 +30,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { rpcContract } from "./server";
 import { HoldOptionPie, type HoldPieOption } from "./hold-pie";
-import { snoozePresets, type SnoozePreset } from "./snooze-presets";
+import { ringKeys, useActionOffers } from "./ring-offers";
 import {
   actionCssVariables,
   actionTarget,
@@ -56,19 +42,6 @@ import {
   type Corner,
 } from "./motion";
 
-const CORE_ACTION_KEYS = [
-  "bb--core/archive",
-  "bb--core/pin",
-  "bb--core/read",
-  "bb--core/copyLink",
-] as const;
-/**
- * Workstreams' Snooze, registered as a BB thread action. When Workstreams is
- * installed it is this plugin's Snooze, so every snooze menu offers the same
- * presets and snoozes into Workstreams' Snoozed fold; without it, Snooze
- * archives the thread until a wake time (server.ts).
- */
-const WORKSTREAMS_SNOOZE_KEY = "workstreams/snooze";
 const HOVER_CLOSE_DELAY_MS = 300;
 
 function Hint({
@@ -194,49 +167,33 @@ type QuickActionItem = {
   run: (optionId?: string) => void | Promise<void>;
 };
 
-const formatWake = (wakeAt: number) =>
-  new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(wakeAt);
-
 /**
- * Workstreams' Snooze as a ring action: its choices fill the band, and the one
- * its `detail` names, the default preset, is lit while the pointer is on
- * Snooze. A plain run, from the corner menu or before the band opens, takes
- * that default.
+ * A BB thread action as a ring action. Its enabled choices, if any, fill the
+ * band. BB documents an action's `detail` as the current value of its choice
+ * list, so the choice with that label is the default: the band lights it
+ * while the pointer is on the action, and a run without a choice, from the
+ * corner menu or before the band opens, takes it. With no such choice, that
+ * run passes no value and the action decides.
  */
-function workstreamsSnoozeItem(entry: PluginThreadActionEntry): QuickActionItem {
+function threadActionItem(entry: PluginThreadActionEntry): QuickActionItem {
   const { action } = entry;
   const choices = (action.choices?.items ?? []).filter((choice) => !choice.disabled);
+  const defaultChoice = choices.find((choice) => choice.label === action.detail);
   return {
-    id: "snooze",
-    label: "Snooze",
-    icon: "Clock",
+    id: entry.key,
+    label: action.label,
+    icon: action.icon,
     disabled: action.disabled,
-    options: () =>
-      choices.map((choice) => ({
-        id: choice.id,
-        label: choice.label,
-        isDefault: choice.label === action.detail,
-      })),
-    run: (optionId) => action.run(optionId),
-  };
-}
-
-function coreItem(
-  entries: readonly PluginThreadActionEntry[],
-  key: string,
-): QuickActionItem | null {
-  const entry = entries.find((candidate) => candidate.key === key);
-  if (!entry) return null;
-  return {
-    id: key,
-    label: entry.action.label,
-    icon: entry.action.icon,
-    disabled: entry.action.disabled,
-    run: () => entry.action.run(),
+    options:
+      choices.length > 0
+        ? () =>
+            choices.map((choice) => ({
+              id: choice.id,
+              label: choice.label,
+              isDefault: choice === defaultChoice,
+            }))
+        : undefined,
+    run: (optionId) => action.run(optionId ?? defaultChoice?.id),
   };
 }
 
@@ -259,47 +216,17 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const holdOption = trigger === "hold-option";
   const debugRegions = settings.values?.debugRegions === true;
   const position = useMenuPosition(corner, targetThreadId, !holdOption);
-  const rpc = useRpc<typeof rpcContract>();
-  const sdk = useSdk();
-  const navigate = useBbNavigate();
-  const { threadId: routeThreadId } = useBbContext();
-  const routeThreadIdRef = useRef(routeThreadId);
-  routeThreadIdRef.current = routeThreadId;
-  const targetThreadIdRef = useRef(targetThreadId);
-  targetThreadIdRef.current = targetThreadId;
   const restoringFocusRef = useRef(false);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-  const [snoozeDialog, setSnoozeDialog] = useState<{
-    open: boolean;
-    childCount: number;
-    thread: PluginThreadActionTarget | null;
-    /** The chosen wake time; omitted, Snooze wakes at 9:00 AM tomorrow. */
-    wakeAt?: number;
-  }>({
-    open: false,
-    childCount: 0,
-    thread: null,
-  });
   const [pinned, setPinned] = useState(false);
   const [requestedOpen, setRequestedOpen] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const entries = experimental_useThreadActions(thread, {
-    keys: [...CORE_ACTION_KEYS, WORKSTREAMS_SNOOZE_KEY],
-  });
-  const workstreamsSnooze = entries.find((entry) => entry.key === WORKSTREAMS_SNOOZE_KEY);
-  // Registered but absent for this thread means Workstreams has no Snooze for
-  // it (a thread its sidebar doesn't list), so the ring has none either.
-  const workstreamsSnoozeRegistered = experimental_useThreadActionRegistrations().some(
-    (registration) => registration.key === WORKSTREAMS_SNOOZE_KEY,
-  );
+  const offers = useActionOffers();
+  const keys = useMemo(() => ringKeys(offers), [offers]);
+  // An offered action this thread doesn't have (its `item` returned null, or
+  // its plugin is gone) is absent here, so the ring leaves it out.
+  const entries = experimental_useThreadActions(thread, { keys });
   const tooltipSide = corner.startsWith("top") ? "bottom" : "top";
 
   const cancelScheduledClose = useCallback(() => {
@@ -347,74 +274,9 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     cancelScheduledClose();
     setPinned(false);
     setRequestedOpen(false);
-    setSnoozeDialog({ open: false, childCount: 0, thread: null });
   }, [cancelScheduledClose, targetThreadId]);
 
-  const executeSnooze = async (target: PluginThreadActionTarget, wakeAt?: number) => {
-    const result = await rpc.call(
-      "snooze",
-      wakeAt === undefined ? { threadId: target.id } : { threadId: target.id, wakeAt },
-    );
-    toast.success(`Snoozed until ${formatWake(result.wakeAt)}`);
-    if (mountedRef.current && routeThreadIdRef.current === target.id) {
-      navigate.toCompose({ projectId: target.projectId });
-    }
-  };
-
-  // The presets the hold ring last offered; a chosen one is looked up here.
-  const offeredPresetsRef = useRef<SnoozePreset[]>([]);
-  // Without Workstreams, this plugin's own Snooze, which archives until a
-  // wake time.
-  const ownSnooze: QuickActionItem | null =
-    thread.archivedAt === null
-      ? {
-          id: "snooze",
-          label: "Snooze",
-          icon: "Clock",
-          options: () => {
-            const presets = snoozePresets(new Date());
-            offeredPresetsRef.current = presets;
-            return presets.map((preset) => ({
-              id: preset.id,
-              label: preset.label,
-              detail: preset.time,
-              isDefault: preset.isDefault,
-            }));
-          },
-          run: async (optionId?: string) => {
-            const wakeAt =
-              optionId === undefined
-                ? undefined
-                : offeredPresetsRef.current.find((preset) => preset.id === optionId)?.wakeAt;
-            const summary = await sdk.threads.childSummary({
-              threadId: thread.id,
-            });
-            if (targetThreadIdRef.current !== thread.id) return;
-            if (summary.unarchivedDescendantCount > 0) {
-              setSnoozeDialog({
-                open: true,
-                childCount: summary.unarchivedDescendantCount,
-                thread,
-                wakeAt,
-              });
-              return;
-            }
-            await executeSnooze(thread, wakeAt);
-          },
-        }
-      : null;
-  const snoozeItem = workstreamsSnooze
-    ? workstreamsSnoozeItem(workstreamsSnooze)
-    : workstreamsSnoozeRegistered
-      ? null
-      : ownSnooze;
-  const actions: QuickActionItem[] = [
-    coreItem(entries, "bb--core/archive"),
-    snoozeItem,
-    coreItem(entries, "bb--core/pin"),
-    coreItem(entries, "bb--core/read"),
-    coreItem(entries, "bb--core/copyLink"),
-  ].filter((item): item is QuickActionItem => item !== null);
+  const actions = entries.map(threadActionItem);
 
   const canOpen = threadReady && !settings.isLoading && actions.length > 0;
   const actionsRef = useRef(actions);
@@ -454,185 +316,127 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     }
   };
 
-  const confirmSnooze = async () => {
-    if (pending || !snoozeDialog.thread) return;
-    const target = snoozeDialog.thread;
-    setPending("snooze");
-    setSnoozeDialog((current) => ({ ...current, open: false }));
-    try {
-      await executeSnooze(target, snoozeDialog.wakeAt);
-    } catch (cause) {
-      toast.error(
-        `Snooze failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
-    } finally {
-      setPending(null);
-    }
-  };
-
-  return (
-    <>
-      {holdOption ? (
-        <HoldOptionPie
-          title={threadTitle}
-          actions={actions}
-          canOpen={canOpen}
-          busy={pending !== null}
-          onRun={runHoldAction}
-          onUnavailable={(item) =>
-            toast(`${item.label} isn't available for this thread`)
+  return holdOption ? (
+    <HoldOptionPie
+      title={threadTitle}
+      actions={actions}
+      canOpen={canOpen}
+      busy={pending !== null}
+      onRun={runHoldAction}
+      onUnavailable={(item) =>
+        toast(`${item.label} isn't available for this thread`)
+      }
+    />
+  ) : (
+    <TooltipProvider delayDuration={250} skipDelayDuration={100}>
+      <div
+        className="qa-menu"
+        data-bb-plugin-root=""
+        data-bb-plugin="quick-actions"
+        data-trigger={trigger}
+        data-corner={corner}
+        data-motion={motion}
+        data-debug={debugRegions ? "true" : "false"}
+        data-open={requestedOpen ? "true" : "false"}
+        data-can-open={canOpen ? "true" : "false"}
+        style={position}
+        role="group"
+        aria-label="Quick actions"
+        aria-busy={!threadReady || settings.isLoading || pending !== null}
+        onPointerEnter={() => {
+          if (canOpen) open();
+        }}
+        onPointerLeave={(event) => {
+          if (!event.currentTarget.contains(document.activeElement)) {
+            close();
           }
-        />
-      ) : (
-        <TooltipProvider delayDuration={250} skipDelayDuration={100}>
-          <div
-            className="qa-menu"
-            data-bb-plugin-root=""
-            data-bb-plugin="quick-actions"
-            data-trigger={trigger}
-            data-corner={corner}
-            data-motion={motion}
-            data-debug={debugRegions ? "true" : "false"}
-            data-open={requestedOpen ? "true" : "false"}
-            data-can-open={canOpen ? "true" : "false"}
-            style={position}
-            role="group"
-            aria-label="Quick actions"
-            aria-busy={!threadReady || settings.isLoading || pending !== null}
-            onPointerEnter={() => {
-              if (canOpen) open();
-            }}
-            onPointerLeave={(event) => {
-              if (!event.currentTarget.contains(document.activeElement)) {
-                close();
-              }
-            }}
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) close();
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Escape") return;
-              event.preventDefault();
-              closeAndFocus();
-            }}
-          >
-            <div className="qa-hover-core" aria-hidden="true" />
-            <svg
-              className="qa-hover-regions"
-              viewBox="-140 -140 280 280"
-              aria-hidden="true"
-              focusable="false"
-            >
-              {actions.map((item, index) => {
-                const points = hoverCorridorPoints(
-                  actionTarget(index, actions.length, corner),
-                );
-                return (
-                  <path
-                    key={item.id}
-                    className="qa-hover-corridor"
-                    d={`M ${points} Z`}
-                  />
-                );
-              })}
-            </svg>
-            <Button
-              ref={triggerRef}
-              type="button"
-              variant="outline"
-              size="icon"
-              className="qa-trigger"
-              aria-label={
-                requestedOpen ? "Close quick actions" : "Open quick actions"
-              }
-              aria-expanded={requestedOpen}
-              aria-controls="qa-actions"
-              aria-disabled={!canOpen}
-              onFocus={() => {
-                if (!restoringFocusRef.current && canOpen) open();
-              }}
-              onClick={() => {
-                if (!canOpen) return;
-                if (requestedOpen && pinned) {
-                  setPinned(false);
-                  setRequestedOpen(false);
-                } else {
-                  setPinned(true);
-                  open();
-                }
-              }}
-            >
-              <Icon name="Plus" />
-            </Button>
-            <div
-              id="qa-actions"
-              className="qa-actions"
-              inert={!requestedOpen || !canOpen}
-            >
-              {actions.map((item, index) => (
-                <Hint key={item.id} label={item.label} side={tooltipSide}>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="qa-action"
-                    style={actionCssVariables({
-                      index,
-                      count: actions.length,
-                      corner,
-                    })}
-                    aria-label={item.label}
-                    disabled={item.disabled || pending !== null}
-                    tabIndex={requestedOpen && canOpen ? 0 : -1}
-                    onClick={() => void activate(item)}
-                  >
-                    <Icon name={item.icon} />
-                  </Button>
-                </Hint>
-              ))}
-            </div>
-          </div>
-        </TooltipProvider>
-      )}
-      <AlertDialog
-        open={snoozeDialog.open}
-        onOpenChange={(open) =>
-          setSnoozeDialog((current) => ({ ...current, open }))
-        }
+        }}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) close();
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          closeAndFocus();
+        }}
       >
-        <AlertDialogContent
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (mountedRef.current) closeAndFocus();
+        <div className="qa-hover-core" aria-hidden="true" />
+        <svg
+          className="qa-hover-regions"
+          viewBox="-140 -140 280 280"
+          aria-hidden="true"
+          focusable="false"
+        >
+          {actions.map((item, index) => {
+            const points = hoverCorridorPoints(
+              actionTarget(index, actions.length, corner),
+            );
+            return (
+              <path
+                key={item.id}
+                className="qa-hover-corridor"
+                d={`M ${points} Z`}
+              />
+            );
+          })}
+        </svg>
+        <Button
+          ref={triggerRef}
+          type="button"
+          variant="outline"
+          size="icon"
+          className="qa-trigger"
+          aria-label={
+            requestedOpen ? "Close quick actions" : "Open quick actions"
+          }
+          aria-expanded={requestedOpen}
+          aria-controls="qa-actions"
+          aria-disabled={!canOpen}
+          onFocus={() => {
+            if (!restoringFocusRef.current && canOpen) open();
+          }}
+          onClick={() => {
+            if (!canOpen) return;
+            if (requestedOpen && pinned) {
+              setPinned(false);
+              setRequestedOpen(false);
+            } else {
+              setPinned(true);
+              open();
+            }
           }}
         >
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Snooze {snoozeDialog.childCount + 1} threads?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This archives the current thread and {snoozeDialog.childCount}{" "}
-              active{" "}
-              {snoozeDialog.childCount === 1 ? "child thread" : "child threads"}{" "}
-              until{" "}
-              {snoozeDialog.wakeAt === undefined
-                ? "9:00 AM tomorrow"
-                : formatWake(snoozeDialog.wakeAt)}
-              . They wake together.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={pending !== null}
-              onClick={() => void confirmSnooze()}
-            >
-              Snooze {snoozeDialog.childCount + 1} threads
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+          <Icon name="Plus" />
+        </Button>
+        <div
+          id="qa-actions"
+          className="qa-actions"
+          inert={!requestedOpen || !canOpen}
+        >
+          {actions.map((item, index) => (
+            <Hint key={item.id} label={item.label} side={tooltipSide}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="qa-action"
+                style={actionCssVariables({
+                  index,
+                  count: actions.length,
+                  corner,
+                })}
+                aria-label={item.label}
+                disabled={item.disabled || pending !== null}
+                tabIndex={requestedOpen && canOpen ? 0 : -1}
+                onClick={() => void activate(item)}
+              >
+                <Icon name={item.icon} />
+              </Button>
+            </Hint>
+          ))}
+        </div>
+      </div>
+    </TooltipProvider>
   );
 });
 

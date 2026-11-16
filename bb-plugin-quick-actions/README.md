@@ -1,9 +1,10 @@
 # Quick Actions
 
-Quick Actions puts archive, snooze, pin, mark unread, and copy link within
-reach of the thread you just finished. Hold Option over a thread and the radial
-menu springs open at the pointer, where the cursor already is. The menu uses BB's native
-thread actions where they exist.
+Quick Actions puts archive, pin, mark unread, and copy link within reach of the
+thread you just finished. Hold Option over a thread and the radial menu springs
+open at the pointer, where the cursor already is. Every action in the menu is a
+BB thread action, and other plugins can add theirs: with Workstreams installed,
+Snooze joins the menu with your presets.
 
 ## Trigger
 
@@ -14,9 +15,9 @@ thread actions where they exist.
   sidebar, the title bar, or the window controls, Option does nothing, so
   Option-clicks there behave as usual. The hub in the middle selects
   nothing; moving the pointer out of it selects the action in that direction,
-  shown by a quiet tile and a label that grows slightly. A chevron at Snooze's
-  rim marks its second level: selecting Snooze grows an outer band of wake
-  times out of its slice (see Snooze).
+  shown by a quiet tile and a label that grows slightly. A chevron at an
+  action's rim marks a second level: selecting it grows an outer band of
+  choices out of its slice (see Choices).
   Releasing Option runs
   the selection; releasing in the hub cancels, and releasing on an unavailable
   action shakes the ring and says why. Clicking the ring runs the selection
@@ -31,7 +32,7 @@ Choose between them with **Settings → Plugins → Quick Actions → Menu trigg
 or `bb plugin config quick-actions set trigger corner`.
 
 Near a window edge the pie stays centred on the cursor and the window clips
-the slices, and the Snooze band, that fall outside it.
+the slices, and the band of choices, that fall outside it.
 
 ## Settings
 
@@ -58,37 +59,71 @@ bb plugin config quick-actions set debugRegions true
 Unset a value to restore its default, for example
 `bb plugin config quick-actions unset motion`.
 
-## Snooze
+## Actions
 
-In the hold-Option ring, a chevron points outward from Snooze. Moving the
-pointer a little past the hub onto Snooze grows a band of presets out of its
-slice; slide along it and release on one.
+The menu shows BB's Archive, Pin, Mark read or unread, and Copy link, then any
+actions other plugins offer (see Extending the menu). Each action comes from
+BB's thread action registry with the name, icon, and availability BB's own
+thread menus show, and an action with nothing for the current thread stays out
+of the menu. Archive keeps BB's child-thread confirmation and Undo.
 
-With Workstreams installed, Snooze is Workstreams' Snooze. The band lists your
-Workstreams presets in their order, after **Wake now** for a snoozed thread,
-and lights your default while the pointer is on Snooze, so releasing there
-takes it. A snoozed thread moves to Workstreams' **Snoozed** fold, and
-Workstreams confirms it with Undo. The band shows preset names without wake
-times. For a thread Workstreams offers no Snooze for, the ring has none.
+With Workstreams installed, Snooze sits right after Archive and snoozes
+through Workstreams, which moves the thread to its **Snoozed** fold and
+confirms it with Undo.
 
-Without Workstreams, Snooze archives the current thread and its active child
-threads until a wake time, then returns to New thread. The band offers presets
-worked out in your time zone:
+## Choices
 
-- **In 1 hour:** an hour from now.
-- **This evening:** 6:00 PM, offered before 5:00 PM.
-- **Tomorrow:** 9:00 AM.
-- **This weekend:** Saturday 9:00 AM, offered Monday to Thursday.
-- **Next week:** Monday 9:00 AM, unless that is tomorrow.
+An action with choices, such as Workstreams' Snooze and its presets, carries a
+chevron in the hold-Option ring. Moving the pointer a little past the hub onto
+it grows a band of its choices out of its slice; slide along the band and
+release on one. The choice the action names as its current value sits
+straight out from the action; for Workstreams' Snooze, that is your default
+preset. It stays lit while the pointer is on the action, so releasing there
+takes it, and so does releasing before the band opens or using the corner
+button. A snoozed thread's Snooze names no default, so releasing on it lets
+Workstreams decide. Only the first action with choices gets a band. BB thread
+action choices carry only a name, so Snooze presets show without wake times.
 
-Tomorrow sits straight out from Snooze and stays lit while the pointer is on
-Snooze, so releasing there takes it. Releasing on Snooze before the band opens, or using the corner button,
-snoozes until 9:00 AM the next day in the BB server's time zone. BB asks for
-confirmation when active child threads are present. Wake times persist
-across BB restarts, and the same threads wake together. Manually unarchiving a
-thread cancels its own wake record.
+## Extending the menu
 
-BB's separate Archive action owns its child-thread confirmation and Undo flow.
+A plugin adds one of its BB thread actions to the menu by offering it in a
+`bb-quick-actions:offer` event on `window`. Neither plugin imports the other.
+Without Quick Actions nothing receives the offer, and the action still appears
+in BB's thread menus.
+
+Offer the action when your plugin loads, and again whenever Quick Actions
+dispatches `bb-quick-actions:request`, which it does when its menu mounts. An
+always-mounted component such as an app overlay does both:
+
+```tsx
+import { useEffect } from "react";
+import { experimental_usePluginId } from "@get-bb/plugin-sdk/app";
+
+export function QuickActionsOffer() {
+  const pluginId = experimental_usePluginId();
+  useEffect(() => {
+    const offer = () =>
+      window.dispatchEvent(
+        new CustomEvent("bb-quick-actions:offer", {
+          detail: { key: `${pluginId}/snooze`, order: 200 },
+        }),
+      );
+    window.addEventListener("bb-quick-actions:request", offer);
+    offer();
+    return () => window.removeEventListener("bb-quick-actions:request", offer);
+  }, [pluginId]);
+  return null;
+}
+```
+
+- **`key`:** the thread action's key, `<plugin id>/<registration id>`, as
+  `experimental_useThreadActions` reports it.
+- **`order`:** optional. BB's actions sit at Archive `100`, Pin `300`, Mark read
+  `400`, and Copy link `500`; an offer without an order goes after them, and
+  ties keep the order offers arrived in.
+
+The menu holds up to ten actions. To give a choice the default slot, set the
+action's `detail` to that choice's label.
 
 ## Checks
 

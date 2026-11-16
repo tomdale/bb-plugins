@@ -1,8 +1,8 @@
 /**
  * The hold ring's outer band: a second ring of options that grows out of one
- * action's slice (Snooze and its wake presets). It is one object, an annular
- * sector on the disc rim, whose outer radius and angular span spring outward
- * from the parent wedge. Its options ride inside it on a common radius, the
+ * action's slice (its choices, such as Snooze presets). It is one object, an
+ * annular sector on the disc rim, whose outer radius and angular span spring
+ * outward from the parent wedge. Its options ride inside it on a common radius, the
  * default directly outward from the parent, earlier options counter-clockwise
  * and later ones clockwise. The band lives inside the ring body, so the
  * ring's own open, shake and close transforms carry it.
@@ -42,8 +42,6 @@ const TILE_INSET_PX = 4;
 const ITEM_SIDE_PX = 10;
 const ITEM_PAD_PX = 13;
 
-const TIME_IDLE = [139, 142, 150];
-const TIME_LIT = [200, 202, 208];
 const rgba = (c: readonly number[], a = 1) =>
   `rgba(${c.map((x) => Math.round(x)).join(",")},${+a.toFixed(3)})`;
 const mix = (a: readonly number[], b: readonly number[], u: number) =>
@@ -394,8 +392,6 @@ export class RingBand {
       node.style.opacity = (item.o.x * (cover[i]! > 0 ? 1 : 0)).toFixed(3);
       node.style.color = rgba(mix(COLOR.text, COLOR.white, ci));
       node.style.fontWeight = ci > 0.5 ? "600" : "";
-      const timeNode = node.querySelector<HTMLElement>(".qa-ring-time");
-      if (timeNode) timeNode.style.color = rgba(mix(TIME_IDLE, TIME_LIT, ci));
     });
 
   }

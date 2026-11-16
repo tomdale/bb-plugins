@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import type { PluginThreadActionEntry } from "@get-bb/plugin-sdk/app";
+import { OFFER_EVENT, REQUEST_EVENT } from "./ring-offers";
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
@@ -88,26 +89,66 @@ function actionEntry(
   };
 }
 
+/** Thread actions a fake plugin registers with BB and offers to the ring. */
+type PluginAction = {
+  key: string;
+  action: PluginThreadActionEntry["action"];
+  /** The order it offers; null for an action it registers but doesn't offer. */
+  order?: number | null;
+  /** False when the action's `item` returns null for the thread. */
+  forThread?: boolean;
+};
+
+/** Plugins' offer listeners, removed after each test. */
+const providers: (() => void)[] = [];
+afterEach(() => {
+  while (providers.length > 0) providers.pop()!();
+});
+
+/** A plugin that offers these actions on load and on every request. */
+function offerActions(offers: readonly { key: string; order?: number }[]) {
+  const announce = () => {
+    for (const offer of offers) {
+      window.dispatchEvent(new CustomEvent(OFFER_EVENT, { detail: offer }));
+    }
+  };
+  window.addEventListener(REQUEST_EVENT, announce);
+  providers.push(() => window.removeEventListener(REQUEST_EVENT, announce));
+  announce();
+}
+
+/** Workstreams-style Snooze: presets as choices, `detail` naming the default. */
+function snoozeAction(
+  overrides: Partial<PluginThreadActionEntry["action"]> = {},
+): PluginThreadActionEntry["action"] {
+  return {
+    label: "Snooze",
+    icon: "Clock",
+    detail: "3 hours",
+    choices: { items: SNOOZE_PRESETS },
+    run: vi.fn(async (_value?: string) => undefined),
+    ...overrides,
+  };
+}
+
+const SNOOZE_PRESETS = [
+  { id: "20m", label: "20 minutes" },
+  { id: "1h", label: "1 hour" },
+  { id: "3h", label: "3 hours" },
+  { id: "tomorrow", label: "Tomorrow morning" },
+  { id: "next-week", label: "Next week" },
+];
+
 async function renderQuickActions({
   settings = { trigger: "corner", corner: "bottom-left", motion: "ring" },
   archivedAt = null,
-  snoozeError = null,
-  childCount = 0,
-  snoozeWait = null,
   strictMode = false,
-  workstreamsSnooze = null,
-  workstreamsRegistered = workstreamsSnooze !== null,
+  pluginActions = [],
 }: {
   settings?: Record<string, string | number | boolean>;
   archivedAt?: number | null;
-  snoozeError?: Error | null;
-  childCount?: number;
-  snoozeWait?: Promise<void> | null;
   strictMode?: boolean;
-  /** Workstreams' Snooze thread action for this thread, if it offers one. */
-  workstreamsSnooze?: PluginThreadActionEntry["action"] | null;
-  /** Whether Workstreams registered Snooze, even if not for this thread. */
-  workstreamsRegistered?: boolean;
+  pluginActions?: readonly PluginAction[];
 } = {}) {
   const runs = new Map<string, (value?: string) => Promise<void>>();
   const definitions = [
@@ -121,14 +162,20 @@ async function renderQuickActions({
     runs.set(key, run);
     return actionEntry(key, label, run);
   });
-  if (workstreamsSnooze) {
+  for (const { key, action, forThread = true } of pluginActions) {
+    if (!forThread) continue;
     entries.push({
-      key: "workstreams/snooze",
-      pluginId: "workstreams",
+      key,
+      pluginId: key.split("/")[0]!,
       group: "1_state",
-      action: workstreamsSnooze,
+      action,
     });
   }
+  offerActions(
+    pluginActions.flatMap(({ key, order = 200 }) =>
+      order === null ? [] : [{ key, order }],
+    ),
+  );
   const thread = makeThreadResponse({
     id: THREAD_ID,
     projectId: PROJECT_ID,
@@ -156,29 +203,8 @@ async function renderQuickActions({
     {
       context: { projectId: PROJECT_ID, threadId: THREAD_ID },
       settings,
-      sdk: {
-        threads: {
-          get: async () => thread,
-          childSummary: async () => ({
-            nonDeletedChildCount: childCount,
-            unarchivedDescendantCount: childCount,
-          }),
-        },
-      },
+      sdk: { threads: { get: async () => thread } },
       threadActions: () => entries,
-      threadActionRegistrations: workstreamsRegistered
-        ? [{ key: "workstreams/snooze", pluginId: "workstreams", title: "Snooze", icon: "Clock" }]
-        : [],
-      rpc: {
-        snooze: async () => {
-          if (snoozeWait) await snoozeWait;
-          if (snoozeError) throw snoozeError;
-          return {
-            threadId: THREAD_ID,
-            wakeAt: Date.UTC(2026, 10, 10, 9),
-          };
-        },
-      },
     },
   );
   if (sanitizeTriggerForTest(settings.trigger) === "hold-option") {
@@ -330,87 +356,6 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("ignores a stale Snooze summary after navigation", async () => {
-    const firstThread = makeThreadResponse({
-      id: THREAD_ID,
-      projectId: PROJECT_ID,
-    });
-    const secondThread = makeThreadResponse({
-      id: "thr_second",
-      projectId: PROJECT_ID,
-    });
-    type Summary = {
-      nonDeletedChildCount: number;
-      unarchivedDescendantCount: number;
-    };
-    let resolveSummary: ((summary: Summary) => void) | undefined;
-    const summary = new Promise<Summary>((resolve) => {
-      resolveSummary = resolve;
-    });
-    const snooze = vi.fn(async () => ({
-      threadId: THREAD_ID,
-      wakeAt: Date.UTC(2026, 10, 10, 9),
-    }));
-    const run = vi.fn(async () => undefined);
-    const slot = renderSlot(
-      { component: QuickActionsOverlay },
-      { threadId: THREAD_ID },
-      {
-        context: { projectId: PROJECT_ID, threadId: THREAD_ID },
-        settings: { trigger: "corner" },
-        sdk: {
-          threads: {
-            get: async ({ threadId }: { threadId: string }) =>
-              threadId === THREAD_ID ? firstThread : secondThread,
-            childSummary: async () => summary,
-          },
-        },
-        threadActions: () => [
-          actionEntry("bb--core/archive", "Archive", run),
-          actionEntry("bb--core/pin", "Pin", run),
-          actionEntry("bb--core/read", "Mark unread", run),
-          actionEntry("bb--core/copyLink", "Copy link", run),
-        ],
-        rpc: { snooze },
-      },
-    );
-    const trigger = await slot.findByRole("button", {
-      name: "Open quick actions",
-    });
-    await openMenu(trigger);
-    const user = userEvent.setup();
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await waitFor(() =>
-      expect(
-        slot.inspection.sdkCalls.some(
-          (call) => call.method === "threads.childSummary",
-        ),
-      ).toBe(true),
-    );
-
-    slot.lifecycle.rerender(<QuickActionsOverlay threadId="thr_second" />);
-    await waitFor(() =>
-      expect(trigger).toHaveAttribute("aria-disabled", "false"),
-    );
-    await act(async () => {
-      resolveSummary?.({
-        nonDeletedChildCount: 2,
-        unarchivedDescendantCount: 2,
-      });
-      await summary;
-    });
-
-    expect(slot.queryByRole("alertdialog")).toBeNull();
-    expect(snooze).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(document.querySelector(".qa-menu")).toHaveAttribute(
-        "aria-busy",
-        "false",
-      ),
-    );
-    slot.lifecycle.unmount();
-  });
-
   it("holds the pending action lock across navigation", async () => {
     const firstThread = makeThreadResponse({
       id: THREAD_ID,
@@ -489,7 +434,7 @@ describe("Quick Actions overlay", () => {
     const menu = document.querySelector(".qa-menu");
     expect(menu).toHaveAttribute("data-debug", "true");
     expect(document.querySelector(".qa-hover-core")).not.toBeNull();
-    expect(document.querySelectorAll(".qa-hover-corridor")).toHaveLength(5);
+    expect(document.querySelectorAll(".qa-hover-corridor")).toHaveLength(4);
     slot.lifecycle.unmount();
   });
 
@@ -626,134 +571,66 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("snoozes and navigates after StrictMode effect replay", async () => {
-    const user = userEvent.setup();
-    const { slot, trigger } = await renderQuickActions({ strictMode: true });
-    await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await waitFor(() =>
-      expect(slot.inspection.navigateCalls).toContainEqual({
-        method: "toCompose",
-        options: { projectId: PROJECT_ID },
-      }),
-    );
-    slot.lifecycle.unmount();
-  });
-
-  it("snoozes the current thread and returns to New thread", async () => {
-    const user = userEvent.setup();
-    const { slot, trigger } = await renderQuickActions();
-    await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await waitFor(() => {
-      expect(slot.inspection.rpcCalls).toContainEqual({
-        method: "snooze",
-        input: { threadId: THREAD_ID },
-      });
-    });
-    expect(slot.inspection.navigateCalls).toContainEqual({
-      method: "toCompose",
-      options: { projectId: PROJECT_ID },
-    });
-    slot.lifecycle.unmount();
-  });
-
-  it("runs Workstreams' default Snooze from the corner menu", async () => {
-    const user = userEvent.setup();
-    const run = vi.fn(async (_value?: string) => undefined);
+  it("shows an offered action, and keeps it after StrictMode effect replay", async () => {
+    const action = snoozeAction();
     const { slot, trigger } = await renderQuickActions({
-      workstreamsSnooze: {
-        label: "Snooze",
-        icon: "Clock",
-        detail: "3 hours",
-        choices: { items: [{ id: "3h", label: "3 hours" }] },
-        run,
-      },
+      strictMode: true,
+      pluginActions: [{ key: "workstreams/snooze", action }],
     });
     await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    expect(run).toHaveBeenCalledExactlyOnceWith(undefined);
-    expect(slot.inspection.rpcCalls.filter((call) => call.method === "snooze")).toEqual([]);
+    expect(
+      slot.getAllByRole("button").map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Close quick actions",
+      "Archive",
+      "Snooze",
+      "Pin",
+      "Mark unread",
+      "Copy link",
+    ]);
     slot.lifecycle.unmount();
   });
 
-  it("does not navigate after a late Snooze response unmounts the thread", async () => {
+  it("runs an offered action's default choice from the corner menu", async () => {
     const user = userEvent.setup();
-    let finishSnooze: (() => void) | undefined;
-    const snoozeWait = new Promise<void>((resolve) => {
-      finishSnooze = resolve;
-    });
-    const { slot, trigger } = await renderQuickActions({ snoozeWait });
-    await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await waitFor(() =>
-      expect(slot.inspection.rpcCalls).toContainEqual({
-        method: "snooze",
-        input: { threadId: THREAD_ID },
-      }),
-    );
-    slot.lifecycle.unmount();
-    finishSnooze?.();
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(slot.inspection.navigateCalls).not.toContainEqual({
-      method: "toCompose",
-      options: { projectId: PROJECT_ID },
-    });
-  });
-
-  it("confirms before snoozing active descendants", async () => {
-    const user = userEvent.setup();
-    const { slot, trigger } = await renderQuickActions({ childCount: 2 });
-    await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    expect(await slot.findByRole("alertdialog")).toHaveTextContent(
-      "Snooze 3 threads?",
-    );
-    expect(slot.inspection.rpcCalls).not.toContainEqual({
-      method: "snooze",
-      input: { threadId: THREAD_ID },
-    });
-    await user.click(slot.getByRole("button", { name: "Snooze 3 threads" }));
-    await waitFor(() =>
-      expect(slot.inspection.rpcCalls).toContainEqual({
-        method: "snooze",
-        input: { threadId: THREAD_ID },
-      }),
-    );
-    expect(slot.inspection.navigateCalls).toContainEqual({
-      method: "toCompose",
-      options: { projectId: PROJECT_ID },
-    });
-    slot.lifecycle.unmount();
-  });
-
-  it("restores a closed trigger when Snooze confirmation is cancelled", async () => {
-    const user = userEvent.setup();
-    const { slot, trigger } = await renderQuickActions({ childCount: 1 });
-    await openMenu(trigger);
-    await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await user.click(await slot.findByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(trigger).toHaveFocus());
-    expect(trigger).toHaveAttribute("aria-expanded", "false");
-    slot.lifecycle.unmount();
-  });
-
-  it("reports Snooze failure without navigating", async () => {
-    const user = userEvent.setup();
+    const action = snoozeAction();
     const { slot, trigger } = await renderQuickActions({
-      snoozeError: new Error("archive unavailable"),
+      pluginActions: [{ key: "workstreams/snooze", action }],
     });
     await openMenu(trigger);
     await user.click(slot.getByRole("button", { name: "Snooze" }));
-    await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(
-        "Snooze failed: archive unavailable",
-      ),
-    );
-    expect(slot.inspection.navigateCalls).not.toContainEqual({
-      method: "toCompose",
-      options: { projectId: PROJECT_ID },
+    expect(action.run).toHaveBeenCalledExactlyOnceWith("3h");
+    slot.lifecycle.unmount();
+  });
+
+  it("leaves out a registered action no plugin offers", async () => {
+    const { slot, trigger } = await renderQuickActions({
+      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), order: null }],
     });
+    await openMenu(trigger);
+    expect(slot.queryByRole("button", { name: "Snooze" })).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("adds an action offered after the menu mounts", async () => {
+    const { slot, trigger } = await renderQuickActions({
+      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), order: null }],
+    });
+    act(() => offerActions([{ key: "workstreams/snooze", order: 200 }]));
+    await openMenu(trigger);
+    expect(slot.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
+    slot.lifecycle.unmount();
+  });
+
+  it("reports an action that fails", async () => {
+    const user = userEvent.setup();
+    const { slot, trigger, runs } = await renderQuickActions();
+    vi.mocked(runs.get("bb--core/pin")!).mockRejectedValueOnce(new Error("offline"));
+    await openMenu(trigger);
+    await user.click(slot.getByRole("button", { name: "Pin" }));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Pin failed: offline"),
+    );
     slot.lifecycle.unmount();
   });
 
@@ -972,7 +849,7 @@ describe("Quick Actions overlay", () => {
       const actionItems = slot
         .getAllByRole("menuitem")
         .filter((node) => !node.closest(".qa-band-items"));
-      expect(actionItems).toHaveLength(5);
+      expect(actionItems).toHaveLength(4);
       expect(item("Archive")).toHaveAttribute("data-selected", "false");
 
       await pointAt({ clientX: 400, clientY: 280 });
@@ -1050,40 +927,36 @@ describe("Quick Actions overlay", () => {
       slot.lifecycle.unmount();
     });
 
-    describe("Snooze's band of wake times", () => {
-      // Wednesday 11 November 2026, 10:40: all five presets are offered.
-      beforeEach(() => {
-        vi.useFakeTimers({ toFake: ["Date"] });
-        vi.setSystemTime(new Date(2026, 10, 11, 10, 40));
-      });
-      afterEach(() => {
-        vi.useRealTimers();
-      });
-
+    describe("an offered action with choices", () => {
       const centre = { clientX: 400, clientY: 300 };
-      // Snooze is the second of five slots, at 72 degrees clockwise from up.
+      // Offered at order 200, Snooze is the second of five slots, 72 degrees
+      // clockwise from up.
       const towardSnooze = (r: number) => ({
         clientX: centre.clientX + r * Math.sin((72 * Math.PI) / 180),
         clientY: centre.clientY - r * Math.cos((72 * Math.PI) / 180),
       });
       const band = () => document.querySelector<SVGElement>(".qa-band");
-      /** A point on the band in the direction of one of its presets. */
+      /** A point on the band in the direction of one of its choices. */
       const onBand = (label: string) => {
         const match = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(item(label)!.style.transform);
         const [x, y] = [Number(match![1]), Number(match![2])];
         const r = Math.hypot(x, y);
         return { clientX: centre.clientX + (x / r) * 180, clientY: centre.clientY + (y / r) * 180 };
       };
-      const snoozeCalls = (slot: Awaited<ReturnType<typeof renderQuickActions>>["slot"]) =>
-        slot.inspection.rpcCalls.filter((call) => call.method === "snooze");
+      const bandLabels = () =>
+        Array.from(document.querySelectorAll(".qa-band-items .qa-ring-label")).map(
+          (node) => node.textContent,
+        );
+      const renderWithSnooze = (action = snoozeAction(), forThread = true) =>
+        renderQuickActions({
+          settings: { ...hold },
+          pluginActions: [{ key: "workstreams/snooze", action, forThread }],
+        });
 
-      it("opens a little past the hub on Snooze, lighting Tomorrow, and folds for another action", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold } });
+      it("grows a band of its choices past the hub, lights the default, and folds for another action", async () => {
+        const { slot } = await renderWithSnooze();
         await holdOptionAt(centre);
-        const presets = slot.getByRole("menu", { name: "Snooze until" });
-        expect(
-          Array.from(presets.querySelectorAll(".qa-ring-label")).map((n) => n.textContent),
-        ).toEqual(["In 1 hour", "This evening", "Tomorrow", "This weekend", "Next week"]);
+        expect(bandLabels()).toEqual(SNOOZE_PRESETS.map((preset) => preset.label));
         expect(band()).not.toHaveAttribute("data-extended", "true");
         // Snooze alone carries the chevron that points to its band.
         expect(document.querySelectorAll(".qa-ring-more")).toHaveLength(1);
@@ -1097,178 +970,56 @@ describe("Quick Actions overlay", () => {
         await pointAt(towardSnooze(52));
         expect(band()).toHaveAttribute("data-extended", "true");
         expect(item("Snooze")).toHaveAttribute("data-selected", "true");
-        expect(item("Tomorrow")).toHaveAttribute("data-selected", "true");
+        expect(item("3 hours")).toHaveAttribute("data-selected", "true");
 
         // Pin, the next slot clockwise.
         await pointAt({ clientX: 400 + 100 * Math.sin((144 * Math.PI) / 180), clientY: 300 - 100 * Math.cos((144 * Math.PI) / 180) });
         expect(item("Pin")).toHaveAttribute("data-selected", "true");
         expect(band()).toHaveAttribute("data-extended", "false");
-        expect(item("Tomorrow")).toHaveAttribute("data-selected", "false");
+        expect(item("3 hours")).toHaveAttribute("data-selected", "false");
         slot.lifecycle.unmount();
       });
 
-      it("snoozes until the preset under the pointer when Option is released", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold } });
+      it("runs the choice under the pointer when Option is released", async () => {
+        const action = snoozeAction();
+        const { slot } = await renderWithSnooze(action);
         await holdOptionAt(centre);
         await pointAt(towardSnooze(100));
-        await pointAt(onBand("This weekend"));
-        expect(item("This weekend")).toHaveAttribute("data-selected", "true");
-        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
-        await releaseOption();
-        await waitFor(() =>
-          expect(snoozeCalls(slot)).toEqual([
-            {
-              method: "snooze",
-              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 14, 9).getTime() },
-            },
-          ]),
-        );
-        slot.lifecycle.unmount();
-      });
-
-      it("snoozes until Tomorrow from Snooze itself once the band is open", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold } });
-        await holdOptionAt(centre);
-        await pointAt(towardSnooze(100));
-        await releaseOption();
-        await waitFor(() =>
-          expect(snoozeCalls(slot)).toEqual([
-            {
-              method: "snooze",
-              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 12, 9).getTime() },
-            },
-          ]),
-        );
-        slot.lifecycle.unmount();
-      });
-
-      it("keeps the server's default when Snooze is released before the band opens", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold } });
-        await holdOptionAt(centre);
-        await pointAt(towardSnooze(42));
-        await releaseOption();
-        await waitFor(() =>
-          expect(snoozeCalls(slot)).toEqual([
-            { method: "snooze", input: { threadId: THREAD_ID } },
-          ]),
-        );
-        slot.lifecycle.unmount();
-      });
-
-      it("names the chosen wake time when confirming active descendants", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold }, childCount: 2 });
-        await holdOptionAt(centre);
-        await pointAt(towardSnooze(100));
-        await pointAt(onBand("Next week"));
-        await releaseOption();
-        const dialog = await slot.findByRole("alertdialog");
-        const monday = new Intl.DateTimeFormat(undefined, {
-          weekday: "short",
-          hour: "numeric",
-          minute: "2-digit",
-        }).format(new Date(2026, 10, 16, 9));
-        expect(dialog).toHaveTextContent(`until ${monday}. They wake together.`);
-        await act(async () => {
-          fireEvent.click(slot.getByRole("button", { name: "Snooze 3 threads" }));
-        });
-        await waitFor(() =>
-          expect(snoozeCalls(slot)).toEqual([
-            {
-              method: "snooze",
-              input: { threadId: THREAD_ID, wakeAt: new Date(2026, 10, 16, 9).getTime() },
-            },
-          ]),
-        );
-        slot.lifecycle.unmount();
-      });
-
-      it("cancels without snoozing on Escape, folding the band", async () => {
-        const { slot } = await renderQuickActions({ settings: { ...hold } });
-        await holdOptionAt(centre);
-        await pointAt(towardSnooze(100));
-        await pointAt(onBand("In 1 hour"));
-        await act(async () => {
-          fireEvent.keyDown(window, { key: "Escape" });
-        });
-        expect(band()).toHaveAttribute("data-extended", "false");
-        await releaseOption();
-        await advance(400);
-        expect(ring()).toBeNull();
-        expect(snoozeCalls(slot)).toEqual([]);
-        slot.lifecycle.unmount();
-      });
-    });
-
-    describe("with Workstreams' Snooze", () => {
-      const centre = { clientX: 400, clientY: 300 };
-      const towardSnooze = (r: number) => ({
-        clientX: centre.clientX + r * Math.sin((72 * Math.PI) / 180),
-        clientY: centre.clientY - r * Math.cos((72 * Math.PI) / 180),
-      });
-      const onBand = (label: string) => {
-        const match = /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/.exec(item(label)!.style.transform);
-        const [x, y] = [Number(match![1]), Number(match![2])];
-        const r = Math.hypot(x, y);
-        return { clientX: centre.clientX + (x / r) * 180, clientY: centre.clientY + (y / r) * 180 };
-      };
-      const presets = [
-        { id: "20m", label: "20 minutes" },
-        { id: "1h", label: "1 hour" },
-        { id: "3h", label: "3 hours" },
-        { id: "tomorrow", label: "Tomorrow morning" },
-        { id: "next-week", label: "Next week" },
-      ];
-      const workstreams = (overrides: Partial<PluginThreadActionEntry["action"]> = {}) => ({
-        label: "Snooze",
-        icon: "Clock",
-        detail: "3 hours",
-        choices: { items: presets },
-        run: vi.fn(async (_value?: string) => undefined),
-        ...overrides,
-      });
-      const bandLabels = () =>
-        Array.from(document.querySelectorAll(".qa-band-items .qa-ring-label")).map(
-          (node) => node.textContent,
-        );
-
-      it("fills the band with Workstreams' presets, lights its default, and runs the one chosen", async () => {
-        const action = workstreams();
-        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
-        await holdOptionAt(centre);
-        expect(bandLabels()).toEqual(presets.map((preset) => preset.label));
-        // Workstreams' presets carry no wake times.
-        expect(document.querySelectorAll(".qa-band-items .qa-ring-time")).toHaveLength(0);
-
-        await pointAt(towardSnooze(52));
-        expect(item("3 hours")).toHaveAttribute("data-selected", "true");
         await pointAt(onBand("Tomorrow morning"));
         expect(item("Tomorrow morning")).toHaveAttribute("data-selected", "true");
+        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
         await releaseOption();
         expect(action.run).toHaveBeenCalledExactlyOnceWith("tomorrow");
-        expect(slot.inspection.rpcCalls.filter((call) => call.method === "snooze")).toEqual([]);
         slot.lifecycle.unmount();
       });
 
-      it("takes Workstreams' default from Snooze before the band opens", async () => {
-        const action = workstreams();
-        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
+      it("takes the default choice from the action itself, before or after the band opens", async () => {
+        const action = snoozeAction();
+        const { slot } = await renderWithSnooze(action);
         await holdOptionAt(centre);
         await pointAt(towardSnooze(42));
         await releaseOption();
-        expect(action.run).toHaveBeenCalledExactlyOnceWith(undefined);
+        expect(action.run).toHaveBeenLastCalledWith("3h");
+        await advance(400);
+
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await releaseOption();
+        expect(action.run).toHaveBeenCalledTimes(2);
+        expect(action.run).toHaveBeenLastCalledWith("3h");
         slot.lifecycle.unmount();
       });
 
-      it("lights nothing off the band when Workstreams names no default", async () => {
+      it("lights nothing and passes no value when no choice is the default", async () => {
         // A snoozed thread: Wake now first, and no default preset.
-        const action = workstreams({
+        const action = snoozeAction({
           detail: undefined,
-          choices: { items: [{ id: "wake-now", label: "Wake now" }, ...presets] },
+          choices: { items: [{ id: "wake-now", label: "Wake now" }, ...SNOOZE_PRESETS] },
         });
-        const { slot } = await renderQuickActions({ settings: { ...hold }, workstreamsSnooze: action });
+        const { slot } = await renderWithSnooze(action);
         await holdOptionAt(centre);
         await pointAt(towardSnooze(52));
-        expect(document.querySelector(".qa-band")).toHaveAttribute("data-extended", "true");
+        expect(band()).toHaveAttribute("data-extended", "true");
         expect(
           document.querySelectorAll('.qa-band-items .qa-ring-item[data-selected="true"]'),
         ).toHaveLength(0);
@@ -1277,14 +1028,28 @@ describe("Quick Actions overlay", () => {
         slot.lifecycle.unmount();
       });
 
-      it("has no Snooze for a thread Workstreams offers none for", async () => {
-        const { slot } = await renderQuickActions({
-          settings: { ...hold },
-          workstreamsRegistered: true,
+      it("cancels without running on Escape, folding the band", async () => {
+        const action = snoozeAction();
+        const { slot } = await renderWithSnooze(action);
+        await holdOptionAt(centre);
+        await pointAt(towardSnooze(100));
+        await pointAt(onBand("20 minutes"));
+        await act(async () => {
+          fireEvent.keyDown(window, { key: "Escape" });
         });
+        expect(band()).toHaveAttribute("data-extended", "false");
+        await releaseOption();
+        await advance(400);
+        expect(ring()).toBeNull();
+        expect(action.run).not.toHaveBeenCalled();
+        slot.lifecycle.unmount();
+      });
+
+      it("leaves the action out for a thread its plugin has none for", async () => {
+        const { slot } = await renderWithSnooze(snoozeAction(), false);
         await holdOptionAt(centre);
         expect(item("Snooze")).toBeUndefined();
-        expect(document.querySelector(".qa-band")).toBeNull();
+        expect(band()).toBeNull();
         slot.lifecycle.unmount();
       });
     });

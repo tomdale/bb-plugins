@@ -13,7 +13,7 @@
   },
   "bb": {
     "name": "Quick Actions",
-    "description": "Open configurable radial thread actions beside the composer and snooze threads until a chosen time.",
+    "description": "Run BB thread actions from a radial menu at the pointer, including actions other plugins offer.",
     "branding": {
       "icon": "Zap"
     },
@@ -21,8 +21,7 @@
     "app": "./app.tsx"
   },
   "dependencies": {
-    "@radix-ui/react-slot": "^1.5.0",
-    "zod": "^4.6.5"
+    "@radix-ui/react-slot": "^1.5.0"
   },
   "devDependencies": {
     "@get-bb/plugin-sdk": "0.6.133",

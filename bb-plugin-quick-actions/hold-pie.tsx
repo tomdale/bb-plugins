@@ -11,12 +11,10 @@ import {
 } from "./ring-pie";
 import { RingBand } from "./ring-band";
 
-/** One choice in an action's outer band, such as a Snooze wake time. */
+/** One choice in an action's outer band, such as a Snooze preset. */
 export type HoldPieOption = {
   id: string;
   label: string;
-  /** A second line under the label, such as the wake time. */
-  detail?: string;
   /** Releasing on the parent action takes this option, so the band lights it. */
   isDefault?: boolean;
 };
@@ -28,8 +26,8 @@ export type HoldPieAction = {
   disabled?: boolean;
   /**
    * Choices for an outer band that grows out of this action's slice once the
-   * action is selected. Called as the ring opens, so time-based choices are
-   * current. Only the first such action in a ring gets a band.
+   * action is selected. Called as the ring opens, so the choices are current.
+   * Only the first such action in a ring gets a band.
    */
   options?: () => readonly HoldPieOption[];
 };
@@ -562,9 +560,6 @@ export function HoldOptionPie({
                     data-selected="false"
                   >
                     <span className="qa-ring-label">{option.label}</span>
-                    {option.detail ? (
-                      <span className="qa-ring-time">{option.detail}</span>
-                    ) : null}
                   </div>
                 ))}
               </div>

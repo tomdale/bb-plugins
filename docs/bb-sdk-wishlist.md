@@ -1061,20 +1061,46 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   SDK 0.6.5, whose types predate `experimental_threadAction`, so it declares
   the slot's shape itself and registers only when BB provides it
 - **Use case:** Workstreams registers its Snooze as a thread action
-  (`workstreams/snooze`) whose choices are the user's presets, and the Quick
-  Actions hold ring shows those choices as a band out of its Snooze slice.
-  Both surfaces should match Workstreams' own Snooze menu, which lists each
-  preset's wake time beside its name and marks the preset a plain Snooze takes
-  with "(default)"
+  (`workstreams/snooze`) whose choices are the user's presets, and offers it to
+  Quick Actions, whose hold ring shows any offered action's choices as a band
+  out of its slice. Both surfaces should match Workstreams' own Snooze menu,
+  which lists each preset's wake time beside its name and marks the preset a
+  plain Snooze takes with "(default)"
 - **Limit and evidence:** `PluginThreadActionChoice` has only `id`, `label`,
   `icon`, `selected`, and `disabled`. A choice has nowhere to carry its wake
   time, and nothing marks a default; `selected` means the current value, which
   would draw a check beside a preset the thread is not snoozed for
 - **Workaround:** BB's thread menus and the ring show preset names only.
   Workstreams sets the action's `detail` to the default preset's label, and
-  Quick Actions lights the choice whose label matches it. Two presets with the
-  same label would both match; Quick Actions takes the first
+  Quick Actions treats the choice whose label matches an action's `detail` as
+  its default. Two choices with the same label would both match; Quick Actions
+  takes the first
 - **Possible API:** `detail?: string` on `PluginThreadActionChoice`, shown as
   a muted trailing line or column, and `default?: boolean` (or
   `choices.defaultId`) naming the choice that running the action without a
   value takes
+
+## Let a plugin add thread actions to another plugin's menu
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0; Quick Actions pins SDK 0.6.133, Workstreams SDK 0.6.5
+- **Use case:** the Quick Actions ring shows BB's Archive, Pin, Mark read, and
+  Copy link, plus thread actions other plugins choose to put there, such as
+  Workstreams' Snooze, without either plugin depending on the other
+- **Limit and evidence:** the SDK has no extension point one plugin can define
+  for others, and a thread action registration carries nothing another plugin
+  can read beyond `key`, `pluginId`, `title`, and `icon`
+  (`PluginThreadActionRegistrationInfo`). An evaluated action's extra fields
+  reach `experimental_useThreadActions` callers only because BB's
+  `bindThreadAction` spreads the action object, which the types don't promise
+- **Workaround:** a handshake on `window`: a plugin dispatches
+  `bb-quick-actions:offer` with `{ key, order? }` naming one of its thread
+  actions, on load and whenever Quick Actions dispatches
+  `bb-quick-actions:request`. Quick Actions reads the action itself from
+  `experimental_useThreadActions`. Offers carry no per-thread data, and BB can't
+  show which plugins extend which
+- **Possible API:** an optional `surfaces` (or `tags`) list on
+  `PluginThreadActionRegistration`, returned by
+  `experimental_useThreadActionRegistrations` and filterable in
+  `experimental_useThreadActions`, so Quick Actions could ask for actions tagged
+  `quick-actions`; or plugin-declared slots that other plugins register into
