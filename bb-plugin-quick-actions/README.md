@@ -113,8 +113,10 @@ sits straight out from the action; for Workstreams' Snooze, that is your
 default preset. It stays lit while the pointer is on the action, so releasing
 there takes it, and so does releasing before the band opens or using the
 corner button. A snoozed thread's Snooze names no default, so releasing on it
-lets Workstreams decide. BB thread action choices carry only a name, so Snooze
-presets show without wake times.
+lets Workstreams decide. A band holds up to eight choices; an action with more,
+such as Move to section with many sections, shows as unavailable in the ring
+and says why. BB thread action choices carry only a name, so Snooze presets
+show without wake times.
 
 ## Checks
 

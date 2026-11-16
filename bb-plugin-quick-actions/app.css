@@ -480,9 +480,10 @@
   fill: rgb(0 0 0 / 0.38);
 }
 
+/* Opaque, so the rounding stroke doesn't double the tint along its edge. */
 .qa-actions-preview-tile {
-  fill: rgb(255 255 255 / 0.075);
-  stroke: rgb(255 255 255 / 0.075);
+  fill: rgb(37 38 41);
+  stroke: rgb(37 38 41);
   stroke-width: 8;
   stroke-linejoin: round;
 }

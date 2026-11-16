@@ -168,7 +168,15 @@ type QuickActionItem = {
   options?: () => readonly PieOption[];
   /** Runs the action, with the band option chosen for it, if any. */
   run: (optionId?: string) => void | Promise<void>;
+  /** Why a disabled action can't run, when the thread isn't the reason. */
+  unavailableReason?: string;
 };
+
+/**
+ * The most choices a band lays out. More would wrap the band around the ring
+ * with labels on top of each other.
+ */
+const BAND_MAX_OPTIONS = 8;
 
 /**
  * A BB thread action as a ring action. Its enabled choices, if any, fill the
@@ -181,6 +189,16 @@ type QuickActionItem = {
 function threadActionItem(entry: PluginThreadActionEntry): QuickActionItem {
   const { action } = entry;
   const choices = (action.choices?.items ?? []).filter((choice) => !choice.disabled);
+  if (choices.length > BAND_MAX_OPTIONS) {
+    return {
+      id: entry.key,
+      label: action.label,
+      icon: action.icon,
+      disabled: true,
+      run: () => undefined,
+      unavailableReason: `${action.label} has more choices than the ring can show`,
+    };
+  }
   const defaultChoice = choices.find((choice) => choice.label === action.detail);
   return {
     id: entry.key,
@@ -353,7 +371,10 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
         busy={pending !== null}
         onRun={runHoldAction}
         onUnavailable={(item) =>
-          toast(`${item.label} isn't available for this thread`)
+          toast(
+            actionsRef.current.find((candidate) => candidate.id === item.id)
+              ?.unavailableReason ?? `${item.label} isn't available for this thread`,
+          )
         }
       />
     ) : null;

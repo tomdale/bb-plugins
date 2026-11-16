@@ -1087,6 +1087,20 @@ describe("Quick Actions overlay", () => {
         slot.lifecycle.unmount();
       });
 
+      it("marks an action with more choices than a band holds unavailable, and says why", async () => {
+        const many = Array.from({ length: 9 }, (_, i) => ({ id: `s${i}`, label: `Section ${i}` }));
+        const action = snoozeAction({ label: "Move to section", detail: undefined, choices: { items: many } });
+        const { slot } = await renderWithSnooze(action);
+        await holdOptionAt(centre);
+        expect(item("Move to section")).toHaveAttribute("aria-disabled", "true");
+        expect(band()).toBeNull();
+        await pointAt(towardSnooze(100));
+        await releaseOption();
+        expect(toast).toHaveBeenCalledWith("Move to section has more choices than the ring can show");
+        expect(action.run).not.toHaveBeenCalled();
+        slot.lifecycle.unmount();
+      });
+
       it("gives each action with choices its own band", async () => {
         const move = {
           label: "Move to section",
