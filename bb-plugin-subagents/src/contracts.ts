@@ -5,6 +5,7 @@ export const createInput = z.object({
   task: z.string().trim().min(1).max(32000),
   title: z.string().trim().min(1).max(120).optional(),
   model: z.string().trim().min(1).max(200).optional(),
+  reasoningLevel: z.string().trim().min(1).max(40).optional(),
   timeout: z.number().int().min(0).max(86400).optional(),
 }).strict();
 

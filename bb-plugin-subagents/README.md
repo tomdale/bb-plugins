@@ -4,7 +4,7 @@ A native BB plugin inspired by [pi-subagent-in-memory](https://github.com/ross-j
 
 ## Agent tools
 
-- `subagent_create({ task, title?, model?, timeout? })` returns a run ID immediately. It inherits the calling thread's provider, reasoning, service tier and permissions; `model` selects another model of that provider. Completion delivers bounded output to the caller.
+- `subagent_create({ task, title?, model?, reasoningLevel?, timeout? })` returns a run ID immediately. It inherits the calling thread's provider, model, reasoning level, service tier and permissions; `model` selects another model of that provider and `reasoningLevel` selects another level that model supports. A worker on another model keeps the inherited level when that model supports it and otherwise starts at the model's default. Completion delivers bounded output to the caller.
 - `subagent_status({ id? })` reads status and up to 16,000 characters of output, or lists up to 100 owned runs.
 - `subagent_kill({ id?, reason? })` stops a background worker and preserves partial output. Without an ID it lists owned runs. Agents cannot kill detached sessions, themselves, peers, or ancestors.
 

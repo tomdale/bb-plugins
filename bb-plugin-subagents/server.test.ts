@@ -14,6 +14,19 @@ afterEach(async () => {
   for (const host of hosts.splice(0)) await host.harness.lifecycle.dispose();
 });
 
+function catalogModel(model: string, efforts: string[]) {
+  return {
+    id: model,
+    model,
+    displayName: model,
+    description: "",
+    isDefault: false,
+    defaultReasoningEffort: efforts[0]!,
+    reasoningDiscovery: "known",
+    supportedReasoningEfforts: efforts.map(reasoningEffort => ({ reasoningEffort, description: "" })),
+  };
+}
+
 async function setup(settings: Record<string, number> = {}, summarizer?: StatusSummarizer) {
   const threads = new Map([
     [
@@ -33,6 +46,16 @@ async function setup(settings: Record<string, number> = {}, summarizer?: StatusS
     pluginId: "subagents",
     settings,
     sdk: {
+      providers: {
+        models: async () => ({
+          modelLoadError: null,
+          models: [
+            catalogModel("claude-opus-4-6", ["low", "medium", "high", "xhigh"]),
+            catalogModel("claude-haiku-4-5", ["low", "medium"]),
+          ],
+          selectedOnlyModels: [],
+        }) as never,
+      },
       threads: {
         get: async ({ threadId }) => {
           const thread = threads.get(threadId);
@@ -80,10 +103,10 @@ async function setup(settings: Record<string, number> = {}, summarizer?: StatusS
   });
   hosts.push(host);
   await plugin(host.bb, summarizer);
-  async function create(threadId = "origin", task = "Review code.") {
+  async function create(threadId = "origin", task = "Review code.", options: Record<string, unknown> = {}) {
     const result = await host.harness.behavior.callAgentTool(
       "subagent_create",
-      { task },
+      { task, ...options },
       { threadId, projectId: "project" },
     );
     return JSON.parse(result as string) as { id: string; threadId: string };
@@ -124,6 +147,33 @@ describe("background subagents", () => {
       model: "claude-opus-4-6",
       reasoningLevel: "high",
       statusSummary: "Inspect CSRF middleware across API routes.",
+    });
+  });
+
+  it("starts a worker at a requested reasoning level the model supports", async () => {
+    const host = await setup();
+    await host.create("origin", "Deep review.", { reasoningLevel: "xhigh" });
+    expect(host.harness.inspection.sdk.callsTo("threads.spawn")[0]![0]).toMatchObject({
+      model: "claude-opus-4-6",
+      reasoningLevel: "xhigh",
+    });
+    expect((await host.list()).runs[0]).toMatchObject({ reasoningLevel: "xhigh" });
+  });
+
+  it("rejects a reasoning level the selected model does not list, before spawning", async () => {
+    const host = await setup();
+    await expect(
+      host.create("origin", "Quick check.", { model: "claude-haiku-4-5", reasoningLevel: "xhigh" }),
+    ).rejects.toThrow(/not supported by pi\/claude-haiku-4-5\. Supported reasoning levels: low, medium/);
+    expect(host.harness.inspection.sdk.callsTo("threads.spawn")).toHaveLength(0);
+  });
+
+  it("falls back to the selected model's default when it cannot run the inherited level", async () => {
+    const host = await setup();
+    await host.create("origin", "Quick check.", { model: "claude-haiku-4-5" });
+    expect(host.harness.inspection.sdk.callsTo("threads.spawn")[0]![0]).toMatchObject({
+      model: "claude-haiku-4-5",
+      reasoningLevel: "low",
     });
   });
 

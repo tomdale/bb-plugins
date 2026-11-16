@@ -30,7 +30,7 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
   bb.agents.registerTool({
     name: "subagent_create",
     description:
-      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning and permissions; optional model selects another model of the same provider. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
+      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning level and permissions; optional model selects another model of the same provider, and optional reasoningLevel (a level id the model lists, such as low, medium, high or xhigh) overrides the inherited level. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
     parameters: createInput,
     async execute(input, { threadId }) {
       const run = await service.create(threadId, input);

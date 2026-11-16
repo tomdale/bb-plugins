@@ -189,6 +189,51 @@ export class Subagents {
         }));
   }
 
+  /**
+   * Chooses the worker's reasoning level. A requested level must appear in the
+   * selected model's catalog entry; an inherited level that the selected model
+   * does not support falls back to that model's default. When the catalog cannot
+   * confirm either way, the level passes through and spawn validates it.
+   */
+  private async resolveReasoningLevel(
+    owner: { environmentId: string | null; providerId: string },
+    model: string | undefined,
+    input: z.infer<typeof createInput>,
+    inherited: string | undefined,
+  ): Promise<string | undefined> {
+    const requested = input.reasoningLevel;
+    if (!model || !owner.environmentId || (!requested && !input.model)) return requested ?? inherited;
+    let entry;
+    try {
+      const catalog = await this.bb.sdk.providers.models({
+        environmentId: owner.environmentId,
+        providerId: owner.providerId,
+      });
+      if (catalog.modelLoadError === null) {
+        entry = [...catalog.models, ...catalog.selectedOnlyModels].find(
+          candidate => candidate.id === model || candidate.model === model,
+        );
+      }
+    } catch (cause) {
+      this.bb.log.warn(`Subagent model catalog: ${String(cause)}`);
+    }
+    if (!entry) return requested ?? inherited;
+    const supported = entry.supportedReasoningEfforts.map(effort => effort.reasoningEffort);
+    if (!requested) {
+      return !inherited || supported.length === 0 || supported.includes(inherited)
+        ? inherited
+        : entry.defaultReasoningEffort;
+    }
+    if (supported.includes(requested)) return requested;
+    const unverifiable = entry.reasoningDiscovery === "unknown" || requested === entry.defaultReasoningEffort;
+    if (supported.length === 0 && unverifiable) return requested;
+    throw new Error(
+      `Reasoning level "${requested}" is not supported by ${owner.providerId}/${model}. Supported reasoning levels: ${
+        supported.length > 0 ? supported.join(", ") : entry.defaultReasoningEffort
+      }.`,
+    );
+  }
+
   async create(ownerThreadId: string, input: z.infer<typeof createInput>) {
     const owner = await this.bb.sdk.threads.get({ threadId: ownerThreadId });
     if (!owner.environmentId || owner.archivedAt || owner.deletedAt) {
@@ -211,6 +256,7 @@ export class Subagents {
     const now = Date.now();
     const title = input.title ?? input.task.slice(0, 80);
     const model = input.model ?? defaults.model;
+    const reasoningLevel = await this.resolveReasoningLevel(owner, model, input, defaults.reasoningLevel);
     const run: Run = {
       id: randomUUID(),
       ownerThreadId,
@@ -221,7 +267,7 @@ export class Subagents {
       depth,
       providerId: owner.providerId,
       model,
-      reasoningLevel: defaults.reasoningLevel ?? null,
+      reasoningLevel: reasoningLevel ?? null,
       statusSummary: extractOneSentenceSummary(input.task, `Starting worker thread for ${title}.`),
       summaryUpdatedAt: now,
       createdAt: now,
@@ -247,7 +293,7 @@ export class Subagents {
           pluginMetadata: { runId: run.id },
           providerId: owner.providerId,
           model,
-          reasoningLevel: defaults.reasoningLevel,
+          reasoningLevel,
           permissionMode: defaults.permissionMode,
           serviceTier: defaults.serviceTier,
         });
