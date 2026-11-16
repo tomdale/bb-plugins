@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import {
   RING_DEAD_ZONE_PX,
@@ -27,7 +27,6 @@ export type PieAction = {
   /**
    * Choices for an outer band that grows out of this action's slice once the
    * action is selected. Called as the ring opens, so the choices are current.
-   * Only the first such action in a ring gets a band.
    */
   options?: () => readonly PieOption[];
 };
@@ -184,16 +183,45 @@ type OpenRing = {
   y: number;
   title: string | null;
   actions: PieAction[];
-  /** The action with an outer band, and the band's choices as the ring opened. */
-  band: { parent: number; options: readonly PieOption[] } | null;
+  /** Each action with an outer band, and its choices as the ring opened. */
+  bands: BandSpec[];
 };
 
-function bandFor(actions: readonly PieAction[]): OpenRing["band"] {
-  const parent = actions.findIndex((action) => action.options && !action.disabled);
-  if (parent < 0) return null;
-  const options = actions[parent]!.options!();
-  return options.length > 0 ? { parent, options } : null;
+type BandSpec = { parent: number; options: readonly PieOption[] };
+
+function bandsFor(actions: readonly PieAction[]): BandSpec[] {
+  return actions.flatMap((action, parent) => {
+    if (!action.options || action.disabled) return [];
+    const options = action.options();
+    return options.length > 0 ? [{ parent, options }] : [];
+  });
 }
+
+/** The DOM each band draws into, filled in by the ring's render. */
+type BandNodes = {
+  svg: SVGSVGElement | null;
+  outline: SVGPathElement | null;
+  rim: SVGPathElement | null;
+  plate: SVGPathElement | null;
+  tileGroup: SVGGElement | null;
+  tile: SVGPathElement | null;
+  items: (HTMLDivElement | null)[];
+  more: HTMLSpanElement | null;
+  /** This band's own fade around the thread name plate. */
+  titleFade: HTMLDivElement | null;
+};
+
+const emptyBandNodes = (): BandNodes => ({
+  svg: null,
+  outline: null,
+  rim: null,
+  plate: null,
+  tileGroup: null,
+  tile: null,
+  items: [],
+  more: null,
+  titleFade: null,
+});
 
 /**
  * The band extends once the pointer is this far from the centre with the
@@ -205,42 +233,46 @@ const BAND_OPEN_PX = RING_DEAD_ZONE_PX + 12;
 const MORE_INSET_PX = 13;
 
 /**
- * Aims the ring and its band at the pointer. On the band, the parent action
- * stays selected and the band selects by angle. Elsewhere the ring aims as
- * usual; once the parent is selected and the pointer is past BAND_OPEN_PX the
- * band extends, lighting the default option that releasing would take, and
- * selecting anything else folds it back.
+ * Aims the ring and its bands at the pointer. On an open band, its parent
+ * action stays selected and the band selects by angle. Elsewhere the ring
+ * aims as usual; once an action with a band is selected and the pointer is
+ * past BAND_OPEN_PX its band extends, lighting the default option that
+ * releasing would take, and selecting anything else folds it back. At most
+ * one band is open, since only the selected action's band extends.
  */
 function steer(
   engine: RingPie,
-  band: RingBand | null,
+  bands: readonly RingBand[],
   open: OpenRing,
   dist: number,
   ang: number,
 ) {
   if (engine.closing) return;
-  if (!band || !open.band) {
+  if (bands.length === 0) {
     engine.aim(dist, ang);
     return;
   }
   const { ri } = engine.geometry;
-  const parent = open.band.parent;
-  const onBand = () => band.extended && dist >= band.R0 - 2 && band.contains(ang);
-  if (onBand()) {
-    engine.aim(ri, (parent * 360) / open.actions.length);
-    band.aim(ang);
+  const onBand = (band: RingBand) => band.extended && dist >= band.R0 - 2 && band.contains(ang);
+  const held = bands.findIndex(onBand);
+  if (held >= 0) {
+    engine.aim(ri, (open.bands[held]!.parent * 360) / open.actions.length);
+    bands[held]!.aim(ang);
     return;
   }
   engine.aim(dist, ang);
-  if (engine.sel === parent) {
-    if (dist >= BAND_OPEN_PX && !band.extended) band.extend();
-    // Off the band, light what releasing takes: the default option, if any.
-    const lit = open.band.options.some((option) => option.isDefault);
-    band.aim(!band.extended ? null : onBand() ? ang : lit ? band.defaultAngle : null);
-  } else {
-    band.aim(null);
-    if (band.extended) band.retract();
-  }
+  bands.forEach((band, index) => {
+    const spec = open.bands[index]!;
+    if (engine.sel === spec.parent) {
+      if (dist >= BAND_OPEN_PX && !band.extended) band.extend();
+      // Off the band, light what releasing takes: the default option, if any.
+      const lit = spec.options.some((option) => option.isDefault);
+      band.aim(!band.extended ? null : lit ? band.defaultAngle : null);
+    } else {
+      band.aim(null);
+      if (band.extended) band.retract();
+    }
+  });
 }
 
 /** Space between the ring's rim and the thread name. */
@@ -294,7 +326,7 @@ export function PointerPie({
   const [ring, setRing] = useState<OpenRing | null>(null);
   const [dim, setDim] = useState<"off" | "on" | "instant">("off");
   const engineRef = useRef<RingPie | null>(null);
-  const bandRef = useRef<RingBand | null>(null);
+  const bandsRef = useRef<RingBand[]>([]);
   const keyRef = useRef(0);
   const ringRef = useRef(ring);
   ringRef.current = ring;
@@ -328,14 +360,9 @@ export function PointerPie({
   const titleRef = useRef<HTMLDivElement>(null);
   const titlePlateRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const bandSvgRef = useRef<SVGSVGElement>(null);
-  const bandOutlineRef = useRef<SVGPathElement>(null);
-  const bandRimRef = useRef<SVGPathElement>(null);
-  const bandPlateRef = useRef<SVGPathElement>(null);
-  const bandTileGroupRef = useRef<SVGGElement>(null);
-  const bandTileRef = useRef<SVGPathElement>(null);
-  const bandItemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const moreRef = useRef<HTMLSpanElement>(null);
+  const bandNodesRef = useRef<BandNodes[]>([]);
+  const bandNodes = (index: number) =>
+    (bandNodesRef.current[index] ??= emptyBandNodes());
 
   useLayoutEffect(() => {
     if (!ring) return;
@@ -369,56 +396,54 @@ export function PointerPie({
         ? `${-Rd - TITLE_GAP_PX - plate.offsetHeight}px`
         : `${Rd + TITLE_GAP_PX}px`;
     }
-    // An action with options grows its band out of its own slice.
-    const spec = ring.band;
-    const more = moreRef.current;
-    if (spec && more) {
-      // From the parent's label out to just inside the rim, along its angle.
-      const { Rd, ri } = engine.geometry;
-      const angle = (spec.parent * 360) / ring.actions.length;
-      const reach = Rd - MORE_INSET_PX - ri;
-      const t = (angle * Math.PI) / 180;
-      more.style.setProperty("--qa-more-x", `${(reach * Math.sin(t)).toFixed(2)}px`);
-      more.style.setProperty("--qa-more-y", `${(-reach * Math.cos(t)).toFixed(2)}px`);
-      more.style.setProperty("--qa-more-turn", `${(angle - 90).toFixed(2)}deg`);
-    }
-    const svg = bandSvgRef.current;
-    const outline = bandOutlineRef.current;
-    const rim = bandRimRef.current;
-    const fill = bandPlateRef.current;
-    const tileGroup = bandTileGroupRef.current;
-    const bandTile = bandTileRef.current;
-    const band =
-      spec && svg && outline && rim && fill && tileGroup && bandTile
-        ? new RingBand(
-            {
-              svg,
-              outline,
-              rim,
-              plate: fill,
-              tileGroup,
-              tile: bandTile,
-              items: bandItemRefs.current
-                .slice(0, spec.options.length)
-                .filter((item): item is HTMLDivElement => item !== null),
-              title: plate,
-              more,
-            },
-            (spec.parent * 360) / ring.actions.length,
-            180 / ring.actions.length,
-            Math.max(0, spec.options.findIndex((option) => option.isDefault)),
-            engine.geometry.Rd,
-            prefersReducedMotion(),
-          )
-        : null;
-    bandRef.current = band;
+    // Each action with options grows its band out of its own slice.
+    const { Rd, ri } = engine.geometry;
+    const slot = 360 / ring.actions.length;
+    const bands = ring.bands.flatMap((spec, index) => {
+      const nodes = bandNodes(index);
+      const angle = spec.parent * slot;
+      if (nodes.more) {
+        // From the parent's label out to just inside the rim, along its angle.
+        const reach = Rd - MORE_INSET_PX - ri;
+        const t = (angle * Math.PI) / 180;
+        nodes.more.style.setProperty("--qa-more-x", `${(reach * Math.sin(t)).toFixed(2)}px`);
+        nodes.more.style.setProperty("--qa-more-y", `${(-reach * Math.cos(t)).toFixed(2)}px`);
+        nodes.more.style.setProperty("--qa-more-turn", `${(angle - 90).toFixed(2)}deg`);
+      }
+      const { svg, outline, rim, plate: fill, tileGroup, tile: bandTile } = nodes;
+      if (!svg || !outline || !rim || !fill || !tileGroup || !bandTile) return [];
+      return [
+        new RingBand(
+          {
+            svg,
+            outline,
+            rim,
+            plate: fill,
+            tileGroup,
+            tile: bandTile,
+            items: nodes.items
+              .slice(0, spec.options.length)
+              .filter((item): item is HTMLDivElement => item !== null),
+            // Without a title the fade wraps nothing, and fades nothing.
+            title: nodes.titleFade,
+            more: nodes.more,
+          },
+          angle,
+          slot / 2,
+          Math.max(0, spec.options.findIndex((option) => option.isDefault)),
+          Rd,
+          prefersReducedMotion(),
+        ),
+      ];
+    });
+    bandsRef.current = bands;
     const { x, y } = pointer.current;
-    steer(engine, band, ring, Math.hypot(x - ring.x, y - ring.y), pointerAngle(x - ring.x, y - ring.y));
+    steer(engine, bands, ring, Math.hypot(x - ring.x, y - ring.y), pointerAngle(x - ring.x, y - ring.y));
     return () => {
       if (engineRef.current === engine) engineRef.current = null;
-      if (bandRef.current === band) bandRef.current = null;
+      if (bandsRef.current === bands) bandsRef.current = [];
       engine.destroy();
-      band?.destroy();
+      for (const band of bands) band.destroy();
     };
   }, [pointer, ring?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -436,7 +461,7 @@ export function PointerPie({
       y,
       title: latestTitleRef.current,
       actions: list,
-      band: bandFor(list),
+      bands: bandsFor(list),
     });
     setDim("on");
     return true;
@@ -469,8 +494,8 @@ export function PointerPie({
   const vanish = useCallback(() => {
     engineRef.current?.destroy();
     engineRef.current = null;
-    bandRef.current?.destroy();
-    bandRef.current = null;
+    for (const band of bandsRef.current) band.destroy();
+    bandsRef.current = [];
     setRing(null);
     setDim((current) => (current === "off" ? current : "instant"));
   }, []);
@@ -479,7 +504,7 @@ export function PointerPie({
     const engine = engineRef.current;
     if (!engine || engine.closing) return;
     // A run confirms its band option itself; any other close folds the band.
-    if (kind !== "run") bandRef.current?.retract();
+    if (kind !== "run") for (const band of bandsRef.current) band.retract();
     engine.close(kind);
     setDim("off");
   }, []);
@@ -492,16 +517,18 @@ export function PointerPie({
     const engine = engineRef.current;
     const open = ringRef.current;
     if (!engine || !open || engine.closing) return;
-    const band = bandRef.current;
-    const option = band && open.band && band.sel >= 0 ? open.band.options[band.sel] : undefined;
-    if (option && open.band) {
+    const chosen = bandsRef.current.findIndex((band) => band.sel >= 0);
+    const band = chosen >= 0 ? bandsRef.current[chosen]! : null;
+    const spec = chosen >= 0 ? open.bands[chosen]! : null;
+    const option = band && spec ? spec.options[band.sel] : undefined;
+    if (option && band && spec) {
       if (busyRef.current) {
         closeRing("cancel");
         return;
       }
-      band!.confirm();
+      band.confirm();
       closeRing("run");
-      onRunRef.current(open.actions[open.band.parent]!.id, option.id);
+      onRunRef.current(open.actions[spec.parent]!.id, option.id);
       return;
     }
     const action = engine.sel >= 0 ? open.actions[engine.sel] : undefined;
@@ -525,7 +552,7 @@ export function PointerPie({
       if (!engine) return;
       const dx = event.clientX - ring.x;
       const dy = event.clientY - ring.y;
-      steer(engine, bandRef.current, ring, Math.hypot(dx, dy), pointerAngle(dx, dy));
+      steer(engine, bandsRef.current, ring, Math.hypot(dx, dy), pointerAngle(dx, dy));
     };
     const release = (event: PointerEvent) => {
       // Press, drag, release: a right-click held through the ring runs what
@@ -541,7 +568,8 @@ export function PointerPie({
       const target = event.target;
       if (
         target instanceof Node &&
-        (baseRef.current?.contains(target) || bandSvgRef.current?.contains(target))
+        (baseRef.current?.contains(target) ||
+          bandNodesRef.current.some((nodes) => nodes.svg?.contains(target)))
       ) {
         return;
       }
@@ -756,59 +784,96 @@ export function PointerPie({
                 <path ref={tileRef} className="qa-ring-tile" />
               </g>
             </svg>
-            {ring.band ? (
+            {ring.bands.map((spec, index) => (
               <svg
-                ref={bandSvgRef}
+                key={spec.parent}
+                ref={(node) => {
+                  bandNodes(index).svg = node;
+                }}
                 className="qa-band"
                 viewBox="-300 -300 600 600"
                 aria-hidden="true"
               >
                 <g className="qa-band-plate" onClick={commit}>
-                  <path ref={bandOutlineRef} className="qa-band-outline" />
-                  <path ref={bandRimRef} className="qa-band-rim" />
-                  <path ref={bandPlateRef} className="qa-band-fill" />
+                  <path
+                    ref={(node) => {
+                      bandNodes(index).outline = node;
+                    }}
+                    className="qa-band-outline"
+                  />
+                  <path
+                    ref={(node) => {
+                      bandNodes(index).rim = node;
+                    }}
+                    className="qa-band-rim"
+                  />
+                  <path
+                    ref={(node) => {
+                      bandNodes(index).plate = node;
+                    }}
+                    className="qa-band-fill"
+                  />
                 </g>
-                <g ref={bandTileGroupRef}>
-                  <path ref={bandTileRef} className="qa-ring-tile" />
+                <g
+                  ref={(node) => {
+                    bandNodes(index).tileGroup = node;
+                  }}
+                >
+                  <path
+                    ref={(node) => {
+                      bandNodes(index).tile = node;
+                    }}
+                    className="qa-ring-tile"
+                  />
                 </g>
               </svg>
-            ) : null}
-            {ring.actions.map((action, index) => (
-              <div
-                key={action.id}
-                ref={(node) => {
-                  itemRefs.current[index] = node;
-                }}
-                className="qa-ring-item"
-                role="menuitem"
-                aria-disabled={action.disabled ? "true" : undefined}
-                aria-haspopup={ring.band?.parent === index ? "menu" : undefined}
-                data-selected="false"
-              >
-                <Icon name={action.icon} />
-                <span className="qa-ring-label">{action.label}</span>
-                {action.disabled ? (
-                  <span className="qa-ring-note">Unavailable</span>
-                ) : null}
-                {ring.band?.parent === index ? (
-                  // Points outward to the band of options this action opens.
-                  <span ref={moreRef} className="qa-ring-more" aria-hidden="true">
-                    <Icon name="ChevronRight" />
-                  </span>
-                ) : null}
-              </div>
             ))}
-            {ring.band ? (
+            {ring.actions.map((action, index) => {
+              const band = ring.bands.findIndex((spec) => spec.parent === index);
+              return (
+                <div
+                  key={action.id}
+                  ref={(node) => {
+                    itemRefs.current[index] = node;
+                  }}
+                  className="qa-ring-item"
+                  role="menuitem"
+                  aria-disabled={action.disabled ? "true" : undefined}
+                  aria-haspopup={band >= 0 ? "menu" : undefined}
+                  data-selected="false"
+                >
+                  <Icon name={action.icon} />
+                  <span className="qa-ring-label">{action.label}</span>
+                  {action.disabled ? (
+                    <span className="qa-ring-note">Unavailable</span>
+                  ) : null}
+                  {band >= 0 ? (
+                    // Points outward to the band of options this action opens.
+                    <span
+                      ref={(node) => {
+                        bandNodes(band).more = node;
+                      }}
+                      className="qa-ring-more"
+                      aria-hidden="true"
+                    >
+                      <Icon name="ChevronRight" />
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })}
+            {ring.bands.map((spec, band) => (
               <div
+                key={spec.parent}
                 className="qa-band-items"
                 role="menu"
-                aria-label={`${ring.actions[ring.band.parent]!.label} until`}
+                aria-label={ring.actions[spec.parent]!.label}
               >
-                {ring.band.options.map((option, index) => (
+                {spec.options.map((option, index) => (
                   <div
                     key={option.id}
                     ref={(node) => {
-                      bandItemRefs.current[index] = node;
+                      bandNodes(band).items[index] = node;
                     }}
                     className="qa-ring-item"
                     role="menuitem"
@@ -818,14 +883,27 @@ export function PointerPie({
                   </div>
                 ))}
               </div>
-            ) : null}
+            ))}
             {ring.title ? (
               // The ring fades this anchor with its labels; the band fades the
               // plate inside it while covering the top of the ring.
               <div ref={titleRef} className="qa-title-anchor">
-                <div ref={titlePlateRef} className="qa-ring-title">
-                  {ring.title}
-                </div>
+                {ring.bands.reduceRight<ReactNode>(
+                  // Each band fades its own layer, so whichever band covers
+                  // the name hides it without the others writing over it.
+                  (plate, _spec, band) => (
+                    <div
+                      ref={(node) => {
+                        bandNodes(band).titleFade = node;
+                      }}
+                    >
+                      {plate}
+                    </div>
+                  ),
+                  <div ref={titlePlateRef} className="qa-ring-title">
+                    {ring.title}
+                  </div>,
+                )}
               </div>
             ) : null}
             <div ref={hubRef} className="qa-ring-hub" aria-hidden="true">

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { makeThreadResponse } from "@get-bb/plugin-sdk/testing";
 import type { PluginThreadActionEntry } from "@get-bb/plugin-sdk/app";
-import { OFFER_EVENT, REQUEST_EVENT } from "./ring-offers";
+import { DEFAULT_RING_ACTIONS, type RingAction } from "./ring-actions";
 
 vi.mock("sonner", () => ({
   toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }),
@@ -89,32 +89,24 @@ function actionEntry(
   };
 }
 
-/** Thread actions a fake plugin registers with BB and offers to the ring. */
+/** A thread action a fake plugin registers with BB. */
 type PluginAction = {
   key: string;
   action: PluginThreadActionEntry["action"];
-  /** The order it offers; null for an action it registers but doesn't offer. */
-  order?: number | null;
+  /** False for an action the user hasn't put in the ring. */
+  inRing?: boolean;
   /** False when the action's `item` returns null for the thread. */
   forThread?: boolean;
 };
 
-/** Plugins' offer listeners, removed after each test. */
-const providers: (() => void)[] = [];
-afterEach(() => {
-  while (providers.length > 0) providers.pop()!();
-});
-
-/** A plugin that offers these actions on load and on every request. */
-function offerActions(offers: readonly { key: string; order?: number }[]) {
-  const announce = () => {
-    for (const offer of offers) {
-      window.dispatchEvent(new CustomEvent(OFFER_EVENT, { detail: offer }));
-    }
-  };
-  window.addEventListener(REQUEST_EVENT, announce);
-  providers.push(() => window.removeEventListener(REQUEST_EVENT, announce));
-  announce();
+/** The saved ring: BB's four, with ring plugin actions right after Archive. */
+function savedRing(pluginActions: readonly PluginAction[]): RingAction[] | null {
+  const added = pluginActions
+    .filter((plugin) => plugin.inRing !== false)
+    .map((plugin) => ({ key: plugin.key, title: plugin.action.label, icon: plugin.action.icon }));
+  if (added.length === 0) return null;
+  const [archive, ...rest] = DEFAULT_RING_ACTIONS;
+  return [archive!, ...added, ...rest];
 }
 
 /** Workstreams-style Snooze: presets as choices, `detail` naming the default. */
@@ -144,11 +136,14 @@ async function renderQuickActions({
   archivedAt = null,
   strictMode = false,
   pluginActions = [],
+  ring = savedRing(pluginActions),
 }: {
   settings?: Record<string, string | number | boolean>;
   archivedAt?: number | null;
   strictMode?: boolean;
   pluginActions?: readonly PluginAction[];
+  /** The saved ring; null for the default. */
+  ring?: RingAction[] | null;
 } = {}) {
   const runs = new Map<string, (value?: string) => Promise<void>>();
   const definitions = [
@@ -171,11 +166,16 @@ async function renderQuickActions({
       action,
     });
   }
-  offerActions(
-    pluginActions.flatMap(({ key, order = 200 }) =>
-      order === null ? [] : [{ key, order }],
-    ),
-  );
+  const registrations = [
+    ...definitions.map(([key, label]) => ({ key, pluginId: "bb--core", title: label, icon: key })),
+    ...pluginActions.map(({ key, action }) => ({
+      key,
+      pluginId: key.split("/")[0]!,
+      title: action.label,
+      icon: action.icon,
+    })),
+  ];
+  const stored = { ring };
   const thread = makeThreadResponse({
     id: THREAD_ID,
     projectId: PROJECT_ID,
@@ -205,8 +205,14 @@ async function renderQuickActions({
       settings,
       sdk: { threads: { get: async () => thread } },
       threadActions: () => entries,
+      threadActionRegistrations: registrations,
+      rpc: { ringActions: async () => ({ actions: stored.ring }) },
     },
   );
+  await waitFor(() =>
+    expect(slot.inspection.rpcCalls.some((call) => call.method === "ringActions")).toBe(true),
+  );
+  await act(async () => undefined);
   if (sanitizeTriggerForTest(settings.trigger) === "hold-option") {
     await waitFor(() =>
       expect(document.querySelector(".qa-hold")).not.toBeNull(),
@@ -217,7 +223,7 @@ async function renderQuickActions({
   const trigger = slot.queryByRole("button", {
     name: "Open quick actions",
   });
-  return { slot, trigger: trigger as HTMLElement, runs };
+  return { slot, trigger: trigger as HTMLElement, runs, stored };
 }
 
 function sanitizeTriggerForTest(value: unknown) {
@@ -571,7 +577,7 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("shows an offered action, and keeps it after StrictMode effect replay", async () => {
+  it("shows the saved ring, and keeps it after StrictMode effect replay", async () => {
     const action = snoozeAction();
     const { slot, trigger } = await renderQuickActions({
       strictMode: true,
@@ -591,7 +597,7 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("runs an offered action's default choice from the corner menu", async () => {
+  it("runs a ring action's default choice from the corner menu", async () => {
     const user = userEvent.setup();
     const action = snoozeAction();
     const { slot, trigger } = await renderQuickActions({
@@ -603,22 +609,50 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  it("leaves out a registered action no plugin offers", async () => {
+  it("shows BB's four actions until the user adds another", async () => {
     const { slot, trigger } = await renderQuickActions({
-      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), order: null }],
+      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), inRing: false }],
     });
     await openMenu(trigger);
     expect(slot.queryByRole("button", { name: "Snooze" })).toBeNull();
+    expect(slot.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
     slot.lifecycle.unmount();
   });
 
-  it("adds an action offered after the menu mounts", async () => {
-    const { slot, trigger } = await renderQuickActions({
-      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), order: null }],
+  it("follows a ring saved in another window", async () => {
+    const { slot, trigger, stored } = await renderQuickActions({
+      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), inRing: false }],
     });
-    act(() => offerActions([{ key: "workstreams/snooze", order: 200 }]));
+    stored.ring = savedRing([{ key: "workstreams/snooze", action: snoozeAction() }]);
+    await slot.behavior.emitRealtime("ring-actions", null);
     await openMenu(trigger);
-    expect(slot.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(slot.getByRole("button", { name: "Snooze" })).toBeInTheDocument(),
+    );
+    slot.lifecycle.unmount();
+  });
+
+  it("keeps the slot of an action this thread doesn't have, unavailable", async () => {
+    const { slot, trigger } = await renderQuickActions({
+      pluginActions: [{ key: "workstreams/snooze", action: snoozeAction(), forThread: false }],
+    });
+    await openMenu(trigger);
+    expect(slot.getByRole("button", { name: "Snooze" })).toBeDisabled();
+    expect(
+      slot.getAllByRole("button").map((button) => button.getAttribute("aria-label")),
+    ).toHaveLength(6);
+    slot.lifecycle.unmount();
+  });
+
+  it("names an action whose plugin is gone by its saved title", async () => {
+    const { slot, trigger } = await renderQuickActions({
+      ring: [
+        ...DEFAULT_RING_ACTIONS,
+        { key: "gone/action", title: "Triage", icon: "Inbox" },
+      ],
+    });
+    await openMenu(trigger);
+    expect(slot.getByRole("button", { name: "Triage" })).toBeDisabled();
     slot.lifecycle.unmount();
   });
 
@@ -927,9 +961,9 @@ describe("Quick Actions overlay", () => {
       slot.lifecycle.unmount();
     });
 
-    describe("an offered action with choices", () => {
+    describe("a ring action with choices", () => {
       const centre = { clientX: 400, clientY: 300 };
-      // Offered at order 200, Snooze is the second of five slots, 72 degrees
+      // Right after Archive, Snooze is the second of five slots, 72 degrees
       // clockwise from up.
       const towardSnooze = (r: number) => ({
         clientX: centre.clientX + r * Math.sin((72 * Math.PI) / 180),
@@ -1045,11 +1079,56 @@ describe("Quick Actions overlay", () => {
         slot.lifecycle.unmount();
       });
 
-      it("leaves the action out for a thread its plugin has none for", async () => {
+      it("keeps an unavailable action's slot, without a band", async () => {
         const { slot } = await renderWithSnooze(snoozeAction(), false);
         await holdOptionAt(centre);
-        expect(item("Snooze")).toBeUndefined();
+        expect(item("Snooze")).toHaveAttribute("aria-disabled", "true");
         expect(band()).toBeNull();
+        slot.lifecycle.unmount();
+      });
+
+      it("gives each action with choices its own band", async () => {
+        const move = {
+          label: "Move to section",
+          icon: "SectionMove",
+          choices: {
+            items: [
+              { id: "inbox", label: "Inbox" },
+              { id: "later", label: "Later" },
+            ],
+          },
+          run: vi.fn(async (_value?: string) => undefined),
+        };
+        const { slot } = await renderQuickActions({
+          settings: { ...hold },
+          pluginActions: [
+            { key: "workstreams/snooze", action: snoozeAction() },
+            { key: "thread-list/move", action: move },
+          ],
+        });
+        await holdOptionAt(centre);
+        // Six slots: Archive, Snooze, Move to section, Pin, Mark unread, Copy link.
+        const toward = (deg: number, r: number) => ({
+          clientX: centre.clientX + r * Math.sin((deg * Math.PI) / 180),
+          clientY: centre.clientY - r * Math.cos((deg * Math.PI) / 180),
+        });
+        const bands = () => Array.from(document.querySelectorAll<SVGElement>(".qa-band"));
+        expect(bands()).toHaveLength(2);
+        expect(document.querySelectorAll(".qa-ring-more")).toHaveLength(2);
+        expect(slot.getByRole("menu", { name: "Move to section" })).toBeInTheDocument();
+
+        await pointAt(toward(120, 52));
+        expect(item("Move to section")).toHaveAttribute("data-selected", "true");
+        expect(bands().map((node) => node.getAttribute("data-extended"))).toEqual(["false", "true"]);
+
+        await pointAt(toward(60, 52));
+        expect(bands().map((node) => node.getAttribute("data-extended"))).toEqual(["true", "false"]);
+
+        await pointAt(toward(120, 100));
+        await pointAt(onBand("Later"));
+        expect(item("Later")).toHaveAttribute("data-selected", "true");
+        await releaseOption();
+        expect(move.run).toHaveBeenCalledExactlyOnceWith("later");
         slot.lifecycle.unmount();
       });
     });

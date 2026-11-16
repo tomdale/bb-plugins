@@ -12,6 +12,7 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   definePluginApp,
   experimental_useSidebarThreads,
+  experimental_useThreadActionRegistrations,
   experimental_useThreadActions,
   useBbContext,
   useSdk,
@@ -31,7 +32,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { PointerPie, type PieOption } from "./pointer-pie";
-import { ringKeys, useActionOffers } from "./ring-offers";
+import { ActionsSettings } from "./actions-settings";
+import { useRingActions } from "./use-ring-actions";
 import {
   actionCssVariables,
   actionTarget,
@@ -198,6 +200,15 @@ function threadActionItem(entry: PluginThreadActionEntry): QuickActionItem {
   };
 }
 
+/**
+ * A ring action BB has nothing for on this thread: the thread lacks it, or
+ * its plugin is gone. It keeps its slot, so every other action points the
+ * same way on every thread, and running it reports that it's unavailable.
+ */
+function unavailableItem(key: string, title: string, icon: string): QuickActionItem {
+  return { id: key, label: title, icon, disabled: true, run: () => undefined };
+}
+
 const QuickActionsMenu = memo(function QuickActionsMenu({
   thread,
   threadTitle,
@@ -224,11 +235,13 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const [pending, setPending] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const offers = useActionOffers();
-  const keys = useMemo(() => ringKeys(offers), [offers]);
-  // An offered action this thread doesn't have (its `item` returned null, or
-  // its plugin is gone) is absent here, so the ring leaves it out.
+  const ringActions = useRingActions();
+  const keys = useMemo(
+    () => ringActions.actions.map((action) => action.key),
+    [ringActions.actions],
+  );
   const entries = experimental_useThreadActions(thread, { keys });
+  const registrations = experimental_useThreadActionRegistrations();
   const tooltipSide = corner.startsWith("top") ? "bottom" : "top";
 
   const cancelScheduledClose = useCallback(() => {
@@ -278,9 +291,19 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     setRequestedOpen(false);
   }, [cancelScheduledClose, targetThreadId]);
 
-  const actions = entries.map(threadActionItem);
+  const actions = ringActions.actions.map((action) => {
+    const entry = entries.find((candidate) => candidate.key === action.key);
+    if (entry) return threadActionItem(entry);
+    const registration = registrations.find((candidate) => candidate.key === action.key);
+    return unavailableItem(
+      action.key,
+      registration?.title ?? action.title,
+      registration?.icon ?? action.icon,
+    );
+  });
 
-  const canOpen = threadReady && !settings.isLoading && actions.length > 0;
+  const canOpen =
+    threadReady && !settings.isLoading && actions.some((action) => !action.disabled);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   const runHoldAction = useCallback((id: string, optionId?: string) => {
@@ -551,5 +574,10 @@ export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({
     id: "quick-actions",
     component: QuickActionsOverlay,
+  });
+  app.slots.settingsSection({
+    id: "actions",
+    title: "Actions",
+    component: ActionsSettings,
   });
 });

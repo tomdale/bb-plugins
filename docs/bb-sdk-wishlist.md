@@ -1061,9 +1061,8 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   SDK 0.6.5, whose types predate `experimental_threadAction`, so it declares
   the slot's shape itself and registers only when BB provides it
 - **Use case:** Workstreams registers its Snooze as a thread action
-  (`workstreams/snooze`) whose choices are the user's presets, and offers it to
-  Quick Actions, whose hold ring shows any offered action's choices as a band
-  out of its slice. Both surfaces should match Workstreams' own Snooze menu,
+  (`workstreams/snooze`) whose choices are the user's presets. Added to the
+  Quick Actions ring, it shows those choices as a band out of its slice. Both surfaces should match Workstreams' own Snooze menu,
   which lists each preset's wake time beside its name and marks the preset a
   plain Snooze takes with "(default)"
 - **Limit and evidence:** `PluginThreadActionChoice` has only `id`, `label`,
@@ -1080,27 +1079,22 @@ ProviderModelPickerValue, outputSchema?, maxTokens, signal })` returning text
   `choices.defaultId`) naming the choice that running the action without a
   value takes
 
-## Let a plugin add thread actions to another plugin's menu
+## A list-valued plugin setting
 
 - **Status:** not filed
-- **Observed:** BB 0.49.0; Quick Actions pins SDK 0.6.133, Workstreams SDK 0.6.5
-- **Use case:** the Quick Actions ring shows BB's Archive, Pin, Mark read, and
-  Copy link, plus thread actions other plugins choose to put there, such as
-  Workstreams' Snooze, without either plugin depending on the other
-- **Limit and evidence:** the SDK has no extension point one plugin can define
-  for others, and a thread action registration carries nothing another plugin
-  can read beyond `key`, `pluginId`, `title`, and `icon`
-  (`PluginThreadActionRegistrationInfo`). An evaluated action's extra fields
-  reach `experimental_useThreadActions` callers only because BB's
-  `bindThreadAction` spreads the action object, which the types don't promise
-- **Workaround:** a handshake on `window`: a plugin dispatches
-  `bb-quick-actions:offer` with `{ key, order? }` naming one of its thread
-  actions, on load and whenever Quick Actions dispatches
-  `bb-quick-actions:request`. Quick Actions reads the action itself from
-  `experimental_useThreadActions`. Offers carry no per-thread data, and BB can't
-  show which plugins extend which
-- **Possible API:** an optional `surfaces` (or `tags`) list on
-  `PluginThreadActionRegistration`, returned by
-  `experimental_useThreadActionRegistrations` and filterable in
-  `experimental_useThreadActions`, so Quick Actions could ask for actions tagged
-  `quick-actions`; or plugin-declared slots that other plugins register into
+- **Observed:** BB 0.49.0 / Plugin SDK 0.6.133
+- **Use case:** Quick Actions stores the ring's actions as an ordered list of
+  thread action keys, which the user edits in its Actions settings section
+  and an agent might set from the CLI
+- **Limit and evidence:** `bb.settings.define` takes `string`, `boolean`,
+  `number`, `select`, and `project` (`PluginSettingDescriptor`), and every
+  declared setting renders in the host's Configuration group. A list would
+  have to be a string holding JSON or a comma list, shown there as a raw text
+  field beside the section that edits it properly
+- **Workaround:** the Quick Actions server keeps the list in `bb.storage.kv`
+  behind `ringActions` and `setRingActions` RPCs, and announces changes on a
+  realtime channel so every window refetches. `bb plugin config` can't read or
+  change it
+- **Possible API:** a `list` setting type with an item schema, or a
+  `hidden: true` flag that keeps a setting out of the generated form while
+  `bb plugin config` and `useSettings` still reach it

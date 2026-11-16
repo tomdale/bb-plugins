@@ -1,4 +1,12 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
+import {
+  RING_ACTIONS_CHANNEL,
+  rpcContract,
+  sanitizeRingActions,
+  type RingAction,
+} from "./ring-actions";
+
+const RING_ACTIONS_KEY = "ring-actions";
 
 export default async function plugin(bb: BbPluginApi) {
   bb.settings.define({
@@ -43,6 +51,21 @@ export default async function plugin(bb: BbPluginApi) {
       type: "boolean",
       label: "Debug hover regions",
       default: false,
+    },
+  });
+
+  const readRingActions = async () =>
+    sanitizeRingActions(await bb.storage.kv.get<RingAction[]>(RING_ACTIONS_KEY));
+
+  bb.rpc.register(rpcContract, {
+    ringActions: async () => ({ actions: await readRingActions() }),
+    setRingActions: async ({ actions }) => {
+      if (actions === null) await bb.storage.kv.delete(RING_ACTIONS_KEY);
+      else await bb.storage.kv.set(RING_ACTIONS_KEY, actions);
+      const saved = await readRingActions();
+      // Every open window refetches, so each ring and settings view agrees.
+      bb.realtime.publish(RING_ACTIONS_CHANNEL, null);
+      return { actions: saved };
     },
   });
 }
