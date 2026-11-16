@@ -28,6 +28,11 @@ export function sanitizeTrigger(value: unknown): QuickActionTrigger {
   return TRIGGERS.find((trigger) => trigger === value) ?? "hold-option";
 }
 
+/** Right-click opens the ring unless the setting is explicitly off. */
+export function sanitizeRightClick(value: unknown): boolean {
+  return value !== false;
+}
+
 export function actionTarget(
   index: number,
   count: number,

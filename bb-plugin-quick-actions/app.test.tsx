@@ -696,7 +696,7 @@ describe("Quick Actions overlay", () => {
     slot.lifecycle.unmount();
   });
 
-  describe("hold Option at the pointer", () => {
+  describe("the ring at the pointer", () => {
     const hold = { trigger: "hold-option" } as const;
 
     // jsdom has no layout, so hit testing follows a fixed window: a 240px
@@ -1050,6 +1050,172 @@ describe("Quick Actions overlay", () => {
         await holdOptionAt(centre);
         expect(item("Snooze")).toBeUndefined();
         expect(band()).toBeNull();
+        slot.lifecycle.unmount();
+      });
+    });
+
+    describe("right-click", () => {
+      const corner = { trigger: "corner" } as const;
+      const at = { clientX: 400, clientY: 300 };
+
+      /** Presses the secondary button on the timeline; true if the browser menu would show. */
+      async function rightClick(
+        target: Element = timeline,
+        point: { clientX: number; clientY: number } = at,
+      ) {
+        let shown = true;
+        await act(async () => {
+          fireEvent.pointerDown(target, { ...point, button: 2 });
+          shown = fireEvent.contextMenu(target, { ...point, button: 2 });
+        });
+        return shown;
+      }
+
+      async function releaseRight(point: { clientX: number; clientY: number }) {
+        await act(async () => {
+          fireEvent.pointerUp(timeline, { ...point, button: 2 });
+        });
+      }
+
+      it("is on by default and opens the ring in place of the browser menu", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...corner } });
+        expect(await rightClick()).toBe(false);
+        expect(ring()?.style.left).toBe("400px");
+        expect(ring()?.style.top).toBe("300px");
+        expect(document.querySelector(".qa-dim")).toHaveAttribute("data-state", "on");
+        // The corner trigger stays alongside it.
+        expect(slot.getByRole("button", { name: "Open quick actions" })).toBeInTheDocument();
+        slot.lifecycle.unmount();
+      });
+
+      it("runs what the button is released on", async () => {
+        const { slot, runs } = await renderQuickActions({ settings: { ...corner } });
+        await rightClick();
+        await pointAt({ clientX: 400, clientY: 240 });
+        await releaseRight({ clientX: 400, clientY: 240 });
+        expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce();
+        slot.lifecycle.unmount();
+      });
+
+      it("stays open when released in the hub, then runs on a click of the disc", async () => {
+        const { slot, runs } = await renderQuickActions({ settings: { ...corner } });
+        await rightClick();
+        await releaseRight(at);
+        await advance(400);
+        expect(ring()).not.toBeNull();
+        for (const run of runs.values()) expect(run).not.toHaveBeenCalled();
+
+        await pointAt({ clientX: 400, clientY: 240 });
+        const base = document.querySelector<HTMLElement>(".qa-ring-base");
+        await act(async () => {
+          fireEvent.pointerDown(base!);
+          fireEvent.click(base!);
+        });
+        expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce();
+        slot.lifecycle.unmount();
+      });
+
+      it("is not run by releasing Option", async () => {
+        const { slot, runs } = await renderQuickActions({
+          settings: { trigger: "hold-option" },
+        });
+        await rightClick();
+        await releaseRight(at);
+        await pointAt({ clientX: 400, clientY: 240 });
+        await act(async () => {
+          fireEvent.keyDown(window, { key: "Alt" });
+        });
+        await releaseOption();
+        expect(runs.get("bb--core/archive")).not.toHaveBeenCalled();
+        expect(ring()).not.toBeNull();
+        slot.lifecycle.unmount();
+      });
+
+      it("keeps the browser menu on fields, links, and media, and outside a thread pane", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...corner } });
+        for (const tag of ["textarea", "a", "img"]) {
+          const element = document.createElement(tag);
+          if (tag === "a") element.setAttribute("href", "https://example.com");
+          timeline.append(element);
+          expect(await rightClick(element)).toBe(true);
+          element.remove();
+        }
+        expect(await rightClick(sidebar, { clientX: 120, clientY: 500 })).toBe(true);
+        expect(ring()).toBeNull();
+        slot.lifecycle.unmount();
+      });
+
+      it("keeps a menu something else already showed, and one from the keyboard", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...corner } });
+        const ownMenu = (event: Event) => event.preventDefault();
+        timeline.addEventListener("contextmenu", ownMenu);
+        await rightClick();
+        timeline.removeEventListener("contextmenu", ownMenu);
+        expect(ring()).toBeNull();
+
+        // A menu key press arrives with no pointer press before it.
+        expect(fireEvent.contextMenu(timeline, at)).toBe(true);
+        expect(ring()).toBeNull();
+        slot.lifecycle.unmount();
+      });
+
+      it("keeps the browser menu on selected text, and puts back a selection the click made", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...corner } });
+        const text = document.createElement("p");
+        text.textContent = "flaky retry";
+        timeline.append(text);
+        // jsdom has no layout: the text occupies a box around the click.
+        Object.defineProperty(Range.prototype, "getClientRects", {
+          configurable: true,
+          value: () => [{ left: 380, right: 420, top: 290, bottom: 310 }],
+        });
+        const selection = document.getSelection()!;
+        selection.selectAllChildren(text);
+        expect(await rightClick(text)).toBe(true);
+        expect(ring()).toBeNull();
+
+        // Unselected text: the browser selects a word as the button goes down.
+        selection.removeAllRanges();
+        let shown = true;
+        await act(async () => {
+          fireEvent.pointerDown(text, { ...at, button: 2 });
+          selection.selectAllChildren(text);
+          shown = fireEvent.contextMenu(text, { ...at, button: 2 });
+        });
+        expect(shown).toBe(false);
+        expect(ring()).not.toBeNull();
+        expect(selection.toString()).toBe("");
+        Reflect.deleteProperty(Range.prototype, "getClientRects");
+        text.remove();
+        slot.lifecycle.unmount();
+      });
+
+      it("waits for an unfocused split pane to become the open thread", async () => {
+        const { slot } = await renderQuickActions({ settings: { ...corner } });
+        const pane = document.createElement("div");
+        pane.setAttribute("data-split-pane-id", "pane_2");
+        pane.setAttribute("data-focused", "false");
+        threadWindow.replaceWith(pane);
+        pane.append(threadWindow);
+        expect(await rightClick()).toBe(false);
+        expect(ring()).toBeNull();
+        // The same thread in both panes: the ring opens after a short grace.
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        });
+        expect(ring()?.style.left).toBe("400px");
+        pane.replaceWith(threadWindow);
+        slot.lifecycle.unmount();
+      });
+
+      it("can be turned off", async () => {
+        const { slot } = await renderQuickActions({
+          settings: { trigger: "hold-option", rightClick: false },
+        });
+        expect(await rightClick()).toBe(true);
+        expect(ring()).toBeNull();
+        await holdOptionAt(at);
+        expect(ring()).not.toBeNull();
         slot.lifecycle.unmount();
       });
     });

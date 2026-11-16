@@ -12,14 +12,14 @@ import {
 import { RingBand } from "./ring-band";
 
 /** One choice in an action's outer band, such as a Snooze preset. */
-export type HoldPieOption = {
+export type PieOption = {
   id: string;
   label: string;
   /** Releasing on the parent action takes this option, so the band lights it. */
   isDefault?: boolean;
 };
 
-export type HoldPieAction = {
+export type PieAction = {
   id: string;
   label: string;
   icon: string;
@@ -29,10 +29,20 @@ export type HoldPieAction = {
    * action is selected. Called as the ring opens, so the choices are current.
    * Only the first such action in a ring gets a band.
    */
-  options?: () => readonly HoldPieOption[];
+  options?: () => readonly PieOption[];
 };
 
 const HOLD_OPTION_DELAY_MS = 200;
+/**
+ * A right-click on a split pane that isn't focused focuses it, and the ring
+ * waits for the open thread to follow before it opens. When the thread stays
+ * the same (both panes show it) the ring opens after this grace period, and a
+ * right-click whose thread never becomes ready is dropped after the limit.
+ */
+const PANE_SWITCH_GRACE_MS = 250;
+const PANE_SWITCH_LIMIT_MS = 1500;
+/** A context menu this far from its press came from somewhere else, such as the keyboard. */
+const CONTEXT_PRESS_SLOP_PX = 4;
 /** Keys that leave the open ring alone: modifiers pressed alongside Option. */
 const PASSIVE_KEYS = new Set(["Shift", "Meta", "Control", "CapsLock", "Alt"]);
 
@@ -76,21 +86,109 @@ function isOverThreadPane(x: number, y: number): boolean {
   return false;
 }
 
+/**
+ * Right-clicks here keep the browser's own menu: fields keep spelling
+ * suggestions and paste, links keep Open in Browser and Copy Link, and media
+ * keeps Copy Image.
+ */
+const NATIVE_MENU_TARGETS = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable]:not([contenteditable="false"])',
+  "a[href]",
+  "img",
+  "video",
+  "audio",
+].join(", ");
+
+function keepsNativeMenu(target: EventTarget | null): boolean {
+  const element =
+    target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  if (!element) return true;
+  return (
+    (element instanceof HTMLElement && element.isContentEditable) ||
+    element.closest(NATIVE_MENU_TARGETS) !== null
+  );
+}
+
+/** The document selection at a right-click's press, before the browser reacts to it. */
+type SelectionSnapshot = { text: string; ranges: Range[] };
+
+function snapshotSelection(): SelectionSnapshot | null {
+  const selection = document.getSelection();
+  if (!selection) return null;
+  const ranges: Range[] = [];
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    ranges.push(selection.getRangeAt(index).cloneRange());
+  }
+  return { text: selection.toString(), ranges };
+}
+
+/** Whether the pointer is on selected text, where the menu's Copy is the point. */
+function selectionContains(snapshot: SelectionSnapshot | null, x: number, y: number) {
+  if (!snapshot || snapshot.text.length === 0) return false;
+  return snapshot.ranges.some((range) => {
+    if (range.collapsed || typeof range.getClientRects !== "function") return false;
+    return Array.from(range.getClientRects()).some(
+      (rect) => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom,
+    );
+  });
+}
+
+/**
+ * On macOS, Chromium selects the word under a right-click before the menu
+ * event arrives. The ring replaces that menu, so it puts the selection back.
+ */
+function restoreSelection(snapshot: SelectionSnapshot | null) {
+  const selection = document.getSelection();
+  if (!snapshot || !selection || selection.toString() === snapshot.text) return;
+  selection.removeAllRanges();
+  for (const range of snapshot.ranges) selection.addRange(range);
+}
+
+/** A press that may become a right-click: the secondary button, or Control-click. */
+function isContextPress(event: PointerEvent) {
+  return event.button === 2 || (event.button === 0 && event.ctrlKey);
+}
+
+/** A split pane BB has not focused; outside split view every pane counts as focused. */
+function inUnfocusedPane(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return target.closest("[data-split-pane-id]")?.getAttribute("data-focused") === "false";
+}
+
+type ContextPress = {
+  x: number;
+  y: number;
+  button: number;
+  selection: SelectionSnapshot | null;
+  /** BB focuses an unfocused pane on this press, so its thread is about to change. */
+  switchesPane: boolean;
+  threadKey: string;
+};
+
+type PendingOpen = { x: number; y: number; threadKey: string; at: number };
+
 const prefersReducedMotion = () =>
   typeof window.matchMedia === "function" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 type OpenRing = {
   key: number;
+  /** What opened the ring: holding Option, or a right-click. */
+  source: "hold" | "context";
+  /** The button of the right-click that opened the ring, while still held. */
+  releaseButton: number | null;
   x: number;
   y: number;
   title: string | null;
-  actions: HoldPieAction[];
+  actions: PieAction[];
   /** The action with an outer band, and the band's choices as the ring opened. */
-  band: { parent: number; options: readonly HoldPieOption[] } | null;
+  band: { parent: number; options: readonly PieOption[] } | null;
 };
 
-function bandFor(actions: readonly HoldPieAction[]): OpenRing["band"] {
+function bandFor(actions: readonly PieAction[]): OpenRing["band"] {
   const parent = actions.findIndex((action) => action.options && !action.disabled);
   if (parent < 0) return null;
   const options = actions[parent]!.options!();
@@ -149,31 +247,48 @@ function steer(
 const TITLE_GAP_PX = 10;
 
 /**
- * Hold Option over a thread pane and the ring opens centred exactly on the
- * pointer. A 200ms hold keeps Option-letter accents (⌥e) intact. Direction selects;
- * the centre is a dead zone. An action with options (Snooze) grows an outer
- * band of them past its label. Releasing Option runs the selection, or closes
- * from the centre; Escape and a press outside the ring cancel; any other
- * keypress removes it in the same frame so typing is never interrupted.
- * While the ring is open the window dims slightly behind it.
+ * A ring of thread actions centred exactly on the pointer over a thread pane,
+ * opened by holding Option, by right-clicking, or both.
+ *
+ * Holding Option for 200ms opens it, which keeps Option-letter accents (⌥e)
+ * intact, and releasing Option runs the selection or closes from the centre.
+ * A right-click opens it in place of the browser's menu, except on fields,
+ * links, media, selected text, and anything with its own menu. Releasing the
+ * button outside the hub runs the selection; releasing in the hub leaves the
+ * ring open for a click on the disc.
+ *
+ * Direction selects; the centre is a dead zone. An action with options
+ * (Snooze) grows an outer band of them past its label. Escape and a press
+ * outside the ring cancel; any other keypress removes it in the same frame so
+ * typing is never interrupted. While the ring is open the window dims
+ * slightly behind it.
  */
-export function HoldOptionPie({
+export function PointerPie({
   title,
+  threadKey,
   actions,
   canOpen,
+  holdOption,
+  rightClick,
   busy,
   onRun,
   onUnavailable,
 }: {
   /** The thread the actions apply to, named above the ring. */
   title: string | null;
-  actions: readonly HoldPieAction[];
+  /** Identifies that thread, so a right-click can wait for a pane switch. */
+  threadKey: string;
+  /** Holding Option opens the ring. */
+  holdOption: boolean;
+  /** Right-clicking a thread pane opens the ring. */
+  rightClick: boolean;
+  actions: readonly PieAction[];
   canOpen: boolean;
   /** An action is still running; the ring cancels instead of running another. */
   busy: boolean;
   /** Runs an action, with the band option chosen for it, if any. */
   onRun: (id: string, optionId?: string) => void;
-  onUnavailable: (action: HoldPieAction) => void;
+  onUnavailable: (action: PieAction) => void;
 }) {
   const pointer = usePointerPosition();
   const [ring, setRing] = useState<OpenRing | null>(null);
@@ -193,6 +308,17 @@ export function HoldOptionPie({
   onRunRef.current = onRun;
   const onUnavailableRef = useRef(onUnavailable);
   onUnavailableRef.current = onUnavailable;
+  const canOpenRef = useRef(canOpen);
+  canOpenRef.current = canOpen;
+  const threadKeyRef = useRef(threadKey);
+  threadKeyRef.current = threadKey;
+  const holdOptionRef = useRef(holdOption);
+  holdOptionRef.current = holdOption;
+  /** The right-click press that has not yet produced a menu event. */
+  const contextPressRef = useRef<ContextPress | null>(null);
+  /** The button of a right-click still held down, whose release can run the ring. */
+  const heldButtonRef = useRef<number | null>(null);
+  const pendingOpenRef = useRef<PendingOpen | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLDivElement>(null);
@@ -296,6 +422,49 @@ export function HoldOptionPie({
     };
   }, [pointer, ring?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Opens a ring of the current actions at a point, replacing one still closing. */
+  const openAt = useCallback((x: number, y: number, source: OpenRing["source"]) => {
+    const list = actionsRef.current.slice(0, RING_MAX_ACTIONS);
+    if (list.length === 0) return false;
+    engineRef.current?.destroy();
+    keyRef.current += 1;
+    setRing({
+      key: keyRef.current,
+      source,
+      releaseButton: source === "context" ? heldButtonRef.current : null,
+      x,
+      y,
+      title: latestTitleRef.current,
+      actions: list,
+      band: bandFor(list),
+    });
+    setDim("on");
+    return true;
+  }, []);
+
+  /**
+   * Opens a right-click's ring once the clicked pane's thread is the open
+   * one: as soon as the thread changes and is ready, or after the grace
+   * period when it stays the same.
+   */
+  const openPending = useCallback(() => {
+    const pending = pendingOpenRef.current;
+    if (!pending) return;
+    const waited = performance.now() - pending.at;
+    if (waited > PANE_SWITCH_LIMIT_MS) {
+      pendingOpenRef.current = null;
+      return;
+    }
+    if (!canOpenRef.current) return;
+    if (threadKeyRef.current === pending.threadKey && waited < PANE_SWITCH_GRACE_MS) return;
+    pendingOpenRef.current = null;
+    openAt(pending.x, pending.y, "context");
+  }, [openAt]);
+
+  useEffect(() => {
+    openPending();
+  }, [canOpen, threadKey, openPending]);
+
   /** Removes the ring in the same frame, for typing and window blur. */
   const vanish = useCallback(() => {
     engineRef.current?.destroy();
@@ -358,6 +527,15 @@ export function HoldOptionPie({
       const dy = event.clientY - ring.y;
       steer(engine, bandRef.current, ring, Math.hypot(dx, dy), pointerAngle(dx, dy));
     };
+    const release = (event: PointerEvent) => {
+      // Press, drag, release: a right-click held through the ring runs what
+      // it releases on. Released in the hub, the ring stays for a click.
+      if (ring.releaseButton === null || event.button !== ring.releaseButton) return;
+      const engine = engineRef.current;
+      if (!engine || engine.closing) return;
+      const dist = Math.hypot(event.clientX - ring.x, event.clientY - ring.y);
+      if (dist > RING_DEAD_ZONE_PX) commit();
+    };
     const press = (event: PointerEvent) => {
       // A press on the disc or the open band runs the selection on click.
       const target = event.target;
@@ -371,11 +549,98 @@ export function HoldOptionPie({
     };
     window.addEventListener("pointermove", track, { passive: true });
     window.addEventListener("pointerdown", press, true);
+    window.addEventListener("pointerup", release);
     return () => {
       window.removeEventListener("pointermove", track);
       window.removeEventListener("pointerdown", press, true);
+      window.removeEventListener("pointerup", release);
     };
-  }, [closeRing, ring]);
+  }, [closeRing, commit, ring]);
+
+  useEffect(() => {
+    if (!rightClick) {
+      contextPressRef.current = null;
+      pendingOpenRef.current = null;
+      return;
+    }
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const later = (ms: number) => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        openPending();
+      }, ms);
+      timers.add(timer);
+    };
+    // Captured on window so the snapshot precedes BB's own press handlers,
+    // which focus the pane, and the browser's word selection.
+    const press = (event: PointerEvent) => {
+      if (!isContextPress(event)) {
+        contextPressRef.current = null;
+        return;
+      }
+      heldButtonRef.current = event.button;
+      contextPressRef.current = {
+        x: event.clientX,
+        y: event.clientY,
+        button: event.button,
+        selection: snapshotSelection(),
+        switchesPane: inUnfocusedPane(event.target),
+        threadKey: threadKeyRef.current,
+      };
+    };
+    const release = (event: PointerEvent) => {
+      if (event.button === heldButtonRef.current) heldButtonRef.current = null;
+    };
+    // Bubble phase, so a menu BB or another plugin already showed for this
+    // target (file links, the terminal) has called preventDefault first.
+    const menu = (event: MouseEvent) => {
+      const press = contextPressRef.current;
+      contextPressRef.current = null;
+      if (event.defaultPrevented) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-bb-plugin="quick-actions"]')) {
+        event.preventDefault();
+        return;
+      }
+      const { clientX: x, clientY: y } = event;
+      if (
+        !press ||
+        Math.hypot(x - press.x, y - press.y) > CONTEXT_PRESS_SLOP_PX ||
+        keepsNativeMenu(target) ||
+        selectionContains(press.selection, x, y) ||
+        !isOverThreadPane(x, y)
+      ) {
+        return;
+      }
+      // A dialog owns the window while it is open.
+      if (
+        document.querySelector(
+          '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+        )
+      ) {
+        return;
+      }
+      if (!press.switchesPane && !canOpenRef.current) return;
+      event.preventDefault();
+      restoreSelection(press.selection);
+      if (!press.switchesPane) {
+        openAt(x, y, "context");
+        return;
+      }
+      pendingOpenRef.current = { x, y, threadKey: press.threadKey, at: performance.now() };
+      later(PANE_SWITCH_GRACE_MS);
+      later(PANE_SWITCH_LIMIT_MS + 1);
+    };
+    window.addEventListener("pointerdown", press, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("contextmenu", menu);
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      window.removeEventListener("pointerdown", press, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("contextmenu", menu);
+    };
+  }, [openAt, openPending, rightClick]);
 
   useEffect(() => {
     if (!canOpen) {
@@ -394,7 +659,10 @@ export function HoldOptionPie({
         event.key === "Alt" &&
         !event.metaKey &&
         !event.ctrlKey &&
-        !event.shiftKey
+        !event.shiftKey &&
+        holdOptionRef.current &&
+        // Option is just a modifier over a ring a right-click opened.
+        !(isOpen() && ringRef.current?.source === "context")
       ) {
         event.preventDefault();
         if (held || event.repeat) return;
@@ -411,22 +679,9 @@ export function HoldOptionPie({
         holdTimer = setTimeout(() => {
           holdTimer = null;
           if (!held) return;
-          const list = actionsRef.current.slice(0, RING_MAX_ACTIONS);
-          if (list.length === 0) return;
           const { x, y } = pointer.current;
           if (!isOverThreadPane(x, y)) return;
-          // A ring still closing makes way for the new one.
-          engineRef.current?.destroy();
-          keyRef.current += 1;
-          setRing({
-            key: keyRef.current,
-            x,
-            y,
-            title: latestTitleRef.current,
-            actions: list,
-            band: bandFor(list),
-          });
-          setDim("on");
+          openAt(x, y, "hold");
         }, HOLD_OPTION_DELAY_MS);
         return;
       }
@@ -449,7 +704,7 @@ export function HoldOptionPie({
       if (event.key !== "Alt") return;
       held = false;
       clearHold();
-      if (isOpen()) commit();
+      if (isOpen() && ringRef.current?.source === "hold") commit();
     };
     const onBlur = () => {
       held = false;
@@ -465,7 +720,7 @@ export function HoldOptionPie({
       window.removeEventListener("keyup", onKeyUp, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [canOpen, closeRing, commit, pointer, vanish]);
+  }, [canOpen, closeRing, commit, openAt, pointer, vanish]);
 
   const type = ringType(ring?.actions.length ?? 5);
   return (

@@ -12,6 +12,11 @@ export default async function plugin(bb: BbPluginApi) {
       },
       default: "hold-option",
     },
+    rightClick: {
+      type: "boolean",
+      label: "Right-click opens the menu",
+      default: true,
+    },
     corner: {
       type: "select",
       label: "Menu corner",

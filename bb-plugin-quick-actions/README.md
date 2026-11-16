@@ -1,8 +1,8 @@
 # Quick Actions
 
 Quick Actions puts archive, pin, mark unread, and copy link within reach of the
-thread you just finished. Hold Option over a thread and the radial menu springs
-open at the pointer, where the cursor already is. Every action in the menu is a
+thread you just finished. Hold Option over a thread, or right-click it, and the
+radial menu springs open at the pointer, where the cursor already is. Every action in the menu is a
 BB thread action, and other plugins can add theirs: with Workstreams installed,
 Snooze joins the menu with your presets.
 
@@ -34,12 +34,30 @@ or `bb plugin config quick-actions set trigger corner`.
 Near a window edge the pie stays centred on the cursor and the window clips
 the slices, and the band of choices, that fall outside it.
 
+## Right-click
+
+Right-clicking a thread's timeline opens the same ring at the pointer in place
+of the browser's menu, with either trigger. Hold the button, move toward an
+action, and release to run it; release in the hub and the ring stays open, so
+a click on the disc runs the selection instead. Escape, a press outside the
+ring, or typing closes it, and Option does nothing to it.
+
+These places keep the browser's menu: the composer and other fields, links,
+images, video, selected text, targets that already have a BB menu (such as
+file links and the terminal), and everything outside thread panes. A
+context-menu key press keeps it too. Right-clicking a split pane that isn't
+focused focuses it first, and the ring opens for that pane's thread.
+
+Turn it off with **Settings → Plugins → Quick Actions → Right-click opens the
+menu** or `bb plugin config quick-actions set rightClick false`.
+
 ## Settings
 
 Open **Settings → Plugins → Quick Actions** to choose the menu corner and
 motion.
 
 - **Menu trigger:** Hold Option at the pointer (default) or Corner button.
+- **Right-click opens the menu:** On by default, with either trigger.
 - **Menu corner:** Bottom left (default), Bottom right, Top left, or Top right.
   Applies to the corner trigger only.
 - **Menu motion:** Ring bloom (default) or Arc spring. Applies to the corner

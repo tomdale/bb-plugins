@@ -30,7 +30,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { HoldOptionPie, type HoldPieOption } from "./hold-pie";
+import { PointerPie, type PieOption } from "./pointer-pie";
 import { ringKeys, useActionOffers } from "./ring-offers";
 import {
   actionCssVariables,
@@ -38,6 +38,7 @@ import {
   hoverCorridorPoints,
   sanitizeCorner,
   sanitizeMotion,
+  sanitizeRightClick,
   sanitizeTrigger,
   type Corner,
 } from "./motion";
@@ -161,8 +162,8 @@ type QuickActionItem = {
   label: string;
   icon: string;
   disabled?: boolean;
-  /** Choices for the hold ring's outer band; see `HoldPieAction.options`. */
-  options?: () => readonly HoldPieOption[];
+  /** Choices for the hold ring's outer band; see `PieAction.options`. */
+  options?: () => readonly PieOption[];
   /** Runs the action, with the band option chosen for it, if any. */
   run: (optionId?: string) => void | Promise<void>;
 };
@@ -214,6 +215,7 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
   const motion = sanitizeMotion(settings.values?.motion);
   const trigger = sanitizeTrigger(settings.values?.trigger);
   const holdOption = trigger === "hold-option";
+  const rightClick = sanitizeRightClick(settings.values?.rightClick);
   const debugRegions = settings.values?.debugRegions === true;
   const position = useMenuPosition(corner, targetThreadId, !holdOption);
   const restoringFocusRef = useRef(false);
@@ -316,19 +318,29 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
     }
   };
 
+  const ring =
+    holdOption || rightClick ? (
+      <PointerPie
+        title={threadTitle}
+        threadKey={targetThreadId}
+        actions={actions}
+        canOpen={canOpen}
+        holdOption={holdOption}
+        rightClick={rightClick}
+        busy={pending !== null}
+        onRun={runHoldAction}
+        onUnavailable={(item) =>
+          toast(`${item.label} isn't available for this thread`)
+        }
+      />
+    ) : null;
+
   return holdOption ? (
-    <HoldOptionPie
-      title={threadTitle}
-      actions={actions}
-      canOpen={canOpen}
-      busy={pending !== null}
-      onRun={runHoldAction}
-      onUnavailable={(item) =>
-        toast(`${item.label} isn't available for this thread`)
-      }
-    />
+    ring
   ) : (
-    <TooltipProvider delayDuration={250} skipDelayDuration={100}>
+    <>
+      {ring}
+      <TooltipProvider delayDuration={250} skipDelayDuration={100}>
       <div
         className="qa-menu"
         data-bb-plugin-root=""
@@ -436,7 +448,8 @@ const QuickActionsMenu = memo(function QuickActionsMenu({
           ))}
         </div>
       </div>
-    </TooltipProvider>
+      </TooltipProvider>
+    </>
   );
 });
 
