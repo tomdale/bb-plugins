@@ -354,6 +354,7 @@ export function PointerPie({
   const swallowMenuRef = useRef(false);
 
   const bodyRef = useRef<HTMLDivElement>(null);
+  const dimRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLDivElement>(null);
   const tileRef = useRef<SVGPathElement>(null);
   const hubRef = useRef<HTMLDivElement>(null);
@@ -507,6 +508,9 @@ export function PointerPie({
     // A run confirms its band option itself; any other close folds the band.
     if (kind !== "run") for (const band of bandsRef.current) band.retract();
     engine.close(kind);
+    // Set directly as well, so the dim starts fading in the frame the ring
+    // starts closing rather than whenever React next renders.
+    if (dimRef.current) dimRef.current.dataset.state = "off";
     setDim("off");
   }, []);
 
@@ -776,7 +780,7 @@ export function PointerPie({
       data-trigger="hold-option"
       data-open={ring ? "true" : "false"}
     >
-      <div className="qa-dim" data-state={dim} aria-hidden="true" />
+      <div ref={dimRef} className="qa-dim" data-state={dim} aria-hidden="true" />
       {ring ? (
         <div
           key={ring.key}
