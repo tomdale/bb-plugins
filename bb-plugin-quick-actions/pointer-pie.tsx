@@ -167,7 +167,17 @@ type ContextPress = {
   threadKey: string;
 };
 
-type PendingOpen = { x: number; y: number; threadKey: string; at: number };
+type PendingOpen = {
+  x: number;
+  y: number;
+  threadKey: string;
+  /**
+   * Set by the right-click's timers, not read from a clock: a timer can fire
+   * while `performance.now()` still reads a hair short of its delay.
+   */
+  graced: boolean;
+  expired: boolean;
+};
 
 const prefersReducedMotion = () =>
   typeof window.matchMedia === "function" &&
@@ -477,13 +487,12 @@ export function PointerPie({
   const openPending = useCallback(() => {
     const pending = pendingOpenRef.current;
     if (!pending) return;
-    const waited = performance.now() - pending.at;
-    if (waited > PANE_SWITCH_LIMIT_MS) {
+    if (pending.expired) {
       pendingOpenRef.current = null;
       return;
     }
     if (!canOpenRef.current) return;
-    if (threadKeyRef.current === pending.threadKey && waited < PANE_SWITCH_GRACE_MS) return;
+    if (threadKeyRef.current === pending.threadKey && !pending.graced) return;
     pendingOpenRef.current = null;
     openAt(pending.x, pending.y, "context");
   }, [openAt]);
@@ -607,9 +616,10 @@ export function PointerPie({
       return;
     }
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    const later = (ms: number) => {
+    const later = (pending: PendingOpen, ms: number, mark: "graced" | "expired") => {
       const timer = setTimeout(() => {
         timers.delete(timer);
+        pending[mark] = true;
         openPending();
       }, ms);
       timers.add(timer);
@@ -676,9 +686,16 @@ export function PointerPie({
         openAt(x, y, "context");
         return;
       }
-      pendingOpenRef.current = { x, y, threadKey: press.threadKey, at: performance.now() };
-      later(PANE_SWITCH_GRACE_MS);
-      later(PANE_SWITCH_LIMIT_MS + 1);
+      const pending: PendingOpen = {
+        x,
+        y,
+        threadKey: press.threadKey,
+        graced: false,
+        expired: false,
+      };
+      pendingOpenRef.current = pending;
+      later(pending, PANE_SWITCH_GRACE_MS, "graced");
+      later(pending, PANE_SWITCH_LIMIT_MS, "expired");
     };
     window.addEventListener("pointerdown", press, true);
     window.addEventListener("pointerup", release, true);
