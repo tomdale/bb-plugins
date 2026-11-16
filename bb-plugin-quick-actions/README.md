@@ -39,8 +39,9 @@ the slices, and the band of choices, that fall outside it.
 Right-clicking a thread's timeline opens the same ring at the pointer in place
 of the browser's menu, with either trigger. Hold the button, move toward an
 action, and release to run it; release in the hub and the ring stays open, so
-a click on the disc runs the selection instead. Escape, a press outside the
-ring, or typing closes it, and Option does nothing to it.
+a click on the disc runs the selection instead. Right-click the hub again,
+press Escape, press outside the ring, or type to close it. Option does nothing
+to it.
 
 These places keep the browser's menu: the composer and other fields, links,
 images, video, selected text, targets that already have a BB menu (such as
@@ -105,13 +106,12 @@ when its plugin does. Archive keeps BB's child-thread confirmation and Undo.
 ## Choices
 
 An action with choices, such as Workstreams' Snooze and its presets, carries a
-chevron in the hold-Option ring. Moving the pointer a little past the hub onto
-it grows a band of its choices out of its slice; slide along the band and
-release on one. Every action with choices has its own band, and moving to
-another action folds it. The choice the action names as its current value
-sits straight out from the action; for Workstreams' Snooze, that is your
-default preset. It stays lit while the pointer is on the action, so releasing
-there takes it, and so does releasing before the band opens or using the
+chevron in the ring. Pointing at it grows a band of its choices out of its
+slice; slide along the band and release on one. Every action with choices has
+its own band, and moving to another action folds it. The choice the action
+names as its current value sits straight out from the action; for
+Workstreams' Snooze, that is your default preset. It stays lit while the
+pointer is on the action, so releasing there takes it, and so does using the
 corner button. A snoozed thread's Snooze names no default, so releasing on it
 lets Workstreams decide. A band holds up to eight choices; an action with more,
 such as Move to section with many sections, shows as unavailable in the ring

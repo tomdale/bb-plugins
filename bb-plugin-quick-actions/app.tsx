@@ -183,7 +183,7 @@ const BAND_MAX_OPTIONS = 8;
  * band. BB documents an action's `detail` as the current value of its choice
  * list, so the choice with that label is the default: the band lights it
  * while the pointer is on the action, and a run without a choice, from the
- * corner menu or before the band opens, takes it. With no such choice, that
+ * action itself or the corner menu, takes it. With no such choice, that
  * run passes no value and the action decides.
  */
 function threadActionItem(entry: PluginThreadActionEntry): QuickActionItem {

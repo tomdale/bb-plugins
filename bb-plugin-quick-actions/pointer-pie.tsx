@@ -223,22 +223,16 @@ const emptyBandNodes = (): BandNodes => ({
   titleFade: null,
 });
 
-/**
- * The band extends once the pointer is this far from the centre with the
- * parent selected: a little past the hub, so the selection settles before the
- * band moves, and it stays open until the parent is no longer selected.
- */
-const BAND_OPEN_PX = RING_DEAD_ZONE_PX + 12;
 /** The chevron sits this far inside the rim, beyond the parent's label. */
 const MORE_INSET_PX = 13;
 
 /**
  * Aims the ring and its bands at the pointer. On an open band, its parent
  * action stays selected and the band selects by angle. Elsewhere the ring
- * aims as usual; once an action with a band is selected and the pointer is
- * past BAND_OPEN_PX its band extends, lighting the default option that
- * releasing would take, and selecting anything else folds it back. At most
- * one band is open, since only the selected action's band extends.
+ * aims as usual; as soon as an action with a band is selected its band
+ * extends, lighting the default option that releasing would take, and
+ * selecting anything else folds it back. At most one band is open, since only
+ * the selected action's band extends.
  */
 function steer(
   engine: RingPie,
@@ -264,7 +258,7 @@ function steer(
   bands.forEach((band, index) => {
     const spec = open.bands[index]!;
     if (engine.sel === spec.parent) {
-      if (dist >= BAND_OPEN_PX && !band.extended) band.extend();
+      if (!band.extended) band.extend();
       // Off the band, light what releasing takes: the default option, if any.
       const lit = spec.options.some((option) => option.isDefault);
       band.aim(!band.extended ? null : lit ? band.defaultAngle : null);
@@ -287,7 +281,8 @@ const TITLE_GAP_PX = 10;
  * A right-click opens it in place of the browser's menu, except on fields,
  * links, media, selected text, and anything with its own menu. Releasing the
  * button outside the hub runs the selection; releasing in the hub leaves the
- * ring open for a click on the disc.
+ * ring open for a click on the disc, and another right-click in the hub
+ * closes it.
  *
  * Direction selects; the centre is a dead zone. An action with options
  * (Snooze) grows an outer band of them past its label. Escape and a press
@@ -351,6 +346,12 @@ export function PointerPie({
   /** The button of a right-click still held down, whose release can run the ring. */
   const heldButtonRef = useRef<number | null>(null);
   const pendingOpenRef = useRef<PendingOpen | null>(null);
+  /**
+   * The current right-click closed the ring, so its menu event shows nothing.
+   * The right-click press listener clears it first on every press: it is
+   * registered at mount, before the open ring's own press listener sets it.
+   */
+  const swallowMenuRef = useRef(false);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLDivElement>(null);
@@ -564,6 +565,16 @@ export function PointerPie({
       if (dist > RING_DEAD_ZONE_PX) commit();
     };
     const press = (event: PointerEvent) => {
+      // A right-click opens the ring and a second one in the hub closes it.
+      if (
+        ring.source === "context" &&
+        isContextPress(event) &&
+        Math.hypot(event.clientX - ring.x, event.clientY - ring.y) <= RING_DEAD_ZONE_PX
+      ) {
+        swallowMenuRef.current = true;
+        closeRing("cancel");
+        return;
+      }
       // A press on the disc or the open band runs the selection on click.
       const target = event.target;
       if (
@@ -602,6 +613,7 @@ export function PointerPie({
     // Captured on window so the snapshot precedes BB's own press handlers,
     // which focus the pane, and the browser's word selection.
     const press = (event: PointerEvent) => {
+      swallowMenuRef.current = false;
       if (!isContextPress(event)) {
         contextPressRef.current = null;
         return;
@@ -624,6 +636,11 @@ export function PointerPie({
     const menu = (event: MouseEvent) => {
       const press = contextPressRef.current;
       contextPressRef.current = null;
+      if (swallowMenuRef.current) {
+        swallowMenuRef.current = false;
+        event.preventDefault();
+        return;
+      }
       if (event.defaultPrevented) return;
       const target = event.target;
       if (target instanceof Element && target.closest('[data-bb-plugin="quick-actions"]')) {

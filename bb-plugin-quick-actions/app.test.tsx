@@ -987,7 +987,7 @@ describe("Quick Actions overlay", () => {
           pluginActions: [{ key: "workstreams/snooze", action, forThread }],
         });
 
-      it("grows a band of its choices past the hub, lights the default, and folds for another action", async () => {
+      it("grows a band of its choices once selected, lights the default, and folds for another action", async () => {
         const { slot } = await renderWithSnooze();
         await holdOptionAt(centre);
         expect(bandLabels()).toEqual(SNOOZE_PRESETS.map((preset) => preset.label));
@@ -996,12 +996,13 @@ describe("Quick Actions overlay", () => {
         expect(document.querySelectorAll(".qa-ring-more")).toHaveLength(1);
         expect(item("Snooze")?.querySelector(".qa-ring-more")).not.toBeNull();
 
-        // Just out of the 36px hub Snooze is selected but the band stays folded.
-        await pointAt(towardSnooze(42));
-        expect(item("Snooze")).toHaveAttribute("data-selected", "true");
+        // Inside the 36px hub nothing is selected and the band stays folded.
+        await pointAt(towardSnooze(30));
+        expect(item("Snooze")).toHaveAttribute("data-selected", "false");
         expect(band()).toHaveAttribute("data-extended", "false");
 
-        await pointAt(towardSnooze(52));
+        // Just out of the hub, selecting Snooze opens its band at once.
+        await pointAt(towardSnooze(38));
         expect(band()).toHaveAttribute("data-extended", "true");
         expect(item("Snooze")).toHaveAttribute("data-selected", "true");
         expect(item("3 hours")).toHaveAttribute("data-selected", "true");
@@ -1027,11 +1028,11 @@ describe("Quick Actions overlay", () => {
         slot.lifecycle.unmount();
       });
 
-      it("takes the default choice from the action itself, before or after the band opens", async () => {
+      it("takes the default choice from the action itself, near the hub or out by the rim", async () => {
         const action = snoozeAction();
         const { slot } = await renderWithSnooze(action);
         await holdOptionAt(centre);
-        await pointAt(towardSnooze(42));
+        await pointAt(towardSnooze(38));
         await releaseOption();
         expect(action.run).toHaveBeenLastCalledWith("3h");
         await advance(400);
@@ -1205,6 +1206,23 @@ describe("Quick Actions overlay", () => {
           fireEvent.click(base!);
         });
         expect(runs.get("bb--core/archive")).toHaveBeenCalledOnce();
+        slot.lifecycle.unmount();
+      });
+
+      it("closes on a second right-click in the hub", async () => {
+        const { slot, runs } = await renderQuickActions({ settings: { ...corner } });
+        await rightClick();
+        await releaseRight(at);
+        expect(ring()).not.toBeNull();
+        // The menu event lands on the timeline, as it does once the ring is
+        // gone, and neither the browser menu nor a new ring shows.
+        expect(await rightClick(timeline, { clientX: 410, clientY: 305 })).toBe(false);
+        await releaseRight({ clientX: 410, clientY: 305 });
+        await advance(400);
+        expect(ring()).toBeNull();
+        for (const run of runs.values()) expect(run).not.toHaveBeenCalled();
+        expect(await rightClick()).toBe(false);
+        expect(ring()).not.toBeNull();
         slot.lifecycle.unmount();
       });
 
