@@ -78,7 +78,7 @@ function RingPreview({ actions, hot }: { actions: readonly ShownAction[]; hot: n
         } as CSSProperties
       }
     >
-      <svg viewBox={`${-Rd} ${-Rd} ${Rd * 2} ${Rd * 2}`}>
+      <svg className="qa-actions-preview-backdrop" viewBox={`${-Rd} ${-Rd} ${Rd * 2} ${Rd * 2}`}>
         <circle r={Rd} className="qa-actions-preview-disc" />
         {hot !== null && n > 1 ? (
           <path

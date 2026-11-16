@@ -466,7 +466,7 @@
   user-select: none;
 }
 
-.qa-actions-preview svg {
+.qa-actions-preview-backdrop {
   position: absolute;
   inset: 0;
   overflow: visible;
