@@ -371,9 +371,11 @@ export function SubagentsPanel({
             </div>
             <div className="flex items-center justify-between gap-2 text-xs leading-4 tabular-nums text-muted-foreground">
               <span>
-                <span aria-hidden="true">{runStatusGlyph(selected)}</span> {runStatusLabel(selected)}
+                <span aria-hidden="true">{runStatusGlyph(selected)}</span> {runStatusLabel(selected)}              </span>
+              <span className="flex gap-2">
+                {selected.resumeCount > 0 && <span>Resumed {selected.resumeCount}×</span>}
+                <span>{relativeAge(selected.createdAt)}</span>
               </span>
-              <span>{relativeAge(selected.createdAt)}</span>
             </div>
             <RunExecutionSummary
               run={selected}

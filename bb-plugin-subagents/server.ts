@@ -1,6 +1,6 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
-import { createInput, rpcContract } from "./src/contracts.ts";
+import { createInput, resumeInput, rpcContract } from "./src/contracts.ts";
 import { Subagents } from "./src/service.ts";
 import type { StatusSummarizer } from "./src/summarizer.ts";
 export { rpcContract } from "./src/contracts.ts";
@@ -30,7 +30,7 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
   bb.agents.registerTool({
     name: "subagent_create",
     description:
-      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning level and permissions; optional model selects another model of the same provider, and optional reasoningLevel (a level id the model lists, such as low, medium, high or xhigh) overrides the inherited level. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
+      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning level and permissions; optional model selects another model of the same provider, and optional reasoningLevel (a level id the model lists, such as low, medium, high or xhigh) overrides the inherited level. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Workers get time-check notices as the deadline nears, are asked to wrap up at it, and are stopped only after a grace period (10% of the timeout, 30–600 seconds); a timed-out run can be continued with subagent_resume. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
     parameters: createInput,
     async execute(input, { threadId }) {
       const run = await service.create(threadId, input);
@@ -47,7 +47,7 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
   bb.agents.registerTool({
     name: "subagent_kill",
     description:
-      "Stop an owned background subagent by run ID and preserve its partial output. With no ID, list owned runs. Cannot stop a detached session, yourself, peers, or ancestors.",
+      "Stop an owned background subagent by run ID and preserve its partial output; subagent_resume can continue it later. With no ID, list owned runs. Cannot stop a detached session, yourself, peers, or ancestors.",
     parameters: z.object({ id: z.string().optional(), reason: z.string().max(1000).optional() }).strict(),
     async execute({ id, reason }, { threadId }) {
       return JSON.stringify(
@@ -55,11 +55,28 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
       );
     },
   });
+  bb.agents.registerTool({
+    name: "subagent_resume",
+    description:
+      "Continue a timed-out or killed subagent you own in its existing session, with a fresh time budget. Optional message steers it with new instructions; without one it continues where it left off. Completion is delivered to this thread again. Cannot resume completed or failed runs or detached sessions.",
+    parameters: resumeInput,
+    async execute(input, { threadId }) {
+      const run = await service.resume(threadId, input);
+      return JSON.stringify({
+        id: run.id,
+        title: run.title,
+        status: run.status,
+        threadId: run.threadId,
+        resumeCount: run.resumeCount,
+        deadline: run.deadline,
+      });
+    },
+  });
   let settingsDepth = (await settings.get()).maxDepth;
   bb.agents.configure(context => {
     const run = service.byThread(context.thread.id);
     return {
-      tools: [...(!run || run.depth < settingsDepth ? ["subagent_create"] : []), "subagent_status", "subagent_kill"],
+      tools: [...(!run || run.depth < settingsDepth ? ["subagent_create"] : []), "subagent_status", "subagent_kill", "subagent_resume"],
       skills: [],
     };
   });

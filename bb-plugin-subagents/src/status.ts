@@ -2,7 +2,7 @@ import type { Run } from "./contracts.ts";
 
 /** A run that is still doing background work. */
 export function runIsWorking(run: Pick<Run, "status">): boolean {
-  return run.status === "starting" || run.status === "running";
+  return run.status === "starting" || run.status === "running" || run.status === "winding-down";
 }
 
 export function runStatusLabel(run: Pick<Run, "status">): string {
@@ -11,6 +11,8 @@ export function runStatusLabel(run: Pick<Run, "status">): string {
       return "Starting";
     case "running":
       return "Running";
+    case "winding-down":
+      return "Wrapping up";
     case "completed":
       return "Completed";
     case "failed":
@@ -27,6 +29,7 @@ export function runStatusGlyph(run: Pick<Run, "status">): string {
     case "starting":
       return "◌";
     case "running":
+    case "winding-down":
       return "↻";
     case "completed":
       return "✓";
@@ -53,6 +56,7 @@ export function runStateNote(run: Pick<Run, "status">): string {
     case "timed-out":
       return "Timed out";
     case "running":
+    case "winding-down":
     case "completed":
       return "";
   }

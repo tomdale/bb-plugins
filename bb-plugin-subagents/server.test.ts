@@ -341,16 +341,194 @@ describe("background subagents", () => {
     expect(result).not.toContain("task");
   });
 
-  it("enforces deadlines while preserving output", async () => {
-    const host = await setup();
-    const run = await host.create();
-    const db = host.bb.storage.database();
-    db.prepare("UPDATE runs SET data = json_set(data, '$.deadline', 1) WHERE id = ?").run(run.id);
+  async function reconcileOnce(host: Awaited<ReturnType<typeof setup>>) {
     const service = host.harness.behavior.runService("reconcile");
     await new Promise(resolve => setTimeout(resolve, 20));
     service.controller.abort();
     await service.done;
+  }
+
+  function setRun(host: Awaited<ReturnType<typeof setup>>, id: string, fields: Record<string, unknown>) {
+    const db = host.bb.storage.database();
+    for (const [key, value] of Object.entries(fields)) {
+      db.prepare(`UPDATE runs SET data = json_set(data, '$.${key}', json(?)) WHERE id = ?`).run(
+        JSON.stringify(value),
+        id,
+      );
+    }
+  }
+
+  const sentTo = (host: Awaited<ReturnType<typeof setup>>, threadId: string) =>
+    host.harness.inspection.sdk
+      .callsTo("threads.send")
+      .map(call => call[0] as { threadId: string; mode: string; input: { text: string }[] })
+      .filter(call => call.threadId === threadId);
+
+  it("asks a worker to wrap up at the deadline instead of stopping it", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    await reconcileOnce(host);
+    const [wrapUp] = sentTo(host, run.threadId);
+    expect(wrapUp).toMatchObject({ mode: "steer-if-active" });
+    expect(wrapUp!.input[0]!.text).toContain("Time limit reached");
+    expect(host.harness.inspection.sdk.callsTo("threads.stop")).toHaveLength(0);
+    const [listed] = (await host.list()).runs;
+    expect(listed).toMatchObject({ status: "winding-down" });
+    expect(listed!.graceDeadline).toBeGreaterThan(Date.now() + 30_000);
+    expect(await host.harness.behavior.fetchHttp("GET", "/active-rows").then(r => r.json())).toEqual({
+      roots: [{ threadId: "origin", working: 1 }],
+    });
+  });
+
+  it("settles a worker that wraps up within the grace period as timed out, keeping its report", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    await reconcileOnce(host);
+    host.setOutput("Done: A. Remaining: B.");
+    host.threads.get(run.threadId)!.status = "idle";
+    await reconcileOnce(host);
+    const [settled] = (await host.list()).runs;
+    expect(settled).toMatchObject({ status: "timed-out", output: "Done: A. Remaining: B." });
+    expect(settled!.error).toContain("wrapped up");
+    const report = sentTo(host, "origin").at(-1)!.input[0]!.text;
+    expect(report).toContain("timed-out");
+    expect(report).toContain(`subagent_resume({ id: "${run.id}"`);
+  });
+
+  it("counts a worker that finishes on its own at the deadline as completed", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    host.threads.get(run.threadId)!.status = "idle";
+    await reconcileOnce(host);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "completed" });
+  });
+
+  it("stops a worker that ignores the wrap-up order once its grace period ends", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    await reconcileOnce(host);
+    setRun(host, run.id, { graceDeadline: 1 });
+    await reconcileOnce(host);
     expect((await host.list()).runs[0]).toMatchObject({ status: "timed-out", output: "Findings" });
+    expect((await host.list()).runs[0]!.error).toContain("did not wrap up");
+    expect(host.harness.inspection.sdk.callsTo("threads.stop").length).toBeGreaterThan(0);
+  });
+
+  it("falls back to a hard stop when the wrap-up order cannot be delivered", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    host.harness.inspection.sdk.stub("threads.send", async () => {
+      throw new Error("offline");
+    });
+    await reconcileOnce(host);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "timed-out", output: "Findings" });
+    expect(host.harness.inspection.sdk.callsTo("threads.stop").length).toBeGreaterThan(0);
+  });
+
+  it("stops at the deadline when the run has no time to wrap up", async () => {
+    const host = await setup();
+    const run = await host.create();
+    setRun(host, run.id, { deadline: 1, timeoutMs: null });
+    await reconcileOnce(host);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "timed-out", output: "Findings" });
+  });
+
+  it("sends time-check notices as a long run's deadline nears, one message for all that fell due", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 86400 });
+    const [first, second, third] = (await host.list()).runs[0]!.notices;
+    expect(third).toBeGreaterThan(second!);
+    expect(second).toBeGreaterThan(first!);
+    setRun(host, run.id, { notices: [1, 2, Date.now() + 3_600_000] });
+    await reconcileOnce(host);
+    const notices = sentTo(host, run.threadId);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.input[0]!.text).toContain("Time check");
+    expect((await host.list()).runs[0]!.notices).toHaveLength(1);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "running" });
+  });
+
+  describe("resume", () => {
+    async function timedOut(host: Awaited<ReturnType<typeof setup>>, options: Record<string, unknown> = {}) {
+      const run = await host.create("origin", "Review code.", options);
+      await host.harness.behavior.callAgentTool("subagent_kill", { id: run.id }, { threadId: "origin" });
+      setRun(host, run.id, { status: "timed-out" });
+      return run;
+    }
+    const resume = (host: Awaited<ReturnType<typeof setup>>, args: Record<string, unknown>, threadId = "origin") =>
+      host.harness.behavior.callAgentTool("subagent_resume", args, { threadId });
+
+    it("continues a timed-out worker in its session with a fresh budget", async () => {
+      const host = await setup();
+      const run = await timedOut(host);
+      const result = JSON.parse((await resume(host, { id: run.id })) as string);
+      expect(result).toMatchObject({ status: "running", resumeCount: 1, threadId: run.threadId });
+      expect(result.deadline).toBeGreaterThan(Date.now());
+      expect(host.harness.inspection.sdk.callsTo("threads.unarchive")).toHaveLength(1);
+      const message = sentTo(host, run.threadId).at(-1)!;
+      expect(message.mode).toBe("auto");
+      expect(message.input[0]!.text).toContain("continue the task where you left off");
+      expect((await host.list()).runs[0]).toMatchObject({ status: "running", error: null, resumeCount: 1 });
+    });
+
+    it("steers the resumed worker with the caller's message and a custom timeout", async () => {
+      const host = await setup();
+      const run = await timedOut(host);
+      await resume(host, { id: run.id, message: "Skip the tests; finish the docs.", timeout: 300 });
+      expect(sentTo(host, run.threadId).at(-1)!.input[0]!.text).toContain("Skip the tests; finish the docs.");
+      expect((await host.list()).runs[0]).toMatchObject({ timeoutMs: 300_000 });
+    });
+
+    it("resumes a killed worker and settles it again on completion", async () => {
+      const host = await setup();
+      const run = await host.create();
+      await host.harness.behavior.callAgentTool("subagent_kill", { id: run.id }, { threadId: "origin" });
+      await resume(host, { id: run.id });
+      host.threads.get(run.threadId)!.status = "idle";
+      await reconcileOnce(host);
+      expect((await host.list()).runs[0]).toMatchObject({ status: "completed", resumeCount: 1 });
+    });
+
+    it("rejects runs that are still working, finished, detached, or owned by another thread", async () => {
+      const host = await setup();
+      const running = await host.create();
+      await expect(resume(host, { id: running.id })).rejects.toThrow(/timed-out or killed/);
+      const done = await host.create();
+      host.threads.get(done.threadId)!.status = "idle";
+      await reconcileOnce(host);
+      await expect(resume(host, { id: done.id })).rejects.toThrow(/completed/);
+      const stopped = await timedOut(host);
+      await expect(resume(host, { id: stopped.id }, "stranger")).rejects.toThrow(/another thread/);
+      await host.harness.behavior.callRpc("detach", { id: stopped.id });
+      await expect(resume(host, { id: stopped.id })).rejects.toThrow(/detached/);
+    });
+
+    it("respects the concurrency limit and a deleted worker", async () => {
+      const host = await setup({ maxConcurrent: 1 });
+      const run = await timedOut(host);
+      await host.create();
+      await expect(resume(host, { id: run.id })).rejects.toThrow(/Maximum concurrent/);
+      const other = await setup();
+      const gone = await timedOut(other);
+      other.threads.get(gone.threadId)!.deletedAt = 1;
+      await expect(resume(other, { id: gone.id })).rejects.toThrow(/deleted/);
+    });
+
+    it("leaves the run timed out and released when the worker cannot be messaged", async () => {
+      const host = await setup();
+      const run = await timedOut(host);
+      host.harness.inspection.sdk.stub("threads.send", async () => {
+        throw new Error("offline");
+      });
+      await expect(resume(host, { id: run.id })).rejects.toThrow("offline");
+      expect((await host.list()).runs[0]).toMatchObject({ status: "timed-out", resumeCount: 0 });
+      expect(host.harness.inspection.sdk.callsTo("threads.archive").length).toBeGreaterThan(1);
+    });
   });
 
   it("reattaches a spawned worker after a crash before its ID was saved", async () => {
@@ -379,6 +557,7 @@ describe("background subagents", () => {
       "subagent_create",
       "subagent_status",
       "subagent_kill",
+      "subagent_resume",
     ]);
     expect(configuration.skills).toEqual([]);
     expect(configuration.instructions).toBeFalsy();

@@ -24,7 +24,14 @@ export const runSchema = z.object({
   summaryUpdatedAt: z.number().default(0),
   createdAt: z.number(),
   deadline: z.number().nullable(),
-  status: z.enum(["starting", "running", "completed", "failed", "killed", "timed-out"]),
+  /** The budget the deadline was computed from; null when unlimited. */
+  timeoutMs: z.number().nullable().default(null),
+  /** Set while winding down: when the worker is hard-stopped if it has not finished. */
+  graceDeadline: z.number().nullable().default(null),
+  /** Heads-up notice times not yet sent to the worker. */
+  notices: z.array(z.number()).default([]),
+  resumeCount: z.number().default(0),
+  status: z.enum(["starting", "running", "winding-down", "completed", "failed", "killed", "timed-out"]),
   control: z.enum(["agent", "user", "returned"]),
   output: z.string(),
   error: z.string().nullable(),
@@ -35,6 +42,12 @@ export const runSchema = z.object({
 export type Run = z.infer<typeof runSchema>;
 
 const target = z.object({ id: z.string().min(1) }).strict();
+
+export const resumeInput = z.object({
+  id: z.string().min(1),
+  message: z.string().trim().min(1).max(8000).optional(),
+  timeout: z.number().int().min(0).max(86400).optional(),
+}).strict();
 
 export const rpcContract = defineRpcContract({
   list: {

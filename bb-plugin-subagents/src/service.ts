@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { z } from "zod";
-import { createInput, runSchema, type Run } from "./contracts.ts";
+import { createInput, runSchema, type resumeInput, type Run } from "./contracts.ts";
 import { extractOneSentenceSummary } from "./status.ts";
+import { graceMsFor, noticeMessage, resumeMessage, scheduleTimeout, windDownMessage } from "./timeout.ts";
 import {
   defaultSummarizer,
   SUMMARY_EXCERPT_LIMIT,
@@ -11,6 +12,10 @@ import {
 } from "./summarizer.ts";
 
 const OUTPUT_LIMIT = 16000;
+const WORKING = ["starting", "running", "winding-down"];
+const WORKING_SQL = WORKING.map(status => `'${status}'`).join(", ");
+const WOUND_DOWN = "Time limit reached; the worker wrapped up when asked.";
+const isWorking = (run: Run) => WORKING.includes(run.status);
 
 export class Subagents {
   private db;
@@ -116,7 +121,7 @@ export class Subagents {
   activeRoots() {
     const roots = new Map<string, { threadId: string; working: number }>();
     for (const run of this.query(
-      "json_extract(data, '$.control') = 'agent' AND json_extract(data, '$.status') IN ('starting','running')",
+      `json_extract(data, '$.control') = 'agent' AND json_extract(data, '$.status') IN (${WORKING_SQL})`,
     )) {
       const entry = roots.get(run.rootThreadId) ?? { threadId: run.rootThreadId, working: 0 };
       entry.working++;
@@ -234,6 +239,18 @@ export class Subagents {
     );
   }
 
+  /** Deadline fields for a budget of `timeoutSeconds` starting at `startedAt`; 0 means unlimited. */
+  private budget(startedAt: number, timeoutSeconds: number) {
+    if (timeoutSeconds === 0) return { deadline: null, timeoutMs: null, graceDeadline: null, notices: [] };
+    const schedule = scheduleTimeout(startedAt, timeoutSeconds * 1000);
+    return {
+      deadline: schedule.deadline,
+      timeoutMs: timeoutSeconds * 1000,
+      graceDeadline: null,
+      notices: schedule.notices,
+    };
+  }
+
   async create(ownerThreadId: string, input: z.infer<typeof createInput>) {
     const owner = await this.bb.sdk.threads.get({ threadId: ownerThreadId });
     if (!owner.environmentId || owner.archivedAt || owner.deletedAt) {
@@ -248,7 +265,7 @@ export class Subagents {
     const rootThreadId = parent?.rootThreadId ?? ownerThreadId;
     const active = this.db
       .prepare(
-        "SELECT count(*) AS count FROM runs WHERE json_extract(data, '$.rootThreadId') = ? AND json_extract(data, '$.control') = 'agent' AND json_extract(data, '$.status') IN ('starting', 'running')",
+        `SELECT count(*) AS count FROM runs WHERE json_extract(data, '$.rootThreadId') = ? AND json_extract(data, '$.control') = 'agent' AND json_extract(data, '$.status') IN (${WORKING_SQL})`,
       )
       .get(rootThreadId) as { count: number };
     if (active.count >= settings.maxConcurrent) throw new Error("Maximum concurrent subagents reached.");
@@ -271,7 +288,8 @@ export class Subagents {
       statusSummary: extractOneSentenceSummary(input.task, `Starting worker thread for ${title}.`),
       summaryUpdatedAt: now,
       createdAt: now,
-      deadline: timeout === 0 ? null : now + timeout * 1000,
+      ...this.budget(now, timeout),
+      resumeCount: 0,
       status: "starting",
       control: "agent",
       output: "",
@@ -364,7 +382,7 @@ export class Subagents {
     if (!candidate) return;
     await this.serial(candidate.id, async () => {
       const run = this.get(candidate.id);
-      if (run.control !== "agent" || !["starting", "running"].includes(run.status)) return;
+      if (run.control !== "agent" || !isWorking(run)) return;
       const previousOutput = run.output;
       if (typeof latestReply === "string" && latestReply.trim()) {
         run.output = latestReply.slice(0, OUTPUT_LIMIT);
@@ -383,6 +401,8 @@ export class Subagents {
     run.status = status;
     run.error = error;
     run.cleanupPending = true;
+    run.graceDeadline = null;
+    run.notices = [];
     this.save(run);
     try {
       if (status !== "completed" && run.threadId) await this.bb.sdk.threads.stop({ threadId: run.threadId });
@@ -392,7 +412,11 @@ export class Subagents {
     } finally {
       this.queue(
         run,
-        `Subagent ${JSON.stringify(run.title)} (${run.id}) ${status}. ${error ?? ""}\n${run.output}\nFull transcript: @thread:${run.threadId}`,
+        `Subagent ${JSON.stringify(run.title)} (${run.id}) ${status}. ${error ?? ""}\n${run.output}\nFull transcript: @thread:${run.threadId}${
+          status === "timed-out" || status === "killed"
+            ? `\nResume it with subagent_resume({ id: ${JSON.stringify(run.id)}, message? }) to continue with its context.`
+            : ""
+        }`,
       );
       await this.cleanup(run);
     }
@@ -404,11 +428,13 @@ export class Subagents {
     if (!candidate) return;
     await this.serial(candidate.id, async () => {
       const run = this.get(candidate.id);
-      if (run.control !== "agent" || !["starting", "running"].includes(run.status)) return;
+      if (run.control !== "agent" || !isWorking(run)) return;
       if (typeof lastAssistantText === "string" && lastAssistantText.trim()) {
         run.output = lastAssistantText.slice(0, OUTPUT_LIMIT);
       }
-      await this.finish(run, failed ? "failed" : "completed", failed ?? null);
+      if (failed) await this.finish(run, "failed", failed);
+      else if (run.status === "winding-down") await this.finish(run, "timed-out", WOUND_DOWN);
+      else await this.finish(run, "completed");
     });
   }
 
@@ -419,7 +445,7 @@ export class Subagents {
       if (run.control !== "agent") {
         throw new Error("The user detached this session; it cannot be killed by an agent.");
       }
-      if (["starting", "running"].includes(run.status)) await this.finish(run, "killed", reason);
+      if (isWorking(run)) await this.finish(run, "killed", reason);
       return this.get(id);
     });
   }
@@ -494,7 +520,7 @@ export class Subagents {
       await this.notify(run);
       return;
     }
-    if (!["starting", "running"].includes(run.status)) {
+    if (!isWorking(run)) {
       if (run.cleanupPending) await this.cleanup(run);
       await this.notify(run);
       return;
@@ -513,24 +539,134 @@ export class Subagents {
       await this.finish(run, "killed", "Worker archived before completion.");
       return;
     }
-    if (run.deadline !== null && Date.now() >= run.deadline) {
-      await this.finish(run, "timed-out", "Subagent timeout exceeded.");
-      return;
-    }
+    // A worker that finished on its own before the clock ran out completed; one that
+    // went idle while winding down did what it was asked.
     if (child.status === "idle") {
-      await this.finish(run, "completed");
+      if (run.status === "winding-down") await this.finish(run, "timed-out", WOUND_DOWN);
+      else await this.finish(run, "completed");
       return;
     }
     if (child.status === "error") {
       await this.finish(run, "failed", "Worker failed; inspect its transcript.");
       return;
     }
+    if (await this.enforceTimeout(run)) return;
     if (Date.now() - run.summaryUpdatedAt >= SUMMARY_INTERVAL_MS) {
       await this.output(run);
       run.statusSummary = await this.summarize(run, run.output);
       run.summaryUpdatedAt = Date.now();
       this.save(run);
     }
+  }
+
+  /**
+   * Advances the timeout state machine: heads-up notices, the wind-down order at
+   * the deadline, and the hard stop when the grace period ends. Returns whether
+   * the run settled.
+   */
+  private async enforceTimeout(run: Run): Promise<boolean> {
+    const now = Date.now();
+    if (run.status === "winding-down") {
+      if (run.graceDeadline === null || now < run.graceDeadline) return false;
+      await this.finish(
+        run,
+        "timed-out",
+        "Time limit reached; the worker did not wrap up within its grace period and was stopped.",
+      );
+      return true;
+    }
+    if (run.deadline === null) return false;
+    if (now >= run.deadline) {
+      const graceMs = run.timeoutMs === null ? 0 : graceMsFor(run.timeoutMs);
+      if (!run.threadId || graceMs === 0) {
+        await this.finish(run, "timed-out", "Subagent timeout exceeded.");
+        return true;
+      }
+      try {
+        await this.steer(run.threadId, windDownMessage(graceMs));
+      } catch (cause) {
+        this.bb.log.warn(`Subagent wind-down notice: ${String(cause)}`);
+        await this.finish(run, "timed-out", "Subagent timeout exceeded; the worker could not be asked to wrap up.");
+        return true;
+      }
+      run.status = "winding-down";
+      run.graceDeadline = now + graceMs;
+      run.notices = [];
+      run.statusSummary = "Time limit reached; waiting for the worker to wrap up.";
+      run.summaryUpdatedAt = now;
+      this.save(run);
+      return false;
+    }
+    const due = run.notices.filter(at => at <= now);
+    if (due.length > 0 && run.threadId && run.timeoutMs !== null) {
+      // Several notices can fall due while the plugin was down; one message covers them all.
+      run.notices = run.notices.filter(at => at > now);
+      this.save(run);
+      await this.steer(run.threadId, noticeMessage(run.deadline - now, run.timeoutMs)).catch(cause =>
+        this.bb.log.warn(`Subagent time notice: ${String(cause)}`),
+      );
+    }
+    return false;
+  }
+
+  private async steer(threadId: string, text: string) {
+    await this.bb.sdk.threads.send({
+      threadId,
+      mode: "steer-if-active",
+      input: [{ type: "text", text, mentions: [] }],
+    });
+  }
+
+  /**
+   * Continues a timed-out or killed worker in its existing session with a fresh
+   * time budget, optionally steering it with new instructions.
+   */
+  async resume(caller: string, input: z.infer<typeof resumeInput>) {
+    return this.serial(input.id, async () => {
+      const run = this.get(input.id);
+      if (!this.owns(caller, run)) throw new Error("This subagent belongs to another thread.");
+      if (run.control !== "agent") throw new Error("The user detached this session; it cannot be resumed by an agent.");
+      if (run.status !== "timed-out" && run.status !== "killed") {
+        throw new Error(`Only timed-out or killed subagents can be resumed; this one is ${run.status}.`);
+      }
+      if (!run.threadId) throw new Error("This subagent never attached a worker thread.");
+      const previous = run.status;
+      const settings = await this.settings();
+      const active = this.db
+        .prepare(
+          `SELECT count(*) AS count FROM runs WHERE json_extract(data, '$.rootThreadId') = ? AND json_extract(data, '$.control') = 'agent' AND json_extract(data, '$.status') IN (${WORKING_SQL})`,
+        )
+        .get(run.rootThreadId) as { count: number };
+      if (active.count >= settings.maxConcurrent) throw new Error("Maximum concurrent subagents reached.");
+      const child = await this.bb.sdk.threads.get({ threadId: run.threadId });
+      if (child.deletedAt) throw new Error("The worker thread was deleted; it cannot be resumed.");
+      const before = { ...run };
+      await this.bb.sdk.threads.unarchive({ threadId: run.threadId });
+      const now = Date.now();
+      Object.assign(run, this.budget(now, input.timeout ?? settings.defaultTimeout), {
+        status: "running",
+        error: null,
+        cleanupPending: false,
+        resumeCount: run.resumeCount + 1,
+        statusSummary: "Resumed; continuing where it left off.",
+        summaryUpdatedAt: now,
+      });
+      this.save(run);
+      try {
+        await this.bb.sdk.threads.send({
+          threadId: run.threadId,
+          mode: "auto",
+          input: [{ type: "text", text: resumeMessage(previous, input.message), mentions: [] }],
+        });
+      } catch (cause) {
+        // The worker never received the message: restore the settled run and release it again.
+        Object.assign(run, before, { cleanupPending: true });
+        this.save(run);
+        await this.cleanup(run).catch(failure => this.bb.log.warn(`Subagent resume rollback: ${String(failure)}`));
+        throw cause;
+      }
+      return this.get(run.id);
+    });
   }
 
   async reconcile() {
@@ -541,12 +677,12 @@ export class Subagents {
       );
     }
     for (const run of this.query(
-      "(json_extract(data, '$.control') = 'agent' AND (json_extract(data, '$.status') IN ('starting', 'running') OR json_extract(data, '$.cleanupPending') = 1)) OR json_array_length(data, '$.notifications') > 0",
+      `(json_extract(data, '$.control') = 'agent' AND (json_extract(data, '$.status') IN (${WORKING_SQL}) OR json_extract(data, '$.cleanupPending') = 1)) OR json_array_length(data, '$.notifications') > 0`,
     )) {
       if (this.disposed) return;
       // Revisit only active runs or pending deliveries; settled runtime cleanup is retried on reload.
       if (
-        (run.control === "agent" && (["starting", "running"].includes(run.status) || run.cleanupPending)) ||
+        (run.control === "agent" && (isWorking(run) || run.cleanupPending)) ||
         run.notifications.length
       ) {
         await this.serial(run.id, () => this.reconcileOne(this.get(run.id))).catch(cause =>

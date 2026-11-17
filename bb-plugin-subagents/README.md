@@ -7,6 +7,7 @@ A native BB plugin inspired by [pi-subagent-in-memory](https://github.com/ross-j
 - `subagent_create({ task, title?, model?, reasoningLevel?, timeout? })` returns a run ID immediately. It inherits the calling thread's provider, model, reasoning level, service tier and permissions; `model` selects another model of that provider and `reasoningLevel` selects another level that model supports. A worker on another model keeps the inherited level when that model supports it and otherwise starts at the model's default. Completion delivers bounded output to the caller.
 - `subagent_status({ id? })` reads status and up to 16,000 characters of output, or lists up to 100 owned runs.
 - `subagent_kill({ id?, reason? })` stops a background worker and preserves partial output. Without an ID it lists owned runs. Agents cannot kill detached sessions, themselves, peers, or ancestors.
+- `subagent_resume({ id, message?, timeout? })` continues a timed-out or killed worker in its existing session with a fresh time budget. `message` steers it with new instructions; without one it continues where it left off. The caller gets a completion report again. Completed and failed runs, detached sessions, and runs the caller does not own are refused, as is a resume that would exceed the concurrency limit.
 
 Tools advertise their behavior through schemas; the plugin adds no system instructions or automatically loaded skills.
 
@@ -20,13 +21,25 @@ Selecting a subagent opens its detail view with clickable parent and child links
 
 The thread header shows an outline button — "Subagents · 2 running" — while any background subagent the thread owns is working, and hides itself when nothing is active. A sidebar glyph on the original thread's row — a shimmering Bot icon while its workers run — is visible from anywhere in the sidebar.
 
-The pane shows up to 100 runs, including nested workers in the original thread. Original-thread interruption leaves workers running under their own timeout. Hidden worker runtimes are stopped and archived on completion or failure. Pending completion/detachment notifications are persisted and retried after reload; delivery is at-least-once across crashes.
+The pane shows up to 100 runs, including nested workers in the original thread. Original-thread interruption leaves workers running under their own timeout. When a run settles, the plugin stops and archives its worker. A timed-out or killed worker keeps its session, so it can be resumed. Pending completion/detachment notifications are persisted and retried after reload; delivery is at-least-once across crashes.
 
 ## Execution and limits
 
 Workers are **hidden BB threads**, not in-process Pi sessions. They consume normal BB concurrency slots and provider runtimes. They reuse the original environment, create no additional worktrees, and share files; coordinate concurrent edits. Hidden visibility and the read-only panel are UI organization, not access-control boundaries.
 
-Settings: maximum nesting depth (default 2, range 1–10), maximum concurrent background runs per original thread (4, 1–32), and default timeout in seconds (1800, 0 for unlimited, maximum 86400). Timeouts are checked every five seconds. Existing runs keep their deadline; depth and capacity changes apply to subsequent creates. The core lifecycle owner is the original thread; its archive/delete lifecycle can stop workers, unlike ordinary interruption.
+Settings: maximum nesting depth (default 2, range 1–10), maximum concurrent background runs per original thread (4, 1–32), and default timeout in seconds (1800, 0 for unlimited, maximum 86400). Timeouts are checked every five seconds. Existing runs keep their deadline; depth and capacity changes apply to subsequent creates.
+
+### Timeouts
+
+A timeout marks when a worker must start wrapping up; the plugin stops it only after a grace period. The grace period is 10% of the timeout, between 30 and 600 seconds.
+
+1. Before the deadline, a worker whose timeout is long enough gets time-check messages: at 8, 4, and 2 grace periods before the deadline, each only when it falls in the second half of the budget. A 60-second run gets none, a 30-minute run gets two, and a 24-hour run gets three.
+2. At the deadline the worker is steered to stop starting new work, leave files consistent, and report what is done and what remains. The run shows as **Wrapping up**.
+3. If the worker goes idle in the grace period, the run settles as `timed-out` and keeps that report as its output. If it does not, the plugin stops it when the grace period ends. A worker that goes idle on its own at the deadline counts as completed.
+
+The owner's notification for a timed-out or killed run names `subagent_resume`. Resuming unarchives the worker thread, sends the continue message (plus any steering), and starts a new timeout schedule. The pane shows how many times a run was resumed.
+
+The core lifecycle owner is the original thread; its archive/delete lifecycle can stop workers, unlike ordinary interruption.
 
 ## Development and installation
 

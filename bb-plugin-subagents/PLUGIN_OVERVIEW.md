@@ -1,10 +1,14 @@
 ## Background help, visible when you need it
 
-Give BB agents three small tools to create background subagents, check their progress, and stop stuck work. Workers share the calling thread's environment and inherit its provider and execution permissions.
+Give BB agents small tools to create background subagents, check their progress, stop stuck work, and resume workers that ran out of time. Workers share the calling thread's environment and inherit its provider and execution permissions.
 
 ## Follow the work
 
 Open **Subagents** in a thread's side panel for a hierarchical Active and Inactive subagent list with live one-sentence status summaries and provider/model/thinking specs, each subagent opening its live, read-only transcript. The thread header carries a live Subagents button while runs work, and a sidebar glyph marks the original thread's row from anywhere in the sidebar. Completion sends a bounded result back to the calling agent, and finished worker runtimes are released promptly.
+
+## Timeouts that wind down
+
+Workers get time-check messages as the deadline nears and a wrap-up request at the deadline. The plugin stops a worker only after a grace period that scales with its timeout. The calling agent can resume a timed-out or killed worker in its existing session, optionally with new instructions.
 
 ## Detach into a child thread
 
