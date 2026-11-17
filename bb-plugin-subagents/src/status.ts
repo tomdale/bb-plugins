@@ -160,7 +160,8 @@ export function extractOneSentenceSummary(text: string, fallback = "Working in t
     .replace(/\s+/g, " ")
     .trim();
   if (!stripped) return fallback;
-  const sentences = stripped.match(/[^.!?]+[.!?]+/g);
+  // A terminator ends a sentence only before whitespace or the end, so "2.7h" and "v1.4" stay whole.
+  const sentences = stripped.match(/.+?[.!?]+(?=\s|$)/g);
   const candidate = (sentences ? sentences[sentences.length - 1]! : stripped).trim();
   if (!candidate) return fallback;
   const max = 160;
