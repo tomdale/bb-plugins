@@ -73,13 +73,31 @@ export function noticeMessage(remainingMs: number, timeoutMs: number, graceMs: n
 }
 
 export function windDownMessage(graceMs: number): string {
-  return `Time limit reached. Stop starting new work. Finish or safely abandon your current step, leave files in a consistent state, and reply with what is done, what remains, and how to continue. You will be stopped in about ${formatDuration(graceMs)}; your owner may resume you later.`;
+  return `Time limit reached. Stop starting new work. Finish or safely abandon your current step and leave files in a consistent state. Begin your reply with COMPLETE if the task is fully done or INCOMPLETE if it is not, then say what is done, what remains, and how to continue. You will be stopped in about ${formatDuration(graceMs)}; your owner may resume you later.`;
 }
 
-export function resumeMessage(previous: "timed-out" | "killed", steering?: string): string {
-  const preface =
-    previous === "timed-out"
-      ? "Your time limit expired and you were paused. You have a new time budget; continue the task where you left off."
-      : "You were stopped before finishing. You have a new time budget; continue the task where you left off.";
+/**
+ * Reads the verdict a worker gives at the start of its wrap-up reply. A reply
+ * without a clear COMPLETE counts as incomplete: only an explicit claim of
+ * completion may settle a run that ran out of time as completed.
+ */
+export function declaresComplete(reply: string): boolean {
+  const firstLine = reply
+    .split("\n")
+    .map(line => line.replace(/^:{3,}.*$/, "").replace(/[*_`#>\s]+/g, " ").trim())
+    .find(line => line.length > 0);
+  return firstLine !== undefined && /^COMPLETE\b/i.test(firstLine);
+}
+
+export type SettledStatus = "completed" | "failed" | "timed-out" | "killed";
+
+/** The message a resumed worker receives; a completed worker needs steering, since it has nothing left to continue. */
+export function resumeMessage(previous: SettledStatus, steering?: string): string {
+  const preface = {
+    "timed-out": "Your time limit expired and you were paused. You have a new time budget; continue the task where you left off.",
+    killed: "You were stopped before finishing. You have a new time budget; continue the task where you left off.",
+    failed: "Your previous attempt ended in a failure. You have a new time budget; check where things stand and continue the task.",
+    completed: "You finished your task earlier. You have a new time budget for follow-up work.",
+  }[previous];
   return steering ? `${preface}\n\nNew instructions from your owner:\n${steering}` : preface;
 }

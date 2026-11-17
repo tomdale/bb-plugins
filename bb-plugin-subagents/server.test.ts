@@ -391,10 +391,33 @@ describe("background subagents", () => {
     await reconcileOnce(host);
     const [settled] = (await host.list()).runs;
     expect(settled).toMatchObject({ status: "timed-out", output: "Done: A. Remaining: B." });
-    expect(settled!.error).toContain("wrapped up");
+    expect(settled!.error).toContain("incomplete");
     const report = sentTo(host, "origin").at(-1)!.input[0]!.text;
     expect(report).toContain("timed-out");
     expect(report).toContain(`subagent_resume({ id: "${run.id}"`);
+  });
+
+  it("settles a worker that declares the task complete during its wrap-up as completed", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    await reconcileOnce(host);
+    expect(sentTo(host, run.threadId)[0]!.input[0]!.text).toContain("Begin your reply with COMPLETE");
+    host.setOutput("**COMPLETE**\nEverything is reviewed.");
+    host.threads.get(run.threadId)!.status = "idle";
+    await reconcileOnce(host);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "completed", error: null });
+  });
+
+  it("settles a worker that reports INCOMPLETE during its wrap-up as timed out", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    await reconcileOnce(host);
+    host.setOutput("INCOMPLETE\nTwo files remain.");
+    host.threads.get(run.threadId)!.status = "idle";
+    await reconcileOnce(host);
+    expect((await host.list()).runs[0]).toMatchObject({ status: "timed-out" });
   });
 
   it("counts a worker that finishes on its own at the deadline as completed", async () => {
@@ -494,14 +517,30 @@ describe("background subagents", () => {
       expect((await host.list()).runs[0]).toMatchObject({ status: "completed", resumeCount: 1 });
     });
 
-    it("rejects runs that are still working, finished, detached, or owned by another thread", async () => {
+    it("continues a failed worker and a completed worker given new instructions", async () => {
       const host = await setup();
-      const running = await host.create();
-      await expect(resume(host, { id: running.id })).rejects.toThrow(/timed-out or killed/);
+      const failed = await timedOut(host);
+      setRun(host, failed.id, { status: "failed", error: "provider error" });
+      await resume(host, { id: failed.id });
+      expect(sentTo(host, failed.threadId).at(-1)!.input[0]!.text).toContain("ended in a failure");
       const done = await host.create();
       host.threads.get(done.threadId)!.status = "idle";
       await reconcileOnce(host);
-      await expect(resume(host, { id: done.id })).rejects.toThrow(/completed/);
+      await expect(resume(host, { id: done.id })).rejects.toThrow(/needs a message/);
+      await resume(host, { id: done.id, message: "Now review the tests too." });
+      const message = sentTo(host, done.threadId).at(-1)!.input[0]!.text;
+      expect(message).toContain("finished your task earlier");
+      expect(message).toContain("Now review the tests too.");
+      expect((await host.list()).runs.find(run => run.id === done.id)).toMatchObject({
+        status: "running",
+        resumeCount: 1,
+      });
+    });
+
+    it("rejects runs that are still working, detached, or owned by another thread", async () => {
+      const host = await setup();
+      const running = await host.create();
+      await expect(resume(host, { id: running.id })).rejects.toThrow(/still working/);
       const stopped = await timedOut(host);
       await expect(resume(host, { id: stopped.id }, "stranger")).rejects.toThrow(/another thread/);
       await host.harness.behavior.callRpc("detach", { id: stopped.id });

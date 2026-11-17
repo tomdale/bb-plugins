@@ -8,7 +8,7 @@ Open **Subagents** in a thread's side panel for a hierarchical Active and Inacti
 
 ## Timeouts that wind down
 
-Workers get time-check messages as the deadline nears and a wrap-up request at the deadline. The plugin stops a worker only after a grace period that scales with its timeout. The calling agent can resume a timed-out or killed worker in its existing session, optionally with new instructions.
+Workers get time-check messages as the deadline nears and a wrap-up request at the deadline. The plugin stops a worker only after a grace period that scales with its timeout. The calling agent can resume a settled worker in its existing session, optionally with new instructions.
 
 ## Detach into a child thread
 

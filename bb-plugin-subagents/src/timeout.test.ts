@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, graceMsFor, noticeMessage, scheduleTimeout } from "./timeout.ts";
+import { declaresComplete, formatDuration, graceMsFor, noticeMessage, scheduleTimeout } from "./timeout.ts";
 
 describe("timeout schedule", () => {
   it("scales the grace period with the timeout within its bounds", () => {
@@ -38,5 +38,15 @@ describe("timeout schedule", () => {
     expect(third).toContain("wrap up");
     expect(noticeMessage(180_000, 1_800_000, 180_000)).toContain("your 30-minute budget");
     expect(noticeMessage(90_000, 90_000 * 4, 30_000)).toContain("your 6-minute budget");
+  });
+
+  it("reads the verdict from the first line of a wrap-up reply", () => {
+    expect(declaresComplete("COMPLETE\nAll done.")).toBe(true);
+    expect(declaresComplete("**Complete** - all done")).toBe(true);
+    expect(declaresComplete(":::reply\n\ncomplete: yes\n:::")).toBe(true);
+    expect(declaresComplete("INCOMPLETE\nTwo files remain.")).toBe(false);
+    expect(declaresComplete("Mostly complete, one file remains.")).toBe(false);
+    expect(declaresComplete("All work is COMPLETE")).toBe(false);
+    expect(declaresComplete("")).toBe(false);
   });
 });

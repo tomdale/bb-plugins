@@ -30,7 +30,7 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
   bb.agents.registerTool({
     name: "subagent_create",
     description:
-      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning level and permissions; optional model selects another model of the same provider, and optional reasoningLevel (a level id the model lists, such as low, medium, high or xhigh) overrides the inherited level. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Workers get time-check notices as the deadline nears, are asked to wrap up at it, and are stopped only after a grace period (10% of the timeout, 30–600 seconds); a timed-out run can be continued with subagent_resume. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
+      "Start a background subagent in this thread's existing environment. Returns immediately with a run ID; completion is delivered to this thread. Inherits provider, model, reasoning level and permissions; optional model selects another model of the same provider, and optional reasoningLevel (a level id the model lists, such as low, medium, high or xhigh) overrides the inherited level. Workers share files; coordinate edits. timeout is seconds (default 1800, 0 unlimited); omit unless you can estimate the runtime. Workers get time-check notices as the deadline nears, are asked to wrap up at it, and are stopped only after a grace period (10% of the timeout, 30–600 seconds); settled runs, including timed-out ones, can be continued with subagent_resume. Users can detach a run into a child thread. Parent interruption does not kill its workers.",
     parameters: createInput,
     async execute(input, { threadId }) {
       const run = await service.create(threadId, input);
@@ -58,7 +58,7 @@ export default async function plugin(bb: BbPluginApi, summarizer?: StatusSummari
   bb.agents.registerTool({
     name: "subagent_resume",
     description:
-      "Continue a timed-out or killed subagent you own in its existing session, with a fresh time budget. Optional message steers it with new instructions; without one it continues where it left off. Completion is delivered to this thread again. Cannot resume completed or failed runs or detached sessions.",
+      "Continue a settled subagent you own (completed, failed, timed out, or killed) in its existing session, with a fresh time budget. Optional message steers it with new instructions; without one it continues where it left off. A completed subagent needs a message. Completion is delivered to this thread again. Cannot resume working runs, detached sessions, or peers' runs.",
     parameters: resumeInput,
     async execute(input, { threadId }) {
       const run = await service.resume(threadId, input);

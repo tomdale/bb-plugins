@@ -3,7 +3,7 @@ import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import type { z } from "zod";
 import { createInput, runSchema, type resumeInput, type Run } from "./contracts.ts";
 import { extractOneSentenceSummary } from "./status.ts";
-import { graceMsFor, noticeMessage, resumeMessage, scheduleTimeout, windDownMessage } from "./timeout.ts";
+import { declaresComplete, graceMsFor, noticeMessage, resumeMessage, scheduleTimeout, windDownMessage } from "./timeout.ts";
 import {
   defaultSummarizer,
   SUMMARY_EXCERPT_LIMIT,
@@ -14,7 +14,7 @@ import {
 const OUTPUT_LIMIT = 16000;
 const WORKING = ["starting", "running", "winding-down"];
 const WORKING_SQL = WORKING.map(status => `'${status}'`).join(", ");
-const WOUND_DOWN = "Time limit reached; the worker wrapped up when asked.";
+const WOUND_DOWN = "Time limit reached; the worker wrapped up when asked but reported the task incomplete.";
 const isWorking = (run: Run) => WORKING.includes(run.status);
 
 export class Subagents {
@@ -413,7 +413,7 @@ export class Subagents {
       this.queue(
         run,
         `Subagent ${JSON.stringify(run.title)} (${run.id}) ${status}. ${error ?? ""}\n${run.output}\nFull transcript: @thread:${run.threadId}${
-          status === "timed-out" || status === "killed"
+          status !== "completed"
             ? `\nResume it with subagent_resume({ id: ${JSON.stringify(run.id)}, message? }) to continue with its context.`
             : ""
         }`,
@@ -421,6 +421,13 @@ export class Subagents {
       await this.cleanup(run);
     }
     await this.notify(run);
+  }
+
+  /** Settles a worker that went idle while winding down by the verdict in its wrap-up reply. */
+  private async finishWoundDown(run: Run) {
+    await this.output(run).catch(cause => this.bb.log.warn(`Subagent wrap-up output: ${String(cause)}`));
+    if (declaresComplete(run.output)) await this.finish(run, "completed");
+    else await this.finish(run, "timed-out", WOUND_DOWN);
   }
 
   async settle(threadId: string, failed?: string, lastAssistantText?: string | null) {
@@ -433,7 +440,7 @@ export class Subagents {
         run.output = lastAssistantText.slice(0, OUTPUT_LIMIT);
       }
       if (failed) await this.finish(run, "failed", failed);
-      else if (run.status === "winding-down") await this.finish(run, "timed-out", WOUND_DOWN);
+      else if (run.status === "winding-down") await this.finishWoundDown(run);
       else await this.finish(run, "completed");
     });
   }
@@ -542,7 +549,7 @@ export class Subagents {
     // A worker that finished on its own before the clock ran out completed; one that
     // went idle while winding down did what it was asked.
     if (child.status === "idle") {
-      if (run.status === "winding-down") await this.finish(run, "timed-out", WOUND_DOWN);
+      if (run.status === "winding-down") await this.finishWoundDown(run);
       else await this.finish(run, "completed");
       return;
     }
@@ -618,16 +625,20 @@ export class Subagents {
   }
 
   /**
-   * Continues a timed-out or killed worker in its existing session with a fresh
-   * time budget, optionally steering it with new instructions.
+   * Continues a settled worker in its existing session with a fresh time budget,
+   * optionally steering it with new instructions. A completed worker has nothing
+   * left to continue, so it needs those instructions.
    */
   async resume(caller: string, input: z.infer<typeof resumeInput>) {
     return this.serial(input.id, async () => {
       const run = this.get(input.id);
       if (!this.owns(caller, run)) throw new Error("This subagent belongs to another thread.");
       if (run.control !== "agent") throw new Error("The user detached this session; it cannot be resumed by an agent.");
-      if (run.status !== "timed-out" && run.status !== "killed") {
-        throw new Error(`Only timed-out or killed subagents can be resumed; this one is ${run.status}.`);
+      if (run.status === "starting" || run.status === "running" || run.status === "winding-down") {
+        throw new Error(`Subagents that are still working cannot be resumed; this one is ${run.status}.`);
+      }
+      if (run.status === "completed" && !input.message) {
+        throw new Error("A completed subagent needs a message saying what to do next.");
       }
       if (!run.threadId) throw new Error("This subagent never attached a worker thread.");
       const previous = run.status;
