@@ -33,7 +33,7 @@ Settings: maximum nesting depth (default 2, range 1–10), maximum concurrent ba
 
 A timeout marks when a worker must start wrapping up; the plugin stops it only after a grace period. The grace period is 10% of the timeout, between 30 and 600 seconds.
 
-1. Before the deadline, a worker whose timeout is long enough gets time-check messages: at 8, 4, and 2 grace periods before the deadline, each only when it falls in the second half of the budget. A 60-second run gets none, a 30-minute run gets two, and a 24-hour run gets three.
+1. Before the deadline, a worker whose timeout is long enough gets time-check messages: at 8, 4, and 2 grace periods before the deadline, each only when it falls in the second half of the budget. A 60-second run gets none, a 30-minute run gets two, and a 24-hour run gets three. Each message asks for more than the last: keep going on the highest-value work, then start finishing, then be ready to wrap up.
 2. At the deadline the worker is steered to stop starting new work, leave files consistent, and report what is done and what remains. The run shows as **Wrapping up**.
 3. If the worker goes idle in the grace period, the run settles as `timed-out` and keeps that report as its output. If it does not, the plugin stops it when the grace period ends. A worker that goes idle on its own at the deadline counts as completed.
 

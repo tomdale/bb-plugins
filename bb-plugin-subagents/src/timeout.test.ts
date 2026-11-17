@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, graceMsFor, scheduleTimeout } from "./timeout.ts";
+import { formatDuration, graceMsFor, noticeMessage, scheduleTimeout } from "./timeout.ts";
 
 describe("timeout schedule", () => {
   it("scales the grace period with the timeout within its bounds", () => {
@@ -21,5 +21,22 @@ describe("timeout schedule", () => {
     expect(formatDuration(45_000)).toBe("45 seconds");
     expect(formatDuration(360_000)).toBe("6 minutes");
     expect(formatDuration(7_200_000)).toBe("2 hours");
+  });
+
+  it("escalates each time check and reads the budget as an adjective", () => {
+    const day = 86_400_000;
+    const grace = graceMsFor(day);
+    const first = noticeMessage(8 * grace, day, grace);
+    const second = noticeMessage(4 * grace, day, grace);
+    const third = noticeMessage(2 * grace, day, grace);
+    expect(new Set([first, second, third]).size).toBe(3);
+    expect(first).toContain("about 80 minutes remain of your 24-hour budget");
+    expect(first).toContain("highest-value work");
+    expect(second).toContain("about 40 minutes");
+    expect(second).toContain("begin finishing");
+    expect(third).toContain("about 20 minutes");
+    expect(third).toContain("wrap up");
+    expect(noticeMessage(180_000, 1_800_000, 180_000)).toContain("your 30-minute budget");
+    expect(noticeMessage(90_000, 90_000 * 4, 30_000)).toContain("your 6-minute budget");
   });
 });

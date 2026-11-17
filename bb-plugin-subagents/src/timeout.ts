@@ -49,8 +49,27 @@ export function formatDuration(ms: number): string {
   return `${hours} hours`;
 }
 
-export function noticeMessage(remainingMs: number, timeoutMs: number): string {
-  return `Time check: about ${formatDuration(remainingMs)} remain of your ${formatDuration(timeoutMs)} budget. Prioritize the work that matters most and be ready to wrap up.`;
+/** "24-hour", for use before a noun. */
+function durationAdjective(ms: number): string {
+  return formatDuration(ms).replace(/s$/, "").replace(" ", "-");
+}
+
+/**
+ * Time-check text for a notice sent `remainingMs` before the deadline. The
+ * tone follows how many grace periods remain (8, 4 or 2 when sent on schedule),
+ * so each notice asks for more than the last. Ratios between the scheduled
+ * points pick the nearer stage, which keeps a late or batched notice sensible.
+ */
+export function noticeMessage(remainingMs: number, timeoutMs: number, graceMs: number): string {
+  const graces = remainingMs / graceMs;
+  const head = `Time check: about ${formatDuration(remainingMs)} remain of your ${durationAdjective(timeoutMs)} budget.`;
+  if (graces > 6) {
+    return `${head} Keep going, and make sure the highest-value work gets done first.`;
+  }
+  if (graces > 3) {
+    return `${head} Stop starting large new pieces of work and begin finishing what is in progress.`;
+  }
+  return `${head} Finish your current step soon and be ready to wrap up. At the deadline you will be asked to report what is done and what remains.`;
 }
 
 export function windDownMessage(graceMs: number): string {

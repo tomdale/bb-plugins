@@ -602,7 +602,7 @@ export class Subagents {
       // Several notices can fall due while the plugin was down; one message covers them all.
       run.notices = run.notices.filter(at => at > now);
       this.save(run);
-      await this.steer(run.threadId, noticeMessage(run.deadline - now, run.timeoutMs)).catch(cause =>
+      await this.steer(run.threadId, noticeMessage(run.deadline - now, run.timeoutMs, graceMsFor(run.timeoutMs))).catch(cause =>
         this.bb.log.warn(`Subagent time notice: ${String(cause)}`),
       );
     }
