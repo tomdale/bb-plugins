@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { extractOneSentenceSummary } from "./status.ts";
+import { extractOneSentenceSummary, tidySummary } from "./status.ts";
 
 export const SUMMARY_INTERVAL_MS = 30_000;
 export const SUMMARY_EXCERPT_LIMIT = 2_000;
@@ -70,7 +70,7 @@ export const defaultSummarizer: StatusSummarizer = async input => {
     if (!response.ok) return fallback;
     const body = (await response.json()) as { content?: { type?: string; text?: string }[] };
     const text = body.content?.find(part => part.type === "text")?.text?.trim();
-    return text ? extractOneSentenceSummary(text, fallback) : fallback;
+    return text ? tidySummary(text, fallback) : fallback;
   } catch {
     return fallback;
   }

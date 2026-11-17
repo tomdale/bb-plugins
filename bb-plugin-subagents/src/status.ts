@@ -144,13 +144,12 @@ export function reasoningLevelLabel(
     : words.map(word => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(" ");
 }
 
-/**
- * Extracts a clean one-sentence plain-text summary (at most 160 chars) from
- * assistant output or a task prompt, stripping reply wrappers, code fences,
- * and Markdown headings.
- */
-export function extractOneSentenceSummary(text: string, fallback = "Working in the background."): string {
-  const stripped = text
+const SUMMARY_MAX = 160;
+const sentenceSegmenter = new Intl.Segmenter("en", { granularity: "sentence" });
+
+/** Strips reply wrappers, code fences, headings and emphasis markers; collapses whitespace. */
+function plainText(text: string): string {
+  return text
     .replace(/^:{3,}reply[^\n]*$/gm, "")
     .replace(/^:{3,}$/gm, "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -159,14 +158,36 @@ export function extractOneSentenceSummary(text: string, fallback = "Working in t
     .replace(/[*_`~]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  if (!stripped) return fallback;
-  // A terminator ends a sentence only before whitespace or the end, so "2.7h" and "v1.4" stay whole.
-  const sentences = stripped.match(/.+?[.!?]+(?=\s|$)/g);
-  const candidate = (sentences ? sentences[sentences.length - 1]! : stripped).trim();
+}
+
+/** Clips to the summary length and ends with terminal punctuation. */
+function finishSummary(sentence: string, fallback: string): string {
+  const candidate = sentence.trim();
   if (!candidate) return fallback;
-  const max = 160;
-  const clipped = candidate.length > max ? `${candidate.slice(0, max - 1).trimEnd()}…` : candidate;
+  const clipped =
+    candidate.length > SUMMARY_MAX ? `${candidate.slice(0, SUMMARY_MAX - 1).trimEnd()}…` : candidate;
   return /[.!?…]$/.test(clipped) ? clipped : `${clipped}.`;
+}
+
+/**
+ * Extracts a clean one-sentence plain-text summary (at most 160 chars): the
+ * last sentence of assistant output or a task prompt. Sentence boundaries come
+ * from `Intl.Segmenter`, which knows that the period in "2.7h" ends nothing.
+ */
+export function extractOneSentenceSummary(text: string, fallback = "Working in the background."): string {
+  const sentences = [...sentenceSegmenter.segment(plainText(text))]
+    .map(part => part.segment.trim())
+    .filter(Boolean);
+  return finishSummary(sentences.at(-1) ?? "", fallback);
+}
+
+/**
+ * Cleans text that is already a summary, such as a model's reply to "write one
+ * sentence": it is shown whole, clipped to the summary length, with no attempt
+ * to pick a sentence out of it.
+ */
+export function tidySummary(text: string, fallback = "Working in the background."): string {
+  return finishSummary(plainText(text), fallback);
 }
 
 export interface RunTreeNode {

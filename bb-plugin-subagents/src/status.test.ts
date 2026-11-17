@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractOneSentenceSummary, runIsWorking, runStatusLabel, summarizeRuns } from "./status.ts";
+import { extractOneSentenceSummary, runIsWorking, runStatusLabel, summarizeRuns, tidySummary } from "./status.ts";
 
 describe("winding-down runs", () => {
   it("still count as working and say what they are doing", () => {
@@ -25,5 +25,19 @@ describe("extractOneSentenceSummary", () => {
       "Now compressing them.",
     );
     expect(extractOneSentenceSummary("No terminator here")).toBe("No terminator here.");
+  });
+
+  it("takes the last sentence of markdown-wrapped output", () => {
+    expect(extractOneSentenceSummary(":::reply\n# Done\nChecked **12** routes. Two remain.\n:::")).toBe("Two remain.");
+    expect(extractOneSentenceSummary("   ", "Fallback.")).toBe("Fallback.");
+  });
+});
+
+describe("tidySummary", () => {
+  it("shows a model's reply whole instead of picking a sentence", () => {
+    expect(tidySummary("2.7h run timed out after 78 of 120 steps.")).toBe("2.7h run timed out after 78 of 120 steps.");
+    expect(tidySummary("Reviewed the routes. Two remain.")).toBe("Reviewed the routes. Two remain.");
+    expect(tidySummary("x".repeat(300)).length).toBe(160);
+    expect(tidySummary("", "Fallback.")).toBe("Fallback.");
   });
 });
