@@ -33,9 +33,13 @@ describe("timeout schedule", () => {
     expect(first).toContain("about 80 minutes remain of your 24-hour budget");
     expect(first).toContain("highest-value work");
     expect(second).toContain("about 40 minutes");
-    expect(second).toContain("begin finishing");
+    expect(second).toContain("favor finishing");
     expect(third).toContain("about 20 minutes");
-    expect(third).toContain("wrap up");
+    expect(third).toContain("separate message at the deadline");
+    for (const notice of [first, second, third]) {
+      expect(notice).toContain("not a request to stop: keep working");
+      expect(notice).not.toMatch(/wrap up/i);
+    }
     expect(noticeMessage(180_000, 1_800_000, 180_000)).toContain("your 30-minute budget");
     expect(noticeMessage(90_000, 90_000 * 4, 30_000)).toContain("your 6-minute budget");
   });

@@ -56,20 +56,25 @@ function durationAdjective(ms: number): string {
 
 /**
  * Time-check text for a notice sent `remainingMs` before the deadline. The
- * tone follows how many grace periods remain (8, 4 or 2 when sent on schedule),
- * so each notice asks for more than the last. Ratios between the scheduled
- * points pick the nearer stage, which keeps a late or batched notice sensible.
+ * request grows with how many grace periods remain (8, 4 or 2 when sent on
+ * schedule); ratios between the scheduled points pick the nearer stage, which
+ * keeps a late or batched notice sensible.
+ *
+ * Every stage says outright that the worker must keep working. A worker that
+ * reads a time check as an order to stop ends its turn, and an idle worker
+ * settles as completed with most of its task undone.
  */
 export function noticeMessage(remainingMs: number, timeoutMs: number, graceMs: number): string {
   const graces = remainingMs / graceMs;
   const head = `Time check: about ${formatDuration(remainingMs)} remain of your ${durationAdjective(timeoutMs)} budget.`;
+  const keepGoing = "This is not a request to stop: keep working, and do not end your turn or send a final report because of this message.";
   if (graces > 6) {
-    return `${head} Keep going, and make sure the highest-value work gets done first.`;
+    return `${head} ${keepGoing} Do the highest-value work first.`;
   }
   if (graces > 3) {
-    return `${head} Stop starting large new pieces of work and begin finishing what is in progress.`;
+    return `${head} ${keepGoing} Avoid starting large new pieces of work; favor finishing what is in progress.`;
   }
-  return `${head} Finish your current step soon and be ready to wrap up. At the deadline you will be asked to report what is done and what remains.`;
+  return `${head} ${keepGoing} Take on only work you can finish in that time, and keep files consistent as you go. You will get a separate message at the deadline asking for your report.`;
 }
 
 export function windDownMessage(graceMs: number): string {
