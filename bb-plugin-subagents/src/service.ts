@@ -589,6 +589,15 @@ export class Subagents {
         await this.finish(run, "timed-out", "Subagent timeout exceeded.");
         return true;
       }
+      // Record the wind-down before sending the order: delivering a steer to a worker in the
+      // middle of a tool call can take many seconds, and the run should not read as running
+      // while the worker is already being told to stop.
+      run.status = "winding-down";
+      run.graceDeadline = now + graceMs;
+      run.notices = [];
+      run.statusSummary = "Time limit reached; waiting for the worker to wrap up.";
+      run.summaryUpdatedAt = now;
+      this.save(run);
       try {
         await this.steer(run.threadId, windDownMessage(graceMs));
       } catch (cause) {
@@ -596,11 +605,8 @@ export class Subagents {
         await this.finish(run, "timed-out", "Subagent timeout exceeded; the worker could not be asked to wrap up.");
         return true;
       }
-      run.status = "winding-down";
-      run.graceDeadline = now + graceMs;
-      run.notices = [];
-      run.statusSummary = "Time limit reached; waiting for the worker to wrap up.";
-      run.summaryUpdatedAt = now;
+      // The order says "about <grace>": count that from delivery, not from the attempt.
+      run.graceDeadline = Date.now() + graceMs;
       this.save(run);
       return false;
     }
@@ -609,8 +615,9 @@ export class Subagents {
       // Several notices can fall due while the plugin was down; one message covers them all.
       run.notices = run.notices.filter(at => at > now);
       this.save(run);
-      await this.steer(run.threadId, noticeMessage(run.deadline - now, run.timeoutMs, graceMsFor(run.timeoutMs))).catch(cause =>
-        this.bb.log.warn(`Subagent time notice: ${String(cause)}`),
+      // Not awaited: a slow delivery must not hold up this run's lock or the other runs' checks.
+      void this.steer(run.threadId, noticeMessage(run.deadline - now, run.timeoutMs, graceMsFor(run.timeoutMs))).catch(
+        cause => this.bb.log.warn(`Subagent time notice: ${String(cause)}`),
       );
     }
     return false;

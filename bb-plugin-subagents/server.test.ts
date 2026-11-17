@@ -381,6 +381,27 @@ describe("background subagents", () => {
     });
   });
 
+  it("shows a run as winding down while the wrap-up order is still being delivered, and counts the grace from delivery", async () => {
+    const host = await setup();
+    const run = await host.create("origin", "Review code.", { timeout: 600 });
+    setRun(host, run.id, { deadline: 1 });
+    let deliver!: () => void;
+    host.harness.inspection.sdk.stub(
+      "threads.send",
+      () => new Promise(resolve => (deliver = () => resolve({} as never))) as never,
+    );
+    const service = host.harness.behavior.runService("reconcile");
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const [during] = (await host.list()).runs;
+    expect(during).toMatchObject({ status: "winding-down" });
+    const attemptedGrace = during!.graceDeadline!;
+    await new Promise(resolve => setTimeout(resolve, 30));
+    deliver();
+    service.controller.abort();
+    await service.done;
+    expect((await host.list()).runs[0]!.graceDeadline).toBeGreaterThan(attemptedGrace);
+  });
+
   it("settles a worker that wraps up within the grace period as timed out, keeping its report", async () => {
     const host = await setup();
     const run = await host.create("origin", "Review code.", { timeout: 600 });
