@@ -8,6 +8,28 @@ Add an entry when an SDK limit shapes a design. Each entry states the observed
 BB and SDK versions, so later entries can be rechecked against newer releases.
 Set **Status** to _filed_ with a link once a request goes upstream.
 
+## Keep composer settings editable while a plugin question is pending
+
+- **Status:** not filed
+- **Observed:** BB 0.49.0 / Workstreams builds against SDK 0.6.5
+- **Use case:** Workstreams shows its question card above the composer and lets
+  the user choose a model for the next message while answering
+- **Limit and evidence:** BB's `FollowUpPromptBox` hides the composer and
+  disables its model and permission pickers whenever `pendingInteraction` is
+  present. Composer banners and `PluginPendingInteractionProps` have no option
+  to keep those controls editable. `useComposer().setSelection` accepts the
+  choices, but the user cannot open the disabled native pickers
+- **Workaround:** Workstreams shows the composer with scoped CSS and portals
+  the published `experimental_ProviderModelPicker` and
+  `experimental_PermissionModePicker` into the disabled controls' positions.
+  Changes call the bound composer's `setSelection`. The plugin restores the
+  native controls when its question closes and preserves plan-mode and
+  inherited permission restrictions. This depends on BB's composer markup
+  and accessible control names
+- **Possible API:** a pending-interaction presentation option that keeps the
+  composer visible and its settings editable while sending waits for the
+  answer, with read-only and plan-mode restrictions enforced by BB
+
 ## Thread-pane geometry for floating UI
 
 - **Status:** not filed
